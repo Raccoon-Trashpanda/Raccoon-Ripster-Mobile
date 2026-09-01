@@ -50,7 +50,17 @@ class TidalClient(
     private val stored = TidalAuth.decodeStored(storedJson)
     private val mutex = Mutex()
     @Volatile private var accessToken: String = ""
-    private val cc: String get() = stored?.countryCode ?: "US"
+    // Страна аккаунта. Дефолт из синка с ПК, НО может быть протухшим/US —
+    // а от неё зависит, какой каталог отдаёт Tidal (жалоба: NZ-аккаунт,
+    // релиз уже вышел в NZ, поиск его не находит). ensureToken() обновляет
+    // её из ответа refresh и из JWT access-токена.
+    @Volatile private var cc: String = stored?.countryCode?.takeIf { it.length == 2 } ?: "US"
+
+    private fun ccFromJwt(jwt: String): String? = runCatching {
+        val payload = jwt.split(".").getOrNull(1) ?: return null
+        val bytes = Base64.decode(payload, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
+        Regex("\"cc\"\\s*:\\s*\"([A-Z]{2})\"").find(String(bytes))?.groupValues?.get(1)
+    }.getOrNull()
 
     private val flac = QualityTier("flac_16", "FLAC (Lossless)", lossless = true, container = "flac", bitDepth = 16, sampleRateHz = 44100)
     private val aac = QualityTier("aac_256", "AAC 320", lossless = false, container = "m4a", bitrateKbps = 320)
@@ -175,13 +185,21 @@ class TidalClient(
         // 1) живой access-токен из синка с ПК — если ещё не истёк, берём как есть
         if (s.accessToken.isNotBlank() && !jwtExpired(s.accessToken)) {
             accessToken = s.accessToken
+            ccFromJwt(s.accessToken)?.let { cc = it }
             return true
         }
-        // 2) обновить по refresh — сработает только если он от того же client_id
+        // 2) обновить по refresh — сработает только если он от того же client_id.
+        //    Заодно берём АКТУАЛЬНУЮ страну аккаунта из ответа (в Stored она
+        //    могла остаться US с момента синка).
         val rt = s.refreshToken.takeIf { it.isNotBlank() }
         if (rt != null) {
-            accessToken = runCatching { TidalAuth.refresh(rt).accessToken }.getOrDefault("")
-            if (accessToken.isNotBlank()) return true
+            val fresh = runCatching { TidalAuth.refresh(rt) }.getOrNull()
+            accessToken = fresh?.accessToken.orEmpty()
+            fresh?.user?.countryCode?.takeIf { it.length == 2 }?.let { cc = it }
+            if (accessToken.isNotBlank()) {
+                ccFromJwt(accessToken)?.let { cc = it }
+                return true
+            }
         }
         // 3) фолбэк на просроченный access — вдруг ещё пустят; иначе честная ошибка
         if (s.accessToken.isNotBlank()) { accessToken = s.accessToken; return true }
