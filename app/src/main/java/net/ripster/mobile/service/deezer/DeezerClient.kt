@@ -6,6 +6,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import net.ripster.mobile.core.model.Album
 import net.ripster.mobile.core.model.Artist
 import net.ripster.mobile.core.model.DownloadEvent
@@ -56,9 +60,47 @@ class DeezerClient(
         val res = apiGet("https://api.deezer.com/search/track") {
             it.addQueryParameter("q", query); it.addQueryParameter("limit", "25")
         }
-        val s = json.decodeFromString(DzApiSearch.serializer(), res)
-        return MediaSelection(kind = MediaKind.TRACK, tracks = s.data.map { it.toTrack() })
+        val pub = json.decodeFromString(DzApiSearch.serializer(), res).data.map { it.toTrack() }
+
+        // Публичный /search геолоцирует по IP запроса и не находит релиз, если
+        // его ещё нет в каталоге этой территории (жалоба: турецкий ARL не видит
+        // релиз Maceo Plex, британский видит). Когда есть живой ARL — добираем
+        // выдачу из gw-light в стране аккаунта и мержим (дедуп по id).
+        val merged = if (arl.isNotBlank()) {
+            runCatching {
+                if (gw.ensureSession()) parseGwTracks(gw.searchTracksRaw(query, 25)) else emptyList()
+            }.getOrDefault(emptyList())
+        } else emptyList()
+
+        val byId = LinkedHashMap<String, Track>()
+        for (t in pub) byId[t.id] = t
+        for (t in merged) byId.putIfAbsent(t.id, t)
+        return MediaSelection(kind = MediaKind.TRACK, tracks = byId.values.toList())
     }
+
+    /** `deezer.pageSearch` → results.TRACK.data[] (UPPER_SNAKE-поля). */
+    private fun parseGwTracks(raw: String): List<Track> = runCatching {
+        val arr = kotlinx.serialization.json.Json.parseToJsonElement(raw)
+            .jsonObject["results"]?.jsonObject
+            ?.get("TRACK")?.jsonObject?.get("data")?.jsonArray ?: return emptyList()
+        arr.mapNotNull { el ->
+            val o = el.jsonObject
+            fun s(k: String) = o[k]?.jsonPrimitive?.contentOrNull
+            val id = s("SNG_ID") ?: return@mapNotNull null
+            val md5 = s("ALB_PICTURE")
+            Track(
+                id = id,
+                title = s("SNG_TITLE").orEmpty(),
+                artist = s("ART_NAME").orEmpty(),
+                service = Service.DEEZER,
+                albumTitle = s("ALB_TITLE"),
+                durationMs = s("DURATION")?.toLongOrNull()?.times(1000),
+                isrc = s("ISRC"),
+                artworkUrl = md5?.takeIf { it.isNotBlank() }
+                    ?.let { "https://e-cdns-images.dzcdn.net/images/cover/$it/500x500-000000-80-0-0.jpg" },
+            )
+        }
+    }.getOrDefault(emptyList())
 
     override suspend fun resolve(url: String): MediaSelection? {
         val m = Regex("""deezer\.com/(?:[a-z]{2}/)?(track|album|playlist)/(\d+)""").find(url) ?: return null

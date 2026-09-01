@@ -583,13 +583,21 @@ private fun PairingSection(lang: AppLang, c: RipsterColors) {
                 working = true; msg = null
                 scope.launch {
                     val r = bridge.claim(addr, code)
-                    working = false
                     r.onSuccess {
                         paired = true; caps = bridge.capabilities
                         mode = bridge.fanoutMode; ext = bridge.manualAddress
                         reach = bridge.resolveBase(deep = false) ?: ""
-                        msg = tr("pair.paired", lang)
+                        // Сразу тянем токены сервисов с ПК и регистрируем клиентов —
+                        // как в онбординге. Без этого после сопряжения из Настроек
+                        // сервисы оставались «Не подключён» до ручного «Забрать
+                        // учётки с ПК».
+                        val n = runCatching { bridge.syncCredentials(app.credentials).getOrDefault(0) }
+                            .getOrDefault(0)
+                        app.registerClients()
+                        msg = tr("pair.paired", lang) +
+                            (if (n > 0) " · " + tr("pair.imported", lang) + ": " + n else "")
                     }.onFailure { msg = tr("pair.err", lang) + ": " + (it.message ?: "") }
+                    working = false
                 }
             }
         }

@@ -100,7 +100,29 @@ class DeezerGw(private val arl: String) {
         return url to entry.format
     }
 
-    private suspend fun gw(method: String, token: String, bodyJson: String): DzGwEnvelope {
+    /**
+     * Поиск через приватный gw-light В КОНТЕКСТЕ АККАУНТА (страна = страна ARL).
+     * Публичный `api.deezer.com/search` геолоцирует по IP запроса, и релиз,
+     * которого ещё нет в каталоге этой территории, не находится (жалоба:
+     * турецкий ARL не видит релиз, британский видит). Тут — каталог страны
+     * аккаунта. Возвращает сырой JSON `deezer.pageSearch`.
+     */
+    suspend fun searchTracksRaw(query: String, limit: Int): String {
+        ensureSession()
+        val q = query.replace("\"", "\\\"")
+        val body = """{"query":"$q","start":0,"nb":$limit,"top_tracks":true}"""
+        var raw = gwRaw("deezer.pageSearch", apiToken, body)
+        if (raw.contains("\"VALID_TOKEN_REQUIRED\"") || raw.contains("\"error\":{\"GATEWAY")) {
+            ensureSession(force = true)
+            raw = gwRaw("deezer.pageSearch", apiToken, body)
+        }
+        return raw
+    }
+
+    private suspend fun gw(method: String, token: String, bodyJson: String): DzGwEnvelope =
+        json.decodeFromString(DzGwEnvelope.serializer(), gwRaw(method, token, bodyJson))
+
+    private suspend fun gwRaw(method: String, token: String, bodyJson: String): String {
         val url = "https://www.deezer.com/ajax/gw-light.php".toHttpUrl()
             .newBuilder()
             .addQueryParameter("method", method)
@@ -113,13 +135,12 @@ class DeezerGw(private val arl: String) {
             .post(bodyJson.toRequestBody(JSON_MT))
             .header("User-Agent", UA)
             .build()
-        val raw = withContext(Dispatchers.IO) {
+        return withContext(Dispatchers.IO) {
             http.newCall(req).execute().use { r ->
                 if (!r.isSuccessful) throw IOException("Deezer $method -> HTTP ${r.code}")
                 r.body?.string() ?: throw IOException("Deezer $method -> empty body")
             }
         }
-        return json.decodeFromString(DzGwEnvelope.serializer(), raw)
     }
 
     companion object {
