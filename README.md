@@ -15,6 +15,7 @@ you already pay for; it does not provide accounts or unlock paid tiers.
 ## Contents
 
 - [Features](#features)
+- [Codecs & engines](#codecs--engines)
 - [Standalone vs. paired](#standalone-vs-paired)
 - [Install](#install)
 - [First launch](#first-launch)
@@ -59,6 +60,30 @@ Requires pairing with a PC:
 | Home | Player | Radar |
 |---|---|---|
 | [![Home](screenshots/01_home.png)](screenshots/01_home.png) | [![Player](screenshots/02_player.png)](screenshots/02_player.png) | [![Radar](screenshots/03_radar.png)](screenshots/03_radar.png) |
+
+## Codecs & engines
+
+![Codecs](docs/assets/codecs.svg)
+
+![Engines](docs/assets/engines.svg)
+
+**Codecs** — `FLAC`, `ALAC`, `WAV` decode straight through the native engine
+(no resample when the device rate matches); `AAC` / `M4A`, `MP3`, `Vorbis` (OGG)
+and `Opus` play through the system engine. Tags are written as Vorbis comments
+(FLAC), ID3 (MP3) or MP4 atoms (M4A). Actual bit-depth / sample-rate depends on
+the release and your subscription — the quality badge never invents a number it
+can't measure.
+
+**Source engines** — Deezer (FLAC 16/44, Blowfish decrypt, your `arl`) ·
+Qobuz (FLAC up to 24/192) · Tidal (FLAC + HI-RES over MPEG-DASH) ·
+SoundCloud (lossless where offered, else high AAC) · Yandex Music (FLAC with
+Plus) · BBC (public). **Through a paired PC:** Apple Music (ALAC via the PC's
+decrypt wrapper) and Spotify (link conversion only — the PC finds the same
+track on a service you have).
+
+**Playback** — `ExoPlayer / Media3` by default (every source, streaming and
+local, MediaSession, Bluetooth); `Oboe · AAudio exclusive` for local
+FLAC/WAV/ALAC (gapless, no resample, bit-perfect readout).
 
 ## Standalone vs. paired
 
