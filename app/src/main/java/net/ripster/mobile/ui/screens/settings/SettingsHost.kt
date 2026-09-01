@@ -602,7 +602,20 @@ private fun PairingSection(lang: AppLang, c: RipsterColors) {
 }
 
 // ── О программе: иконка, версия, репозиторий, проверка обновлений ────────
-private const val GH_REPO = "raccoon-ripster/ripster"   // TODO: уточнить при первом релизе
+private const val GH_REPO = "Raccoon-Trashpanda/Raccoon-Ripster-Mobile"
+
+/** Сравнение версий по числовым сегментам («0.13» > «0.9», не лексикографически). */
+private fun verCmp(a: String, b: String): Int {
+    val pa = a.trim().removePrefix("v").split('.', '-').mapNotNull { it.toIntOrNull() }
+    val pb = b.trim().removePrefix("v").split('.', '-').mapNotNull { it.toIntOrNull() }
+    for (i in 0 until maxOf(pa.size, pb.size)) {
+        val d = pa.getOrElse(i) { 0 } - pb.getOrElse(i) { 0 }
+        if (d != 0) return d
+    }
+    return 0
+}
+
+private data class UpdCheck(val text: String, val url: String? = null)
 
 @Composable
 private fun AboutSection(lang: AppLang, c: RipsterColors) {
@@ -611,7 +624,7 @@ private fun AboutSection(lang: AppLang, c: RipsterColors) {
     val version = remember {
         runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "?"
     }
-    var upd by remember { mutableStateOf<String?>(null) }
+    var upd by remember { mutableStateOf<UpdCheck?>(null) }
     var checking by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {
@@ -663,35 +676,51 @@ private fun AboutSection(lang: AppLang, c: RipsterColors) {
             if (checking) return@Btn
             checking = true; upd = null
             scope.launch {
-                upd = checkUpdate(version)
+                upd = checkUpdate(version, lang)
                 checking = false
             }
         }
-        upd?.let {
+        upd?.let { u ->
             Box(Modifier.height(10.dp))
-            BasicText(it, style = TextStyle(color = c.text_secondary, fontSize = 12.sp, lineHeight = 17.sp))
+            BasicText(u.text, style = TextStyle(color = c.text_secondary, fontSize = 12.sp, lineHeight = 17.sp))
+            if (u.url != null) {
+                Box(Modifier.height(8.dp))
+                Btn(tr("about.get_update", lang), c) {
+                    runCatching {
+                        ctx.startActivity(
+                            android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(u.url))
+                                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                        )
+                    }
+                }
+            }
         }
         Box(Modifier.height(24.dp))
     }
 }
 
-private suspend fun checkUpdate(current: String): String = withContext(Dispatchers.IO) {
+private suspend fun checkUpdate(current: String, lang: AppLang): UpdCheck = withContext(Dispatchers.IO) {
     runCatching {
         val req = okhttp3.Request.Builder()
             .url("https://api.github.com/repos/$GH_REPO/releases/latest")
             .header("Accept", "application/vnd.github+json")
             .build()
         net.ripster.mobile.core.net.RipsterHttp.client.newCall(req).execute().use { r ->
-            if (r.code == 404) return@withContext "Релизов на GitHub пока нет — появятся позже."
-            if (!r.isSuccessful) return@withContext "Не удалось проверить (HTTP ${r.code})."
+            if (!r.isSuccessful) return@withContext UpdCheck(tr("about.upd_http", lang) + " (HTTP ${r.code})")
             val body = r.body?.string().orEmpty()
             val tag = Regex("\"tag_name\"\\s*:\\s*\"([^\"]+)\"").find(body)?.groupValues?.getOrNull(1)
-                ?: return@withContext "Ответ GitHub без тега релиза."
+                ?: return@withContext UpdCheck(tr("about.upd_none", lang))
             val latest = tag.removePrefix("v")
-            if (latest == current || latest <= current) "Установлена последняя версия (v$current)."
-            else "Доступна новая версия: v$latest (у вас v$current). Загрузите APK со страницы релизов."
+            // прямая ссылка на .apk, если она есть в ассетах — иначе страница релиза
+            val apk = Regex("\"browser_download_url\"\\s*:\\s*\"([^\"]+\\.apk)\"").find(body)?.groupValues?.getOrNull(1)
+            val page = Regex("\"html_url\"\\s*:\\s*\"([^\"]+/releases/[^\"]+)\"").find(body)?.groupValues?.getOrNull(1)
+                ?: "https://github.com/$GH_REPO/releases/latest"
+            if (verCmp(latest, current) > 0)
+                UpdCheck(tr("about.upd_available", lang) + " v$latest", apk ?: page)
+            else
+                UpdCheck(tr("about.upd_current", lang) + " (v$current)")
         }
-    }.getOrElse { "Не удалось проверить обновления: ${it.message ?: "нет сети"}" }
+    }.getOrElse { UpdCheck(tr("about.upd_error", lang) + ": " + (it.message ?: tr("about.upd_offline", lang))) }
 }
 
 // ── Настройки радара: пояснение + список отслеживаемых артистов ──────────
