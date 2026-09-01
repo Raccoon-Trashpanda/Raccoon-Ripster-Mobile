@@ -354,6 +354,7 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                         onOpenAlbum = { albumTarget = it },
                         onOpenArtist = openArtist,
                         onOpenLabel = openLabel,
+                        onOpenPlayer = { userNavigated = true; dest = RipsterDestination.Player },
                     )
                     RipsterDestination.Library -> LibraryScreen(
                         items = library.map { it.toItem() },

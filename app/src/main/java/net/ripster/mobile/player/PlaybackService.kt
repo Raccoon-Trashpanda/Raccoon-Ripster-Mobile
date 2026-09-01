@@ -36,7 +36,12 @@ class PlaybackService : MediaSessionService() {
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(20_000)
             .setReadTimeoutMs(20_000)
-        val sourceFactory = DefaultMediaSourceFactory(DefaultDataSource.Factory(this, http))
+        // Оборачиваем в RipsterDataSourceFactory: она расшифровывает Deezer-поток
+        // (BF_CBC_STRIPE) на лету по метке `#dzbf=<id>` в URL. Без этого Deezer
+        // из карточек/поиска/станций играл ТИШИНОЙ (зашифрованные байты).
+        val sourceFactory = DefaultMediaSourceFactory(
+            RipsterDataSourceFactory(DefaultDataSource.Factory(this, http)),
+        )
 
         val player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(sourceFactory)

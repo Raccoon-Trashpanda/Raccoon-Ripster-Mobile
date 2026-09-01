@@ -138,7 +138,13 @@ object StreamResolver {
                     val info = client.streamInfo(tr, quality)
                     if (info.url.isBlank()) null
                     else PlayerController.StreamItem(
-                        url = info.url,
+                        // Зашифрованный Deezer-поток метим для DataSource плеера,
+                        // иначе ExoPlayer играет шифр-байты (тишина).
+                        url = when (val d = info.decryption) {
+                            is net.ripster.mobile.core.model.Decryption.DeezerBlowfish ->
+                                net.ripster.mobile.player.tagDeezerBlowfish(info.url, d.trackId)
+                            else -> info.url
+                        },
                         title = tr.title,
                         artist = tr.artist,
                         artworkUrl = tr.artworkUrl,

@@ -86,7 +86,7 @@ fun Modifier.bufferingRing(
     active: Boolean,
     palette: List<Color>,
     corner: Dp = 16.dp,
-    width: Dp = 2.dp,
+    width: Dp = 3.dp,
 ): Modifier = composed {
     if (!active) return@composed this
     val tr = rememberInfiniteTransition(label = "buffering-ring")
@@ -128,35 +128,35 @@ fun Modifier.bufferingRing(
             return out
         }
 
-        val headLen = 0.11f          // доля периметра
-        val tailLen = 0.30f
-        val headCol = paletteAt(palette, phase)
+        val headLen = 0.16f          // доля периметра
+        val tailLen = 0.34f
+        val headCol = paletteAt(palette, phase + headLen * 0.6f)
 
         // 2) хвост — затухающий, позади головы
         drawPath(
             seg(phase - tailLen, phase),
             brush = Brush.sweepGradient(palette, center = center),
-            style = Stroke(sw * 1.8f, cap = StrokeCap.Round),
-            alpha = 0.40f,
+            style = Stroke(sw * 2.0f, cap = StrokeCap.Round),
+            alpha = 0.5f,
         )
         // 3) широкий мягкий ореол головы (аддитивно — свечение)
         drawPath(
             seg(phase, phase + headLen),
-            color = headCol.copy(alpha = 0.7f),
-            style = Stroke(sw * 5.5f, cap = StrokeCap.Round),
+            color = headCol.copy(alpha = 0.85f),
+            style = Stroke(sw * 7f, cap = StrokeCap.Round),
             blendMode = BlendMode.Plus,
         )
         // 4) насыщенное ядро головы — цветом палитры, поверх (видно на любой обложке)
         drawPath(
             seg(phase, phase + headLen),
-            color = headCol.copy(alpha = 0.95f),
-            style = Stroke(sw * 2.4f, cap = StrokeCap.Round),
+            color = headCol,
+            style = Stroke(sw * 3f, cap = StrokeCap.Round),
         )
-        // 5) тонкая раскалённая сердцевина
+        // 5) раскалённая сердцевина
         drawPath(
-            seg(phase + headLen * 0.4f, phase + headLen),
+            seg(phase + headLen * 0.45f, phase + headLen),
             color = Color.White,
-            style = Stroke(sw * 1.1f, cap = StrokeCap.Round),
+            style = Stroke(sw * 1.5f, cap = StrokeCap.Round),
         )
     }
 }

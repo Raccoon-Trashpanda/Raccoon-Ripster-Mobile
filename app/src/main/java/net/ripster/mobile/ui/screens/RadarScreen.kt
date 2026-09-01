@@ -76,6 +76,7 @@ fun RadarScreen(
     onOpenSearch: () -> Unit = {},
     onOpenArtist: (String, String, String) -> Unit = { _, _, _ -> },
     onOpenLabel: (String) -> Unit = {},
+    onOpenPlayer: () -> Unit = {},
 ) {
     val c = RipsterTheme.colors
     val lang = LocalAppLang.current
@@ -221,7 +222,7 @@ fun RadarScreen(
                                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                                     ) {
                                         pair.forEach { item ->
-                                            Box(Modifier.weight(1f)) { RadarReleaseTile(item, queued, app, scope, onOpenAlbum, onOpenArtist, onOpenLabel) }
+                                            Box(Modifier.weight(1f)) { RadarReleaseTile(item, queued, app, scope, onOpenAlbum, onOpenArtist, onOpenLabel, onOpenPlayer) }
                                         }
                                         if (pair.size == 1) Box(Modifier.weight(1f))
                                     }
@@ -445,6 +446,7 @@ private fun RadarReleaseTile(
     onOpenAlbum: (net.ripster.mobile.ui.components.ReleaseCardData) -> Unit,
     onOpenArtist: (String, String, String) -> Unit,
     onOpenLabel: (String) -> Unit,
+    onOpenPlayer: () -> Unit,
 ) {
     // Обложка: сначала готовая с ПК (Spotify отдаёт её сразу), иначе — скрейп по ссылке.
     val scraped = rememberReleaseCover(if (item.coverUrl != null) "" else item.latestUrl)
@@ -479,7 +481,8 @@ private fun RadarReleaseTile(
                         net.ripster.mobile.core.service.ReleasePlayback.play(app.player, item.latestUrl, q)
                     } ?: false
                     buffering = false
-                    if (!ok && item.latestUrl.isNotBlank()) onOpenAlbum(cd)   // не сыграло → откроем релиз
+                    if (ok) onOpenPlayer()
+                    else if (item.latestUrl.isNotBlank()) onOpenAlbum(cd)   // не сыграло → откроем релиз
                 }
             }
         },
