@@ -76,6 +76,35 @@ fun HomeScreen(
     val library by app.db.library().observeAll().collectAsState(initial = emptyList())
     val pb by app.player.state.collectAsState()
     val playedByGenre by app.db.plays().observeByGenre().collectAsState(initial = emptyList())
+    val downloads by app.db.downloads().observeAll().collectAsState(initial = emptyList())
+
+    // Экран должен выглядеть по-разному при каждом заходе — иначе «Главная
+    // мёртвая». Один seed на открытие экрана: им тасуем витрины (коллекция,
+    // рекомендации, станции), но не порядок недавнего/загрузок (там смысл в
+    // хронологии). meue меняется при возврате на Home, не при каждом кадре.
+    val visitSeed = remember { System.nanoTime() }
+
+    // Активные и упавшие загрузки — то, что делает Главную «живой»: пока что-то
+    // качается, экран меняется сам.
+    val dlActive = remember(downloads) {
+        downloads.filter { it.state == "RUNNING" || it.state == "QUEUED" }
+    }
+    val dlFailed = remember(downloads) {
+        downloads.filter { it.state == "FAILED" }.take(3)
+    }
+
+    // Недавно добавленное в библиотеку — по времени добавления, не по алфавиту.
+    val recentlyAdded = remember(library) {
+        library.sortedByDescending { it.addedAt }.take(10)
+    }
+    // Витрина коллекции — случайная выборка на этот заход, не первые 12.
+    val collectionShow = remember(library, visitSeed) {
+        library.shuffled(kotlin.random.Random(visitSeed)).take(12)
+    }
+    // Станции «Волны» — крутим 10 из полного набора за заход.
+    val waveShow = remember(visitSeed) {
+        WAVE_STATIONS.shuffled(kotlin.random.Random(visitSeed xor 0x9E3779B9L)).take(10)
+    }
     var building by remember { mutableStateOf<String?>(null) }   // id станции в процессе сборки
     var stationMsg by remember { mutableStateOf<String?>(null) }
 
@@ -95,11 +124,13 @@ fun HomeScreen(
 
     // «Рекомендуем» — простая честная эвристика: артисты из вашей коллекции,
     // где скачано не всё. Тап — поиск этого артиста в выбранных сервисах.
-    val recos = remember(library) {
+    val recos = remember(library, visitSeed) {
         library.groupBy { it.artist.ifBlank { it.title } }
             .entries.filter { it.key.isNotBlank() }
             .sortedByDescending { it.value.size }
-            .take(6)
+            .take(15)                                   // релевантный пул
+            .shuffled(kotlin.random.Random(visitSeed xor 0x27D4EB2FL))
+            .take(6)                                    // но каждый заход другой срез
             .map { it.key to it.value.size }
     }
 
@@ -156,6 +187,43 @@ fun HomeScreen(
             }
         }
 
+        // ── Качается сейчас ──────────────────────────────────────────────
+        if (dlActive.isNotEmpty() || dlFailed.isNotEmpty()) {
+            item("downloading") {
+                Section(
+                    if (dlActive.isNotEmpty())
+                        tr("home.downloading", lang) + "  ·  " + dlActive.size
+                    else tr("home.dl_failed", lang),
+                    c,
+                ) { onOpen(RipsterDestination.Downloads) }
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 22.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    dlActive.take(8).forEach { d ->
+                        WideCard(
+                            title = d.title.ifBlank { tr("home.dl_track", lang) },
+                            subtitle = d.artist.ifBlank {
+                                if (d.state == "QUEUED") tr("home.dl_queued", lang) else ""
+                            },
+                            art = null,
+                            progress = (d.fraction ?: 0f).coerceIn(0f, 1f),
+                            c = c, onClick = { onOpen(RipsterDestination.Downloads) },
+                        )
+                    }
+                    dlFailed.forEach { d ->
+                        WideCard(
+                            title = d.title.ifBlank { tr("home.dl_track", lang) },
+                            subtitle = (d.errorReason ?: tr("home.dl_failed", lang)).take(60),
+                            art = null, progress = 0f,
+                            c = c, onClick = { onOpen(RipsterDestination.Downloads) },
+                        )
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+            }
+        }
+
         // ── Из вашей коллекции ───────────────────────────────────────────
         if (library.isNotEmpty()) {
             item("collection") {
@@ -164,7 +232,31 @@ fun HomeScreen(
                     Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 22.dp),
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    library.take(12).forEach { it0 ->
+                    collectionShow.forEach { it0 ->
+                        SquareCard(
+                            title = it0.title,
+                            subtitle = listOf(it0.artist, it0.container.uppercase()).filter { it.isNotBlank() }.joinToString(" · "),
+                            art = it0.artworkUrl, downloaded = true, c = c, lang = lang,
+                            onClick = {
+                                val idx = library.indexOfFirst { x -> x.id == it0.id }.coerceAtLeast(0)
+                                app.player.playQueue(library, idx); onOpen(RipsterDestination.Player)
+                            },
+                        )
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+            }
+        }
+
+        // ── Недавно добавленное ─────────────────────────────────────────
+        if (recentlyAdded.size > 3) {
+            item("recent_added") {
+                Section(tr("home.recent_added", lang), c) { onOpen(RipsterDestination.Library) }
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 22.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    recentlyAdded.forEach { it0 ->
                         SquareCard(
                             title = it0.title,
                             subtitle = listOf(it0.artist, it0.container.uppercase()).filter { it.isNotBlank() }.joinToString(" · "),
@@ -194,7 +286,7 @@ fun HomeScreen(
                 Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 22.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                WAVE_STATIONS.forEach { st ->
+                waveShow.forEach { st ->
                     WaveTile(
                         name = if (st.nameKey != null) tr(st.nameKey, lang) else st.display,
                         seed = st.id, c = c, loading = building == st.id,

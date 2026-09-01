@@ -3,6 +3,7 @@ package net.ripster.mobile
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -59,6 +60,11 @@ import kotlinx.coroutines.launch
  */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Прозрачные системные бары + инсеты в Compose. Без этого контент рисуется
+        // от края до края «на глаз»: на телефонах с другой высотой статус-бара,
+        // вырезом или жестовой навигацией верхняя панель и нижняя навигация
+        // залезают под бары и обрезаются — «разрешение не подгоняется».
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContent { RipsterRoot() }
     }

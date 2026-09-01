@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -241,29 +242,39 @@ fun ReferencePlayerScreen(
 
             Spacer(Modifier.height(10.dp))
 
-            // ── транспорт — точ-в-точ ПК neon-плеер (design/v001/player.html
-            //    `.controls`): 🔀 ⏮ [play 64 круг + glow] ⏭ 🔁, все второстепенные
-            //    иконки одного размера (24), равный зазор.
+            // ── транспорт — 🔀 ⏮ [play 64] ⏭ 🔁. Правила адаптивности
+            //    (UI_RESPONSIVE_2026-09-01.md): без фиксированных spacedBy —
+            //    свободное место раскладывает ряд (SpaceBetween) внутри padding
+            //    20dp, каждый контрол ≥48dp. На узком 360dp пятая иконка больше
+            //    не срезается; на планшете ряд не расползается за счёт widthIn.
             Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterHorizontally),
+                Modifier.fillMaxWidth()
+                    .widthIn(max = 520.dp)
+                    .align(Alignment.CenterHorizontally)
+                    .padding(horizontal = 20.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                SideGlyph(onClick = onToggleShuffle, cd = "Перемешать", box = 44.dp, glyph = 22.dp,
+                SideGlyph(onClick = onToggleShuffle, cd = "Перемешать", box = 48.dp, glyph = 22.dp,
                     tint = if (state.shuffle) c.accent_text else c.text_tertiary) { drawShuffleGlyph(it) }
-                SideGlyph(onClick = onPrevious, cd = "Предыдущий", box = 44.dp, glyph = 22.dp) { drawPrevGlyph(it) }
+                SideGlyph(onClick = onPrevious, cd = "Предыдущий", box = 48.dp, glyph = 22.dp) { drawPrevGlyph(it) }
                 RefPlayButton(isPlaying = state.isPlaying, onClick = onPlayPause)
-                SideGlyph(onClick = onNext, cd = "Следующий", box = 44.dp, glyph = 22.dp) { drawNextGlyph(it) }
-                SideGlyph(onClick = onToggleRepeat, cd = "Повтор", box = 44.dp, glyph = 22.dp,
+                SideGlyph(onClick = onNext, cd = "Следующий", box = 48.dp, glyph = 22.dp) { drawNextGlyph(it) }
+                SideGlyph(onClick = onToggleRepeat, cd = "Повтор", box = 48.dp, glyph = 22.dp,
                     tint = if (state.repeat) c.accent_text else c.text_tertiary) { drawRepeatGlyph(it) }
             }
 
             Spacer(Modifier.height(6.dp))
 
-            // ── действия: квадратные кнопки под транспортом, один ряд ─
+            // ── действия: 5 квадратных кнопок. При 5+ пунктах — прокручиваемый
+            //    ряд с contentPadding 20dp (UI_RESPONSIVE_2026-09-01.md): пятый
+            //    чип честно доезжает свайпом, а не срезается, и двухстрочная
+            //    подпись «На колонку» не ломает высоту соседей.
             Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+                Modifier.fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.Top,
             ) {
                 SquareAction(tr("ref.tracklist", lang), onClick = { sheet = 1 }) { listGlyph(it) }
@@ -743,7 +754,7 @@ private fun LikeButton(liked: Boolean, onClick: () -> Unit) {
     val pressed by interaction.collectIsPressedAsState()
     val s by animateFloatAsState(if (pressed) 0.82f else 1f, label = "like-press")
     Box(
-        Modifier.size(44.dp).scale(s)
+        Modifier.size(48.dp).scale(s)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {

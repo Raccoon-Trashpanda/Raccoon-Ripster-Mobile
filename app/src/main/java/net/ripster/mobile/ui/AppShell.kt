@@ -21,10 +21,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -201,7 +205,10 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
             }
         },
     ) {
-        Column(Modifier.fillMaxSize()) {
+        // Фон (ambilight) рисуется от края до края под барами; контент —
+        // внутри системных инсетов, чтобы шапка и нижняя навигация не залезали
+        // под статус-бар / вырез / жестовую полосу на любом телефоне.
+        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)) {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -408,7 +415,7 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
 
         if (showSearch) {
             androidx.activity.compose.BackHandler(true) { showSearch = false }
-            Column(Modifier.fillMaxSize().background(c.surface_canvas)) {
+            Column(Modifier.fillMaxSize().background(c.surface_canvas).windowInsetsPadding(WindowInsets.safeDrawing)) {
                 OverlayBar(tr("nav.search", lang)) { showSearch = false }
                 Box(Modifier.weight(1f)) { SearchScreen() }
                 // Только текстовый статус очереди — без анимированного кружка:
@@ -421,7 +428,7 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
             }
         }
         if (showSettings) {
-            Box(Modifier.fillMaxSize().background(c.surface_canvas)) {
+            Box(Modifier.fillMaxSize().background(c.surface_canvas).windowInsetsPadding(WindowInsets.safeDrawing)) {
                 SettingsHost(
                     onExit = { showSettings = false; settingsToAccounts = false },
                     openAccounts = settingsToAccounts,
@@ -429,7 +436,7 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
             }
         }
         albumTarget?.let { at ->
-            Box(Modifier.fillMaxSize().background(c.surface_canvas)) {
+            Box(Modifier.fillMaxSize().background(c.surface_canvas).windowInsetsPadding(WindowInsets.safeDrawing)) {
                 net.ripster.mobile.ui.screens.AlbumScreen(
                     url = at.url, service = at.service,
                     fallbackTitle = at.title, fallbackArtist = at.artist, fallbackCover = at.coverUrl,
@@ -440,7 +447,7 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
             }
         }
         artistTarget?.let { at ->
-            Box(Modifier.fillMaxSize().background(c.surface_canvas)) {
+            Box(Modifier.fillMaxSize().background(c.surface_canvas).windowInsetsPadding(WindowInsets.safeDrawing)) {
                 net.ripster.mobile.ui.screens.ArtistScreen(
                     name = at.name, service = at.service, artistId = at.id, isLabel = at.isLabel,
                     onBack = { artistTarget = null },
