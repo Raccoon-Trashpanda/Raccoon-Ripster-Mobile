@@ -92,8 +92,11 @@ fun ArtistScreen(
                 value = pcPage; return@produceState
             }
         }
-        // 2. фолбэк: поиск по имени в «простых» сервисах (для лейбла слабее, но лучше пустоты)
-        val fb = searchFallback(name)
+        // 2. фолбэк: поиск по имени в «простых» сервисах (для лейбла слабее, но лучше пустоты).
+        //    Общий потолок — чтобы экран НИКОГДА не висел в «анализирует…»:
+        //    не успели за 20 с → показываем пустую страницу (art.empty), не спиннер.
+        val fb = withTimeoutOrNull(20_000) { searchFallback(name) }
+            ?: PcBridge.ArtistPage(name = name, pictureUrl = null, releases = emptyList())
         // если фолбэк тоже пуст, а ПК вернул причину — покажем её
         value = if (fb.releases.isEmpty() && pcPage?.error != null) {
             PcBridge.ArtistPage(name = name, pictureUrl = null, releases = emptyList(), error = pcPage.error)
@@ -244,7 +247,16 @@ private suspend fun searchFallback(name: String): PcBridge.ArtistPage {
     val clients = listOf(Service.DEEZER, Service.QOBUZ, Service.TIDAL, Service.SOUNDCLOUD)
         .mapNotNull { ServiceRegistry.get(it) }
     val sels = coroutineScope {
-        clients.map { c -> async { runCatching { c.search(name) }.getOrNull() } }.awaitAll()
+        clients.map { c ->
+            async {
+                // Потолок на КАЖДЫЙ сервис: без него один зависший login/
+                // ensureToken держал экран артиста в «анализирует…» вечно
+                // (awaitAll ждал самого медленного).
+                runCatching {
+                    withTimeoutOrNull(12_000) { c.search(name) }
+                }.getOrNull()
+            }
+        }.awaitAll()
     }.filterNotNull()
 
     val want = name.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length > 1 }.toSet()
