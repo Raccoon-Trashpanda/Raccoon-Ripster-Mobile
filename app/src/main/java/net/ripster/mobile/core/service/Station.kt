@@ -10,7 +10,7 @@ import net.ripster.mobile.service.soundcloud.SoundCloudClient
 import net.ripster.mobile.service.yandex.YandexMusicClient
 
 /**
- * Автосборка станции («Волна») — НЕ поиск, а конкретный курируемый плейлист.
+ * Автосборка жанровой станции — НЕ поиск, а конкретный курируемый плейлист.
  *
  * Источник по приоритету:
  *  1. Чарт SoundCloud по жанру (`charts?kind=top&genre=…`) — работает без ПК,

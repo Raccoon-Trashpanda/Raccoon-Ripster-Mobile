@@ -101,7 +101,7 @@ fun HomeScreen(
     val collectionShow = remember(library, visitSeed) {
         library.shuffled(kotlin.random.Random(visitSeed)).take(12)
     }
-    // Станции «Волны» — крутим 10 из полного набора за заход.
+    // Жанровые станции — крутим 10 из полного набора за заход.
     val waveShow = remember(visitSeed) {
         WAVE_STATIONS.shuffled(kotlin.random.Random(visitSeed xor 0x9E3779B9L)).take(10)
     }
@@ -272,8 +272,8 @@ fun HomeScreen(
             }
         }
 
-        // ── Волна — станции по жанрам и настроениям (аналог «Моей волны» и
-        //    станций Apple, в нашем словаре: тот же набор, что digs на ПК) ──
+        // ── Жанры и настроения — станции по жанру/настроению, тап собирает
+        //    поток и включает. Тот же набор, что digs на ПК.
         item("wave") {
             Section(tr("home.wave", lang), c, null)
             BasicText(
