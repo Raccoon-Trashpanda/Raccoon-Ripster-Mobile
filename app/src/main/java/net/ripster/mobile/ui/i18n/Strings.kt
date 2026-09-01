@@ -195,6 +195,8 @@ private val STRINGS: Map<String, Row> = mapOf(
     "art.eps" to row("EP", "EPs", "EP", "EP", "EP"),
     "art.comps" to row("Сборники", "Compilations", "संकलन", "コンピレーション", "合辑"),
     "art.appears_as" to row("трек:", "track:", "ट्रैक:", "曲:", "曲目："),
+    "art.dl_all" to row("Скачать дискографию", "Download discography", "डिस्कोग्राफ़ी डाउनलोड करें", "ディスコグラフィをDL", "下载全部唱片"),
+    "art.dl_all_busy" to row("Ставлю в очередь…", "Queueing…", "कतार में डाल रहे…", "キューに追加中…", "正在排队…"),
     "art.live" to row("Концертные", "Live", "लाइव", "ライブ", "现场"),
     "art.empty" to row("Дискографию не удалось собрать — нет id артиста или сервис ничего не вернул. Открой релиз через карточку.", "Couldn't build the discography — no artist id, or the service returned nothing. Open a release from its card.", "डिस्कोग्राफ़ी नहीं बनी — आर्टिस्ट id नहीं या सेवा ने कुछ नहीं लौटाया।", "ディスコグラフィを取得できませんでした — アーティストIDがないかサービスが何も返しませんでした。", "无法获取唱片列表 — 没有艺人 id，或服务未返回内容。"),
     "nav.radar" to row("Радар", "Radar", "रडार", "レーダー", "雷达"),

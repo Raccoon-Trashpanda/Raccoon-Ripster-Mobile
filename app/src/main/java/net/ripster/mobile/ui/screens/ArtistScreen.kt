@@ -23,6 +23,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -35,6 +37,10 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -46,6 +52,7 @@ import net.ripster.mobile.core.pair.PcBridge
 import net.ripster.mobile.core.service.ReleasePlayback
 import net.ripster.mobile.core.service.ServiceRegistry
 import net.ripster.mobile.ui.components.Cover
+import net.ripster.mobile.ui.components.pressable
 import net.ripster.mobile.ui.components.ReleaseCard
 import net.ripster.mobile.ui.components.ReleaseCardData
 import net.ripster.mobile.ui.i18n.LocalAppLang
@@ -149,6 +156,41 @@ fun ArtistScreen(
             item(span = { GridItemSpan(maxLineSpan) }) {
                 ArtistHeader(p.name.ifBlank { name }, p.pictureUrl, c, onBack)
             }
+            // ── «Скачать дискографию» — как в ПК-версии: в очередь все релизы
+            //    артиста, у которых есть ссылка (участия в сборниках пропускаем).
+            val ownDl = p.releases.filter { it.url.isNotBlank() && it.type != "compilation" }
+            if (ownDl.isNotEmpty()) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    var busy by remember { mutableStateOf(false) }
+                    Row(
+                        Modifier.padding(start = 4.dp, top = 8.dp, bottom = 2.dp)
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(if (busy) c.surface_active else c.accent_fill)
+                            .pressable(enabled = !busy) {
+                                busy = true
+                                scope.launch {
+                                    ownDl.forEach { r ->
+                                        queued[r.url] = true
+                                        runCatching {
+                                            val sel = ServiceRegistry.all()
+                                                .firstNotNullOfOrNull { it.resolve(r.url) }
+                                            sel?.tracks?.forEach { app.downloads.enqueue(it) }
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(horizontal = 16.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    ) {
+                        BasicText("↓", style = TextStyle(color = c.text_on_fill, fontSize = 13.sp, fontWeight = FontWeight.Bold))
+                        BasicText(
+                            tr(if (busy) "art.dl_all_busy" else "art.dl_all", lang) + "  ·  " + ownDl.size,
+                            style = TextStyle(color = c.text_on_fill, fontSize = 12.5.sp, fontWeight = FontWeight.W600),
+                        )
+                    }
+                }
+            }
             groups.forEach { (type, rels) ->
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     BasicText(
@@ -247,9 +289,28 @@ private fun groupLabelKey(t: String) = when (t) {
  * клиенты в `search()` отдают ТРЕКИ (без альбомов), поэтому группируем треки
  * по названию альбома: одна запись на альбом, обложка/год — от первого трека.
  */
+/** Обложка артиста из публичного Deezer (без ключа) — чтобы в шапке был не
+ *  обезличенный кружок. Deezer отдаёт нормальные фото артистов. */
+private suspend fun deezerArtistPic(name: String): String? = runCatching {
+    kotlinx.coroutines.withTimeoutOrNull(8_000) {
+        val u = "https://api.deezer.com/search/artist?limit=1&q=" +
+            java.net.URLEncoder.encode(name, "UTF-8")
+        val body = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            net.ripster.mobile.core.net.RipsterHttp.client
+                .newCall(okhttp3.Request.Builder().url(u).build())
+                .execute().use { it.body?.string().orEmpty() }
+        }
+        val a = kotlinx.serialization.json.Json.parseToJsonElement(body)
+            .jsonObject["data"]?.jsonArray?.firstOrNull()?.jsonObject ?: return@withTimeoutOrNull null
+        (a["picture_xl"] ?: a["picture_big"] ?: a["picture_medium"])
+            ?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+    }
+}.getOrNull()
+
 private suspend fun searchFallback(name: String): PcBridge.ArtistPage {
     val clients = listOf(Service.DEEZER, Service.QOBUZ, Service.TIDAL, Service.SOUNDCLOUD)
         .mapNotNull { ServiceRegistry.get(it) }
+    val pic = coroutineScope { async { deezerArtistPic(name) } }
     val sels = coroutineScope {
         clients.map { c ->
             async {
@@ -311,7 +372,8 @@ private suspend fun searchFallback(name: String): PcBridge.ArtistPage {
         compareBy({ it.type == "compilation" }, { -(it.year.toIntOrNull() ?: 0) }),
     )
     return PcBridge.ArtistPage(
-        name = name, pictureUrl = null,
+        name = name,
+        pictureUrl = pic.await(),
         releases = ordered,
     )
 }
