@@ -194,6 +194,7 @@ private val STRINGS: Map<String, Row> = mapOf(
     "art.singles" to row("Синглы", "Singles", "सिंगल्स", "シングル", "单曲"),
     "art.eps" to row("EP", "EPs", "EP", "EP", "EP"),
     "art.comps" to row("Сборники", "Compilations", "संकलन", "コンピレーション", "合辑"),
+    "art.appears_as" to row("трек:", "track:", "ट्रैक:", "曲:", "曲目："),
     "art.live" to row("Концертные", "Live", "लाइव", "ライブ", "现场"),
     "art.empty" to row("Дискографию не удалось собрать — нет id артиста или сервис ничего не вернул. Открой релиз через карточку.", "Couldn't build the discography — no artist id, or the service returned nothing. Open a release from its card.", "डिस्कोग्राफ़ी नहीं बनी — आर्टिस्ट id नहीं या सेवा ने कुछ नहीं लौटाया।", "ディスコグラフィを取得できませんでした — アーティストIDがないかサービスが何も返しませんでした。", "无法获取唱片列表 — 没有艺人 id，或服务未返回内容。"),
     "nav.radar" to row("Радар", "Radar", "रडार", "レーダー", "雷达"),

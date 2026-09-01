@@ -423,6 +423,9 @@ class PcBridge(context: Context) {
         val id: String, val title: String, val coverUrl: String?,
         val year: String, val date: String, val trackCount: Int?,
         val type: String, val url: String, val service: String,
+        /** Если это не собственный релиз артиста, а его трек в сборнике/миксе —
+         *  название этого трека. Пусто = собственный релиз. */
+        val appearsAs: String = "",
     )
     data class ArtistPage(
         val name: String, val pictureUrl: String?,
@@ -495,6 +498,7 @@ class PcBridge(context: Context) {
                             type = o["type"]?.jsonPrimitive?.contentOrNull?.lowercase() ?: "album",
                             url = url,
                             service = o["service"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                            appearsAs = o["appears_as"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                         ).takeIf { it.title.isNotBlank() }
                     }
                     ArtistPage(

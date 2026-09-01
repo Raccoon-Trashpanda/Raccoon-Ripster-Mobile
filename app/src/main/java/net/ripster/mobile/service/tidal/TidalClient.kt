@@ -310,7 +310,7 @@ class TidalClient(
             isrc = isrc,
             year = streamStartDate?.take(4)?.toIntOrNull(),
             artworkUrl = coverUrl(album?.cover),
-            raw = mapOf("tdId" to id.toString()),
+            raw = mapOf("tdId" to id.toString(), "albId" to (album?.id?.toString() ?: "")),
         )
     }
 

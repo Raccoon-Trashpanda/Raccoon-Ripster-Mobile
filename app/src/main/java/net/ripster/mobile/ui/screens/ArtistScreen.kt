@@ -160,7 +160,11 @@ fun ArtistScreen(
                 items(rels, key = { it.service + "|" + it.title.lowercase() + "|" + it.id }) { r ->
                     val cd = ReleaseCardData(
                         title = r.title,
-                        artist = p.name.ifBlank { name },
+                        // для участия в сборнике/миксе — показываем, КАКОЙ трек
+                        // артиста туда входит, вместо имени артиста
+                        artist = if (r.appearsAs.isNotBlank())
+                            tr("art.appears_as", lang) + " " + r.appearsAs
+                        else p.name.ifBlank { name },
                         service = r.service,
                         url = r.url,
                         type = type,
@@ -268,7 +272,7 @@ private suspend fun searchFallback(name: String): PcBridge.ArtistPage {
 
     // ключ = только название (без сервиса) — один альбом, не дубль qobuz/tidal
     val byAlbum = LinkedHashMap<String, PcBridge.ArtistRelease>()
-    // 1) реальные альбомы, если сервис их всё-таки вернул
+    // 1) собственные релизы артиста (альбом в выдаче кредитован на него)
     sels.flatMap { it.albums }.forEach { a ->
         if (!nameMatches(a.artist)) return@forEach
         val k = a.title.trim().lowercase()
@@ -278,25 +282,47 @@ private suspend fun searchFallback(name: String): PcBridge.ArtistPage {
                 year = a.year?.toString().orEmpty(), date = a.year?.toString().orEmpty(),
                 trackCount = a.trackCount,
                 type = if ((a.trackCount ?: 99) in 1..3) "single" else "album",
-                url = "", service = a.service.id,
+                url = albumUrl(a.service.id, a.id), service = a.service.id,
             )
         }
     }
-    // 2) из треков — по названию альбома
+    // 2) участие: трек артиста лежит в чужом релизе (сборник / DJ-микс / сплит).
+    //    Ключ по названию альбома; помечаем appearsAs = название трека, а тип —
+    //    compilation, если у трека есть альбом-артист и он НЕ этот артист.
     sels.flatMap { it.tracks }.forEach { t ->
         val al = t.albumTitle?.takeIf { it.isNotBlank() } ?: return@forEach
         if (!nameMatches(t.artist)) return@forEach
         val k = al.trim().lowercase()
-        byAlbum.getOrPut(k) {
-            PcBridge.ArtistRelease(
-                id = "", title = al, coverUrl = t.artworkUrl,
-                year = t.year?.toString().orEmpty(), date = t.year?.toString().orEmpty(),
-                trackCount = null, type = "album", url = "", service = t.service.id,
-            )
-        }
+        if (byAlbum.containsKey(k)) return@forEach          // уже как собственный релиз
+        val albId = t.raw["albId"]?.takeIf { it.isNotBlank() && it != "0" }
+        val ownRelease = t.albumArtist.isNullOrBlank() || nameMatches(t.albumArtist!!)
+        byAlbum[k] = PcBridge.ArtistRelease(
+            id = albId.orEmpty(), title = al, coverUrl = t.artworkUrl,
+            year = t.year?.toString().orEmpty(), date = t.year?.toString().orEmpty(),
+            trackCount = null,
+            type = if (ownRelease) "album" else "compilation",
+            url = albumUrl(t.service.id, albId.orEmpty()),
+            service = t.service.id,
+            appearsAs = if (ownRelease) "" else t.title,
+        )
     }
+    // порядок: сначала собственные релизы, потом участия — и то и другое по годам
+    val ordered = byAlbum.values.sortedWith(
+        compareBy({ it.type == "compilation" }, { -(it.year.toIntOrNull() ?: 0) }),
+    )
     return PcBridge.ArtistPage(
         name = name, pictureUrl = null,
-        releases = byAlbum.values.sortedByDescending { it.year },
+        releases = ordered,
     )
+}
+
+/** URL релиза для `resolve()` / `AlbumScreen` из id + сервиса. */
+private fun albumUrl(serviceId: String, id: String): String {
+    if (id.isBlank() || id == "0") return ""
+    return when (serviceId) {
+        "deezer" -> "https://www.deezer.com/album/$id"
+        "qobuz" -> "https://open.qobuz.com/album/$id"
+        "tidal" -> "https://listen.tidal.com/album/$id"
+        else -> ""
+    }
 }
