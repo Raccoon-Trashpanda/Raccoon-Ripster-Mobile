@@ -71,6 +71,7 @@ fun ReleaseCard(
     data: ReleaseCardData,
     modifier: Modifier = Modifier,
     queued: Boolean = false,
+    buffering: Boolean = false,
     onOpen: () -> Unit,
     onDownload: () -> Unit,
     onArtist: (() -> Unit)? = null,
@@ -78,6 +79,7 @@ fun ReleaseCard(
 ) {
     val c = RipsterTheme.colors
     val lang = LocalAppLang.current
+    val edgePalette = rememberCoverEdgePalette(data.coverUrl.takeIf { buffering })
     val fallback = remember(data.title) {
         // радиальный неон из хэша — как заглушки-обложки на рендере
         val h = abs((data.title + data.artist).hashCode())
@@ -91,7 +93,8 @@ fun ReleaseCard(
 
     Column(modifier.clickable { onOpen() }) {
         Box(
-            Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(16.dp)).background(fallback),
+            Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(16.dp)).background(fallback)
+                .bufferingRing(active = buffering, palette = edgePalette, corner = 16.dp),
         ) {
             Cover(url = data.coverUrl, modifier = Modifier.fillMaxSize(), shape = RoundedCornerShape(16.dp))
 

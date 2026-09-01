@@ -784,7 +784,7 @@ private fun RadarSettingsSection(lang: AppLang, c: RipsterColors) {
 private fun PlayerSection(lang: AppLang, c: RipsterColors) {
     val app = RipsterApp.from(LocalContext.current)
     val s by app.settings.state.collectAsState()
-    val styles = listOf("studio" to "player.style_studio", "reference" to "player.style_reference")
+    val styles = listOf("reference" to "player.style_reference", "immersive" to "player.style_immersive", "studio" to "player.style_studio")
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 8.dp)) {
         GroupLabel(tr("player.style", lang), c)
         styles.forEach { (id, k) ->

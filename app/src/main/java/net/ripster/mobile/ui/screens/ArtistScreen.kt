@@ -214,9 +214,11 @@ fun ArtistScreen(
                         trackCount = r.trackCount,
                         dateText = r.year.ifBlank { r.date.take(4) },
                     )
+                    var buffering by remember { mutableStateOf(false) }
                     ReleaseCard(
                         data = cd,
                         queued = queued[r.url] == true,
+                        buffering = buffering,
                         onOpen = { if (r.url.isNotBlank()) onOpenAlbum(cd) },
                         onDownload = {
                             if (r.url.isNotBlank()) {
@@ -232,10 +234,12 @@ fun ArtistScreen(
                         onPlay = if (r.url.isBlank()) null else {
                             {
                                 scope.launch {
+                                    buffering = true
                                     val q = app.settings.state.value.qualityFor(onWifi = true)
                                     val ok = withTimeoutOrNull(25_000) {
                                         ReleasePlayback.play(app.player, r.url, q)
                                     } ?: false
+                                    buffering = false
                                     if (!ok) onOpenAlbum(cd)
                                 }
                             }

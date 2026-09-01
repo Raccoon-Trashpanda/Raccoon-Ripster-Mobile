@@ -454,9 +454,11 @@ private fun RadarReleaseTile(
         service = item.service.ifBlank { "radar" },
         url = item.latestUrl, coverUrl = cover, isNew = true, dateText = null,
     )
+    var buffering by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     net.ripster.mobile.ui.components.ReleaseCard(
         data = cd,
         queued = queued[item.latestUrl] == true,
+        buffering = buffering,
         onArtist = {
             if (item.kind == "label") onOpenLabel(item.name)
             else onOpenArtist(item.name, item.service, item.artistId)
@@ -471,10 +473,12 @@ private fun RadarReleaseTile(
         onPlay = if (item.latestUrl.isBlank()) null else {
             {
                 scope.launch {
+                    buffering = true
                     val q = app.settings.state.value.qualityFor(onWifi = true)
                     val ok = kotlinx.coroutines.withTimeoutOrNull(25_000) {
                         net.ripster.mobile.core.service.ReleasePlayback.play(app.player, item.latestUrl, q)
                     } ?: false
+                    buffering = false
                     if (!ok && item.latestUrl.isNotBlank()) onOpenAlbum(cd)   // не сыграло → откроем релиз
                 }
             }

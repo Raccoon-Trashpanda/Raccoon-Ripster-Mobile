@@ -308,7 +308,15 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                             format = playback.format,
                             artworkUrl = playback.artworkUrl,
                         )
-                        if (settings.playerStyle == "studio") {
+                        if (settings.playerStyle == "immersive") {
+                            net.ripster.mobile.ui.screens.ImmersivePlayerScreen(
+                                state = npState,
+                                onSeek = { app.player.seekTo(it) },
+                                onPlayPause = { app.player.togglePlay() },
+                                onNext = { app.player.next() },
+                                onPrevious = { app.player.previous() },
+                            )
+                        } else if (settings.playerStyle == "studio") {
                             NowPlayingScreen(
                                 state = npState,
                                 onSeek = { app.player.seekTo(it) },

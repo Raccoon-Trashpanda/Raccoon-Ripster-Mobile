@@ -412,18 +412,22 @@ fun HomeScreen(
                             title = r.name, artist = r.name, service = r.service.ifBlank { "radar" },
                             url = r.latestUrl, coverUrl = cover, isNew = true, dateText = null,
                         )
+                        var buffering by remember { mutableStateOf(false) }
                         net.ripster.mobile.ui.components.ReleaseCard(
                             data = cd, modifier = Modifier.width(150.dp),
+                            buffering = buffering,
                             onArtist = { onOpenArtist(r.name, r.service, r.artistId) },
                             onOpen = { if (r.latestUrl.isNotBlank()) onOpenAlbum(cd) else onOpen(RipsterDestination.Radar) },
                             onDownload = { onOpen(RipsterDestination.Radar) },
                             onPlay = if (r.latestUrl.isBlank()) null else {
                                 {
                                     scope.launch {
+                                        buffering = true
                                         val q = app.settings.state.value.qualityFor(onWifi = true)
                                         val ok = kotlinx.coroutines.withTimeoutOrNull(25_000) {
                                             net.ripster.mobile.core.service.ReleasePlayback.play(app.player, r.latestUrl, q)
                                         } ?: false
+                                        buffering = false
                                         if (ok) onOpen(RipsterDestination.Player)
                                     }
                                 }

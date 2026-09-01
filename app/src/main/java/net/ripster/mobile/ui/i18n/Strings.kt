@@ -582,6 +582,7 @@ private val STRINGS: Map<String, Row> = mapOf(
     ),
     "player.style" to row("Вид плеера", "Player look", "प्लेयर रूप", "プレイヤーの外観", "播放器外观"),
     "player.style_studio" to row("Студийный", "Studio", "स्टूडियो", "スタジオ", "工作室"),
+    "player.style_immersive" to row("Погружение", "Immersive", "इमर्सिव", "没入", "沉浸"),
     "player.style_reference" to row("Макет", "Mockup", "मॉकअप", "モックアップ", "样机"),
     "pair.hint" to row(
         "Открой Рипстер на ПК и введи показанный там код. После сопряжения телефон возьмёт токены сервисов с ПК и будет качать сам.",
