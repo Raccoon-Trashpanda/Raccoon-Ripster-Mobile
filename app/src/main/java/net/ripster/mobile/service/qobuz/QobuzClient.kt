@@ -47,7 +47,9 @@ class QobuzClient(
     private val flac16 = QualityTier("flac_16", "FLAC 16-bit", lossless = true, container = "flac", bitDepth = 16, sampleRateHz = 44100)
     private val mp3_320 = QualityTier("mp3_320", "MP3 320", lossless = false, container = "mp3", bitrateKbps = 320)
 
-    override suspend fun isConfigured(): Boolean = runCatching { api.ensureAuth() }.getOrDefault(false)
+    // Готовность = есть креды. Живой ensureAuth() — при первом search(), не в
+    // пробе готовности (иначе сетевой вызов вешает экран поиска).
+    override suspend fun isConfigured(): Boolean = api.hasCredentials()
 
     override suspend fun qualities(): List<QualityTier> = listOf(flac24, flac16, mp3_320)
 

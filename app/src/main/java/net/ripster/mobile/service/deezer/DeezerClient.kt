@@ -45,8 +45,10 @@ class DeezerClient(
     private val mp3_320 = QualityTier("mp3_320", "MP3 320", lossless = false, container = "mp3", bitrateKbps = 320)
     private val mp3_128 = QualityTier("mp3_128", "MP3 128", lossless = false, container = "mp3", bitrateKbps = 128)
 
-    override suspend fun isConfigured(): Boolean =
-        arl.isNotBlank() && runCatching { gw.ensureSession() }.getOrDefault(false)
+    // Дешёвая проверка: есть ли ARL. Живой вход (gw.ensureSession) НЕ здесь —
+    // раньше он держал экран поиска в «Проверяю сервисы…» на сетевом вызове,
+    // а протухший ARL и так всплывёт понятной ошибкой при самом search().
+    override suspend fun isConfigured(): Boolean = arl.isNotBlank()
 
     override suspend fun qualities(): List<QualityTier> = listOf(flac, mp3_320, mp3_128)
 

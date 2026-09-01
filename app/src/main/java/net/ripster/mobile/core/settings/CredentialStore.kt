@@ -21,17 +21,61 @@ import androidx.security.crypto.MasterKey
  */
 class CredentialStore(context: Context) {
 
-    private val prefs: SharedPreferences = run {
-        val master = MasterKey.Builder(context)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
-        EncryptedSharedPreferences.create(
-            context,
-            "ripster_credentials",
-            master,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-        )
+    /** true — секреты лежат в EncryptedSharedPreferences; false — сработал
+     *  простой fallback (Keystore на устройстве неисправен). Для диагностики. */
+    var usingEncryption: Boolean = false
+        private set
+
+    private val prefs: SharedPreferences = openStore(context)
+
+    /**
+     * Открыть стор так, чтобы токены НЕ терялись при ребуте.
+     *
+     * `EncryptedSharedPreferences.create()` бросает (или молча отдаёт пустоту),
+     * когда мастер-ключ в Android Keystore после перезагрузки недоступен или
+     * протух, или Tink-keyset в файле побит (`security-crypto:1.1.0-alpha06`
+     * этим известен). Владелец: «каждый ребут слетают токены». Лечим:
+     *   1. Пробуем зашифрованный + roundtrip-проверка чтения/записи.
+     *   2. Не вышло → сносим битый файл, пробуем один раз заново.
+     *   3. Всё равно нет → ПРОСТОЙ SharedPreferences под тем же именем. Лучше
+     *      персистентный незашифрованный стор (файл всё равно в приватной
+     *      песочнице приложения), чем «зашифрованный», который обнуляется
+     *      каждую перезагрузку.
+     */
+    private fun openStore(context: Context): SharedPreferences {
+        val name = "ripster_credentials"
+        fun tryEncrypted(): SharedPreferences {
+            val master = MasterKey.Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+            val sp = EncryptedSharedPreferences.create(
+                context, name, master,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+            )
+            // roundtrip: если keyset побит, упадёт именно здесь, а не при первом
+            // реальном чтении токена (когда уже поздно и сервис «отвалился»).
+            val probe = "__probe__"
+            sp.edit().putString(probe, "1").commit()
+            check(sp.getString(probe, null) == "1") { "encrypted prefs roundtrip failed" }
+            sp.edit().remove(probe).commit()
+            return sp
+        }
+        return runCatching { tryEncrypted() }.getOrElse {
+            runCatching {
+                context.deleteSharedPreferences(name)
+                tryEncrypted()
+            }.getOrElse {
+                // Последний рубеж — простой стор. Помечаем.
+                context.getSharedPreferences(name, Context.MODE_PRIVATE)
+            }
+        }.also { usingEncryption = it.javaClass.simpleName.contains("Encrypted", ignoreCase = true) }
+    }
+
+    private inline fun edit(block: SharedPreferences.Editor.() -> Unit) {
+        // commit(), не apply(): сопряжение/ввод токена должны пережить
+        // немедленное убийство процесса (свернул → система прибила).
+        prefs.edit().apply(block).commit()
     }
 
     /** Известные поля. Список закрытый: клиент просит по имени из [Key]. */
@@ -54,7 +98,7 @@ class CredentialStore(context: Context) {
 
     /** Записать значение (пустое → удалить). [source] помечает происхождение для отладки. */
     fun set(key: Key, value: String?, source: Source = Source.MANUAL) {
-        prefs.edit().apply {
+        edit {
             if (value.isNullOrBlank()) {
                 remove(key.id); remove("${key.id}\$ts"); remove("${key.id}\$src")
             } else {
@@ -62,7 +106,7 @@ class CredentialStore(context: Context) {
                 putLong("${key.id}\$ts", System.currentTimeMillis())
                 putString("${key.id}\$src", source.name)
             }
-        }.apply()
+        }
     }
 
     /**
@@ -82,17 +126,17 @@ class CredentialStore(context: Context) {
         val acceptedPcTs = prefs.getLong("${key.id}\$pcts", 0L)
         if (get(key) != null && pcUpdatedAt <= acceptedPcTs) return false
         val changed = get(key) != value.trim()
-        prefs.edit()
-            .putString(key.id, value.trim())
-            .putLong("${key.id}\$ts", System.currentTimeMillis())
-            .putLong("${key.id}\$pcts", pcUpdatedAt)
-            .putString("${key.id}\$src", Source.PC_SYNC.name)
-            .apply()
+        edit {
+            putString(key.id, value.trim())
+            putLong("${key.id}\$ts", System.currentTimeMillis())
+            putLong("${key.id}\$pcts", pcUpdatedAt)
+            putString("${key.id}\$src", Source.PC_SYNC.name)
+        }
         return changed
     }
 
     fun clearAll() {
-        prefs.edit().clear().apply()
+        edit { clear() }
     }
 
     enum class Source { MANUAL, PC_SYNC }

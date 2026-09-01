@@ -40,6 +40,10 @@ class QobuzApi(
     /** Секрет, который реально дал рабочую подпись — кэшируем. */
     @Volatile private var goodSecret: String = ""
 
+    /** Есть чем логиниться (без сети). Для быстрой проверки готовности сервиса. */
+    fun hasCredentials(): Boolean =
+        !presetToken.isNullOrBlank() || (!email.isNullOrBlank() && !password.isNullOrBlank())
+
     suspend fun ensureAuth(force: Boolean = false): Boolean = mutex.withLock {
         if (!force && authToken.isNotBlank() && appId.isNotBlank()) return true
         val creds = QobuzBundle.resolve(overrideAppId, overrideSecret)

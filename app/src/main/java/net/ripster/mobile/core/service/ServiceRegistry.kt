@@ -46,18 +46,22 @@ object ServiceRegistry {
      * (скрейп client_id, login, refresh), и последовательно они складывались
      * в 10–15 с чёрного экрана поиска.
      */
-    suspend fun configured(): List<ServiceClient> = kotlinx.coroutines.coroutineScope {
-        all().map { client ->
-            async {
-                // Один зависший сетевой isConfigured() не должен держать весь
-                // экран поиска в «Проверяю сервисы…» — жёсткий потолок 6 с.
-                val ok = withTimeoutOrNull(6_000) {
-                    runCatching { client.isConfigured() }.getOrDefault(false)
-                } ?: false
-                if (ok) client else null
+    suspend fun configured(): List<ServiceClient> =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            // isConfigured() теперь у всех клиентов — дешёвая проверка наличия
+            // кред (без сети). Потолки оставлены как страховка от регрессии.
+            val outer = withTimeoutOrNull(4_000) {
+                all().map { client ->
+                    async {
+                        val ok = withTimeoutOrNull(2_000) {
+                            runCatching { client.isConfigured() }.getOrDefault(false)
+                        } ?: false
+                        if (ok) client else null
+                    }
+                }.awaitAll().filterNotNull()
             }
-        }.awaitAll().filterNotNull()
-    }
+            outer ?: emptyList()
+        }
 
     /** Найти клиент, который берётся разобрать эту ссылку. */
     suspend fun resolverFor(url: String): Pair<ServiceClient, Any>? {

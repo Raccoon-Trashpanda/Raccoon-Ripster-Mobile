@@ -50,8 +50,9 @@ class SoundCloudClient(
         id = "aac_hq", label = "HQ AAC", lossless = false, container = "aac", bitrateKbps = 256,
     )
 
-    override suspend fun isConfigured(): Boolean =
-        runCatching { SoundCloudClientId.get() }.isSuccess
+    // Поиск SoundCloud публичный: client_id скрейпится лениво в самом search().
+    // Дёргать скрейп в пробе готовности — тот же баг «Проверяю сервисы…».
+    override suspend fun isConfigured(): Boolean = true
 
     override suspend fun qualities(): List<QualityTier> =
         if (oauthToken.isNullOrBlank()) listOf(mp3_128) else listOf(aac_hq, mp3_128)

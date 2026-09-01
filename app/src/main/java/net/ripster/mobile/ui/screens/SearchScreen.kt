@@ -36,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
+import kotlinx.coroutines.flow.first
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -83,8 +84,10 @@ fun SearchScreen(
     // список сервисов БЕЗ перезапуска приложения.
     val registryGen by ServiceRegistry.generation.collectAsState()
     val configured by produceState<List<ServiceClient>?>(initialValue = null, registryGen) {
-        value = null
-        value = runCatching { ServiceRegistry.configured() }.getOrDefault(emptyList())
+        // НЕ гасим прошлый список на переезоне: после сопряжения generation
+        // бампается несколько раз подряд, и `value = null` заставлял экран
+        // мигать «Проверяю сервисы…». Первый прогон покажет пробу один раз.
+        value = runCatching { ServiceRegistry.configured() }.getOrDefault(value ?: emptyList())
     }
     val ready = configured.orEmpty()
 
@@ -144,17 +147,45 @@ fun SearchScreen(
                 val results = coroutineScope {
                     targets.map { svc ->
                         async {
-                            val r = runCatching { ServiceRegistry.get(svc)?.search(q) }
+                            // Потолок на КАЖДЫЙ сервис: один зависший login/
+                            // ensureSession раньше держал весь поиск в «Ищу…»
+                            // навсегда (awaitAll ждал самого медленного).
+                            val r = runCatching {
+                                kotlinx.coroutines.withTimeoutOrNull(15_000) {
+                                    ServiceRegistry.get(svc)?.search(q)
+                                } ?: throw java.io.IOException("не ответил за 15 с")
+                            }
                             R(svc, r.getOrNull(), r.exceptionOrNull()?.let { it.message ?: it.javaClass.simpleName })
                         }
                     }.awaitAll()
                 }
-                val merged = results.mapNotNull { it.sel }.reduceOrNull { a, b ->
+                val rawMerged = results.mapNotNull { it.sel }.reduceOrNull { a, b ->
                     a.copy(
                         tracks = a.tracks + b.tracks,
                         albums = a.albums + b.albums,
                         artists = a.artists + b.artists,
                     )
+                }
+                // Раньше здесь была просто склейка списков — точное совпадение
+                // тонуло под рыхлыми, один трек дублировался по разу на сервис.
+                // Прогоняем через ранкер: текст → популярность → аффинити к
+                // библиотеке/истории → дедуп по ISRC/UPC.
+                val merged = rawMerged?.let { rm ->
+                    val lib = runCatching {
+                        app.db.library().observeAll().first()
+                    }.getOrDefault(emptyList())
+                    val hist = runCatching { app.db.plays().recent(200) }.getOrDefault(emptyList())
+                    val ctx = net.ripster.mobile.core.service.SearchRanker.Ctx(
+                        libArtists = lib.map { net.ripster.mobile.core.service.SearchRanker.norm(it.artist) }.toSet(),
+                        libAlbums = lib.mapNotNull { a ->
+                            a.album?.let {
+                                net.ripster.mobile.core.service.SearchRanker.norm(a.artist) + "|" +
+                                    net.ripster.mobile.core.service.SearchRanker.norm(it)
+                            }
+                        }.toSet(),
+                        histArtists = hist.map { net.ripster.mobile.core.service.SearchRanker.norm(it.artist) }.toSet(),
+                    )
+                    net.ripster.mobile.core.service.SearchRanker.rank(q, rm, ctx)
                 }
                 result = merged
                 val hasContent = merged != null && (merged.tracks.isNotEmpty() || merged.albums.isNotEmpty())

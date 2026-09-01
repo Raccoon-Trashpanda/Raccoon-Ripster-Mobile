@@ -56,8 +56,9 @@ class TidalClient(
     private val aac = QualityTier("aac_256", "AAC 320", lossless = false, container = "m4a", bitrateKbps = 320)
     private val low = QualityTier("mp3_128", "AAC 96", lossless = false, container = "m4a", bitrateKbps = 96)
 
-    override suspend fun isConfigured(): Boolean =
-        stored != null && runCatching { ensureToken() }.getOrDefault(false)
+    // Есть сохранённая сессия — считаем готовым; ensureToken() (сеть) уедет в
+    // первый search()/resolve(), а не в пробу готовности.
+    override suspend fun isConfigured(): Boolean = stored != null
 
     override suspend fun qualities(): List<QualityTier> = listOf(flac, aac, low)
 
