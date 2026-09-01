@@ -39,6 +39,9 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageShader
+import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
@@ -153,16 +156,22 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
             xfade.snapTo(0f); xfade.animateTo(1f, androidx.compose.animation.core.tween(500))
         }
     }
+    val ditherBrush = rememberDitherBrush()
     Box(
         Modifier.fillMaxSize().background(c.surface_canvas).drawBehind {
             fun mesh(blobs: List<AmbiBlob>, a: Float) {
                 if (blobs.isEmpty() || a <= 0.01f) return
                 for (b in blobs) {
+                    val t = b.tint.copy(alpha = b.tint.alpha * a)
                     drawRect(
+                        // 3 стопа вместо 2: пологое плечо в середине даёт мягче
+                        // спад, чем линейный [цвет → прозрачность], и колец меньше
                         Brush.radialGradient(
-                            listOf(b.tint.copy(alpha = b.tint.alpha * a), Color.Transparent),
+                            0f to t,
+                            0.55f to t.copy(alpha = t.alpha * 0.32f),
+                            1f to Color.Transparent,
                             center = Offset(size.width * b.cx, size.height * b.cy),
-                            radius = size.width * 0.92f,
+                            radius = size.width * 0.98f,
                         ),
                     )
                 }
@@ -172,18 +181,23 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
             if (neon) {
                 drawRect(
                     Brush.radialGradient(
-                        listOf(Color(0x24FF4D8F), Color(0x00FF4D8F)),
+                        0f to Color(0x24FF4D8F), 0.6f to Color(0x0BFF4D8F), 1f to Color(0x00FF4D8F),
                         center = Offset(size.width * 0.84f, -size.height * 0.04f),
                         radius = size.width * 1.10f,
                     ),
                 )
                 drawRect(
                     Brush.radialGradient(
-                        listOf(Color(0x1CA238FF), Color(0x00A238FF)),
+                        0f to Color(0x1CA238FF), 0.6f to Color(0x08A238FF), 1f to Color(0x00A238FF),
                         center = Offset(-size.width * 0.06f, size.height * 1.06f),
                         radius = size.width * 1.05f,
                     ),
                 )
+            }
+            // дизер: тонкая шумовая плёнка поверх всех градиентов — ломает
+            // 8-битные кольца в зерно. Нужна только когда фон вообще есть.
+            if (neon || meshCur.isNotEmpty() || meshPrev.isNotEmpty()) {
+                drawRect(ditherBrush, alpha = 0.028f)
             }
         },
     ) {
@@ -465,6 +479,29 @@ private fun buildAmbiMesh(pal: List<Color>, seed: Int): List<AmbiBlob> {
         )
         AmbiBlob(base = col, cx = cx, cy = cy, tint = cc.copy(alpha = 0.13f))
     }
+}
+
+/**
+ * Тайловый шум для дизеринга. Радиальные градиенты ambilight — это очень
+ * пологие переходы; в 8 бит на канал и без дизера Skia рисует их видимыми
+ * кольцами («лесенка», «полигоны»). Тонкая шумовая плёнка поверх (SrcOver,
+ * ~3%) размывает 8-битные ступени в зерно — бандинг пропадает. Битмап
+ * строится ОДИН раз и тайлится шейдером; на кадр — одна заливка прямоугольника.
+ */
+@Composable
+private fun rememberDitherBrush(): ShaderBrush {
+    val bmp = remember {
+        val n = 64
+        val b = android.graphics.Bitmap.createBitmap(n, n, android.graphics.Bitmap.Config.ARGB_8888)
+        val rnd = java.util.Random(0x5EED)
+        val px = IntArray(n * n) {
+            val v = rnd.nextInt(256)
+            (0xFF shl 24) or (v shl 16) or (v shl 8) or v
+        }
+        b.setPixels(px, 0, n, 0, 0, n, n)
+        b.asImageBitmap()
+    }
+    return remember(bmp) { ShaderBrush(ImageShader(bmp, TileMode.Repeated, TileMode.Repeated)) }
 }
 
 /** Средняя палитра обложки — до 5 приглушённых оттенков по зонам (TL/TR/BL/BR/
