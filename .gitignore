@@ -1,0 +1,27 @@
+# --- Android / Gradle build output ---
+*.iml
+.gradle/
+.kotlin/
+/local.properties
+/.idea/
+.DS_Store
+/build/
+/captures/
+.externalNativeBuild/
+.cxx/
+*/build/
+app/build/
+app/.cxx/
+
+# --- Signing material — NEVER commit ---
+*.jks
+*.keystore
+keystore.properties
+signing.properties
+
+# --- Misc ---
+*.log
+*.hprof
+/app/release/
+/app/debug/
+local.gradle

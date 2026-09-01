@@ -1,0 +1,100 @@
+package net.ripster.mobile.core.db
+
+import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Query
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface DownloadDao {
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(row: DownloadEntity)
+
+    @Query("SELECT * FROM downloads ORDER BY createdAt DESC")
+    fun observeAll(): Flow<List<DownloadEntity>>
+
+    @Query("SELECT * FROM downloads WHERE id = :id")
+    fun observe(id: String): Flow<DownloadEntity?>
+
+    @Query("SELECT * FROM downloads WHERE id = :id")
+    suspend fun get(id: String): DownloadEntity?
+
+    @Query("UPDATE downloads SET state = :state, updatedAt = :ts WHERE id = :id")
+    suspend fun setState(id: String, state: String, ts: Long)
+
+    @Query(
+        "UPDATE downloads SET fraction = :fraction, downloadedBytes = :done, " +
+            "totalBytes = :total, state = 'RUNNING', updatedAt = :ts WHERE id = :id"
+    )
+    suspend fun setProgress(id: String, fraction: Float?, done: Long, total: Long?, ts: Long)
+
+    @Query(
+        "UPDATE downloads SET state = 'DONE', filePath = :path, qualityId = :qualityId, " +
+            "downloadedBytes = :bytes, fraction = 1.0, errorReason = NULL, updatedAt = :ts WHERE id = :id"
+    )
+    suspend fun markDone(id: String, path: String, qualityId: String, bytes: Long, ts: Long)
+
+    @Query("UPDATE downloads SET state = 'FAILED', errorReason = :reason, updatedAt = :ts WHERE id = :id")
+    suspend fun markFailed(id: String, reason: String, ts: Long)
+
+    @Query("DELETE FROM downloads WHERE id = :id")
+    suspend fun delete(id: String)
+
+    @Query("DELETE FROM downloads WHERE state IN ('DONE', 'CANCELLED')")
+    suspend fun clearFinished()
+
+    /** Снимок последних записей — для отправки активности на ПК. */
+    @Query("SELECT * FROM downloads ORDER BY createdAt DESC LIMIT :limit")
+    suspend fun recent(limit: Int = 100): List<DownloadEntity>
+}
+
+@Dao
+interface LibraryDao {
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(row: LibraryEntity)
+
+    @Query("SELECT * FROM library ORDER BY addedAt DESC")
+    fun observeAll(): Flow<List<LibraryEntity>>
+
+    @Query("SELECT * FROM library WHERE id IN (:ids)")
+    suspend fun byIds(ids: List<String>): List<LibraryEntity>
+
+    @Query(
+        "SELECT * FROM library WHERE title LIKE '%' || :q || '%' OR artist LIKE '%' || :q || '%' " +
+            "ORDER BY addedAt DESC"
+    )
+    fun search(q: String): Flow<List<LibraryEntity>>
+}
+
+@Dao
+interface PlayDao {
+
+    @Insert
+    suspend fun add(row: PlayEntity)
+
+    @Query("SELECT * FROM play_history ORDER BY playedAt DESC LIMIT :limit")
+    fun observeRecent(limit: Int = 60): Flow<List<PlayEntity>>
+
+    /** Снимок последних прослушиваний — для отправки активности на ПК. */
+    @Query("SELECT * FROM play_history ORDER BY playedAt DESC LIMIT :limit")
+    suspend fun recent(limit: Int = 100): List<PlayEntity>
+
+    /** Самый свежий трек по каждому жанру — для галереи «Что игралось». */
+    @Query(
+        "SELECT * FROM play_history WHERE genre <> '' AND rowId IN " +
+            "(SELECT MAX(rowId) FROM play_history WHERE genre <> '' GROUP BY genre) " +
+            "ORDER BY playedAt DESC"
+    )
+    fun observeByGenre(): Flow<List<PlayEntity>>
+
+    @Query("SELECT genre, COUNT(*) c FROM play_history WHERE genre <> '' GROUP BY genre ORDER BY c DESC")
+    fun observeGenreCounts(): Flow<List<GenreCount>>
+
+    @Query("DELETE FROM play_history")
+    suspend fun clear()
+}
+
+data class GenreCount(val genre: String, val c: Int)

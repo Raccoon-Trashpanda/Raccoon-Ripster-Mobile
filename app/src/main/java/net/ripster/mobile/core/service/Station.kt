@@ -1,0 +1,150 @@
+package net.ripster.mobile.core.service
+
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import net.ripster.mobile.core.model.Service
+import net.ripster.mobile.core.model.Track
+import net.ripster.mobile.player.PlayerController
+import net.ripster.mobile.service.soundcloud.SoundCloudClient
+import net.ripster.mobile.service.yandex.YandexMusicClient
+
+/**
+ * Автосборка станции («Волна») — НЕ поиск, а конкретный курируемый плейлист.
+ *
+ * Источник по приоритету:
+ *  1. Чарт SoundCloud по жанру (`charts?kind=top&genre=…`) — работает без ПК,
+ *     это уже готовый «топ по жанру», не выдача поиска.
+ *  2. Если SoundCloud недоступен — слияние топ-N результатов по жанру из всех
+ *     настроенных сервисов (свой простой алгоритм round-robin + дедуп по ISRC).
+ *
+ * Дальше [StreamResolver] превращает треки в прямые стрим-URL — станция
+ * играется потоком, без скачивания.
+ */
+object StationBuilder {
+
+    suspend fun build(
+        scGenreSlug: String,
+        fallbackQuery: String,
+        yandexStationId: String? = null,
+        size: Int = 30,
+    ): List<Track> {
+        // 1. Яндекс rotor — родная «Моя волна» по жанру/настроению/активности.
+        if (!yandexStationId.isNullOrBlank()) {
+            (ServiceRegistry.get(Service.YANDEX) as? YandexMusicClient)?.let { ya ->
+                val t = runCatching { ya.station(yandexStationId, size) }.getOrDefault(emptyList())
+                if (t.size >= 5) return t
+            }
+        }
+        // 2. Чарт SoundCloud по жанру.
+        if (scGenreSlug.isNotBlank()) {
+            (ServiceRegistry.get(Service.SOUNDCLOUD) as? SoundCloudClient)?.let { sc ->
+                val t = runCatching { sc.station(scGenreSlug, size) }.getOrDefault(emptyList())
+                if (t.size >= 5) return t
+            }
+        }
+        val clients = ServiceRegistry.configured()
+        if (clients.isEmpty()) return emptyList()
+        val perClient: List<List<Track>> = coroutineScope {
+            clients.map { c ->
+                async { runCatching { c.search(fallbackQuery).tracks.take(12) }.getOrDefault(emptyList()) }
+            }.awaitAll()
+        }
+        val seen = HashSet<String>()
+        val out = ArrayList<Track>()
+        var i = 0
+        while (out.size < size && perClient.any { i < it.size }) {
+            for (list in perClient) {
+                val tr = list.getOrNull(i) ?: continue
+                val key = (tr.isrc ?: (tr.title + "|" + tr.artist)).lowercase()
+                if (seen.add(key)) out.add(tr)
+                if (out.size >= size) break
+            }
+            i++
+        }
+        return out
+    }
+}
+
+/**
+ * Разобрать ссылку релиза/трека любым настроенным клиентом и заиграть её
+ * потоком: первые треки резолвятся сразу (чтобы заиграло без задержки),
+ * остальное дорезолвится и дописывается в очередь фоном.
+ */
+object ReleasePlayback {
+
+    /** Сервисы, которые реально отдают поток (для конверсии Spotify/Apple). */
+    private val STREAMABLE = listOf(Service.DEEZER, Service.QOBUZ, Service.TIDAL, Service.SOUNDCLOUD)
+
+    /** @return true, если что-то удалось поставить на воспроизведение. */
+    suspend fun play(
+        player: PlayerController,
+        url: String,
+        quality: List<String>,
+    ): Boolean {
+        val sel = ServiceRegistry.all()
+            .firstNotNullOfOrNull { runCatching { it.resolve(url) }.getOrNull() }
+
+        // 1) есть треклист от resolve() — резолвим потоки как есть
+        val tracks = sel?.tracks.orEmpty()
+        if (tracks.isNotEmpty()) {
+            val head = StreamResolver.toStreamItems(tracks.take(4), quality, limit = 4)
+            if (head.isNotEmpty()) {
+                player.playStream(head)
+                if (tracks.size > 4) {
+                    player.appendStream(StreamResolver.toStreamItems(tracks.drop(4), quality, limit = 40))
+                }
+                return true
+            }
+        }
+
+        // 2) треклиста нет (Spotify/Apple-ссылка отдала только альбом) — ищем
+        //    релиз в «простых» сервисах (Deezer/Qobuz/Tidal) по «артист альбом»,
+        //    как это делает ПК-версия, и играем их поток.
+        val album = sel?.albums?.firstOrNull()
+        val query = when {
+            album != null -> "${album.artist} ${album.title}".trim()
+            !sel?.containerTitle.isNullOrBlank() -> sel!!.containerTitle!!
+            else -> return false
+        }
+        val fromSearch: List<Track> = coroutineScope {
+            STREAMABLE.mapNotNull { ServiceRegistry.get(it) }.map { c ->
+                async { runCatching { c.search(query).tracks.take(12) }.getOrDefault(emptyList()) }
+            }.awaitAll()
+        }.firstOrNull { it.isNotEmpty() } ?: return false
+
+        val head = StreamResolver.toStreamItems(fromSearch.take(4), quality, limit = 4)
+        if (head.isEmpty()) return false
+        player.playStream(head)
+        if (fromSearch.size > 4) {
+            player.appendStream(StreamResolver.toStreamItems(fromSearch.drop(4), quality, limit = 40))
+        }
+        return true
+    }
+}
+
+/** Превращает треки в прямые стрим-URL для потокового воспроизведения. */
+object StreamResolver {
+
+    suspend fun toStreamItems(
+        tracks: List<Track>,
+        quality: List<String>,
+        limit: Int = 40,
+    ): List<PlayerController.StreamItem> = coroutineScope {
+        tracks.take(limit).map { tr ->
+            async {
+                runCatching {
+                    val client = ServiceRegistry.get(tr.service) ?: return@runCatching null
+                    val info = client.streamInfo(tr, quality)
+                    if (info.url.isBlank()) null
+                    else PlayerController.StreamItem(
+                        url = info.url,
+                        title = tr.title,
+                        artist = tr.artist,
+                        artworkUrl = tr.artworkUrl,
+                    )
+                }.getOrNull()
+            }
+        }.awaitAll().filterNotNull()
+    }
+}
