@@ -72,6 +72,7 @@ private val LINK_ONLY = setOf(Service.SPOTIFY, Service.BBC)
 fun SearchScreen(
     modifier: Modifier = Modifier,
     onOpenArtist: (String, String, String) -> Unit = { _, _, _ -> },
+    onOpenPlayer: () -> Unit = {},
 ) {
     val lang = LocalAppLang.current
     val c = RipsterTheme.colors
@@ -443,10 +444,21 @@ fun SearchScreen(
                             onArtist = { onOpenArtist(a.artist, a.service.id, "") },
                             onPlay = {
                                 scope.launch {
+                                    // Треков этого альбома в выдаче обычно НЕТ
+                                    // (поиск отдал либо альбомы, либо треки).
+                                    // Раньше это давало «тишину». Резолвим сам
+                                    // альбом по URL — как карточки релизов везде.
+                                    var ok = false
                                     val items = net.ripster.mobile.core.service.StreamResolver
-                                        .toStreamItems(albTracks.ifEmpty { listOf() }, quality, limit = 40)
-                                    if (items.isNotEmpty()) app.player.playStream(items)
-                                    else error = tr("search.album_open_tracks", lang)
+                                        .toStreamItems(albTracks, quality, limit = 40)
+                                    if (items.isNotEmpty()) { app.player.playStream(items); ok = true }
+                                    if (!ok) {
+                                        val u = dzTidalQobuzAlbumUrl(a.service.id, a.id)
+                                        if (u.isNotBlank()) ok = kotlinx.coroutines.withTimeoutOrNull(20_000) {
+                                            net.ripster.mobile.core.service.ReleasePlayback.play(app.player, u, quality)
+                                        } == true
+                                    }
+                                    if (ok) onOpenPlayer() else error = tr("search.album_open_tracks", lang)
                                 }
                             },
                             onDownload = {
@@ -476,6 +488,7 @@ fun SearchScreen(
                                         .toStreamItems(ordered.take(4), quality, limit = 4)
                                     if (head.isEmpty()) { error = tr("search.nothing", lang); return@launch }
                                     app.player.playStream(head)
+                                    onOpenPlayer()
                                     if (ordered.size > 4) {
                                         app.player.appendStream(
                                             net.ripster.mobile.core.service.StreamResolver
@@ -656,5 +669,17 @@ private fun DownloadPill(queued: Boolean, onClick: () -> Unit, c: net.ripster.mo
             BasicText("↓", style = TextStyle(color = c.text_on_fill, fontSize = 14.sp, fontWeight = FontWeight.Bold))
             BasicText(tr("search.dl", lang), style = TextStyle(color = c.text_on_fill, fontSize = 12.sp, fontWeight = FontWeight.Bold))
         }
+    }
+}
+
+/** URL альбома из id+сервиса — для resolve()/ReleasePlayback, когда в выдаче
+ *  поиска нет треков этого альбома. */
+private fun dzTidalQobuzAlbumUrl(serviceId: String, id: String): String {
+    if (id.isBlank() || id == "0") return ""
+    return when (serviceId) {
+        "deezer" -> "https://www.deezer.com/album/$id"
+        "qobuz" -> "https://open.qobuz.com/album/$id"
+        "tidal" -> "https://listen.tidal.com/album/$id"
+        else -> ""
     }
 }

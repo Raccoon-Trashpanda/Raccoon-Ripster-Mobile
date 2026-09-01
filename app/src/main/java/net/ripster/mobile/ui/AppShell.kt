@@ -341,7 +341,7 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                         onOpenAlbum = { albumTarget = it },
                         onOpenArtist = openArtist,
                     )
-                    RipsterDestination.Search -> Box(Modifier.fillMaxSize()) { SearchScreen(onOpenArtist = openArtist) }
+                    RipsterDestination.Search -> Box(Modifier.fillMaxSize()) { SearchScreen(onOpenArtist = openArtist, onOpenPlayer = { userNavigated = true; dest = RipsterDestination.Player }) }
                     RipsterDestination.Radar -> net.ripster.mobile.ui.screens.RadarScreen(
                         onOpenAlbum = { albumTarget = it },
                         onOpenArtist = openArtist,
@@ -417,7 +417,7 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
             androidx.activity.compose.BackHandler(true) { showSearch = false }
             Column(Modifier.fillMaxSize().background(c.surface_canvas).windowInsetsPadding(WindowInsets.safeDrawing)) {
                 OverlayBar(tr("nav.search", lang)) { showSearch = false }
-                Box(Modifier.weight(1f)) { SearchScreen() }
+                Box(Modifier.weight(1f)) { SearchScreen(onOpenPlayer = { showSearch = false; userNavigated = true; dest = RipsterDestination.Player }) }
                 // Только текстовый статус очереди — без анимированного кружка:
                 // на тяжёлых перекомпоновках экрана поиска второй экземпляр орба
                 // ремонтировался и мерцал. Орб живёт единственным — в оболочке.
