@@ -416,6 +416,7 @@ class PcBridge(context: Context) {
         val kind: String = "artist",   // artist | label
         val coverUrl: String? = null,  // готовая обложка релиза с ПК (Spotify отдаёт сразу)
         val artistId: String = "",     // id артиста в сервисе — для перехода в дискографию
+        val date: String = "",         // дата релиза (ISO). Будущая → поток ещё не существует
     )
 
     // ── страница артиста (дискография) ──
@@ -453,6 +454,7 @@ class PcBridge(context: Context) {
                             kind = o["kind"]?.jsonPrimitive?.contentOrNull?.lowercase() ?: "artist",
                             coverUrl = o["cover_url"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
                             artistId = o["artist_id"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                            date = o["date"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                         )
                     }
                 }

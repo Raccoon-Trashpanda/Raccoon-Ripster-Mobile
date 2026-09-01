@@ -499,12 +499,17 @@ private fun SpectrumPanel(
     val ext = path?.substringAfterLast('.', "")?.lowercase()?.take(5)
     val style = net.ripster.mobile.core.audio.Spectrogram.Style.byId(settings.spectrumStyle)
 
-    // 0 — строю, 1 — готово, 2 — не удалось (файл не читается движком устройства)
+    // «Локальный» = скачанный файл (file://, content://, голый путь). Поток по
+    // сети MediaCodec не разберёт (Deezer вообще шифрован) — спектр строим
+    // только по скачанному, иначе панель выглядит «сломанной».
+    val isLocal = path != null && !path.startsWith("http", ignoreCase = true)
+
+    // 0 — строю, 1 — готово, 2 — не удалось, 3 — трек не скачан (спектр не применим)
     var phase by remember(path, style) { mutableStateOf(0) }
     var result by remember(path, style) { mutableStateOf<net.ripster.mobile.core.audio.Spectrogram.Result?>(null) }
     LaunchedEffect(path, style) {
         phase = 0; result = null
-        if (path == null) { phase = 2; return@LaunchedEffect }
+        if (path == null || !isLocal) { phase = 3; return@LaunchedEffect }
         val r = runCatching {
             net.ripster.mobile.core.audio.Spectrogram.analyze(ctx, path, style, heightPx = 360, containerExt = ext)
         }.getOrNull()
@@ -540,6 +545,7 @@ private fun SpectrumPanel(
 
         when {
             phase == 0 -> Centered(tr("ref.spectrum_building", lang), c)
+            phase == 3 -> Centered(tr("ref.spectrum_stream", lang), c)
             phase == 2 || result == null -> Centered(tr("ref.spectrum_fail", lang), c)
             else -> {
                 val r = result!!

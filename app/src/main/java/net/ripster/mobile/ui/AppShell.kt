@@ -16,6 +16,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Box
@@ -100,6 +102,8 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
         )
     }
     var userNavigated by remember { mutableStateOf(false) }
+    // Куда возвращаться при сворачивании плеера (⌄ / свайп / Back).
+    var lastTab by remember { mutableStateOf(RipsterDestination.Home) }
     // Восстановление очереди асинхронное — если оно доехало за время заставки и
     // человек ещё никуда не тыкал, показываем Плеер (стартует на паузе).
     androidx.compose.runtime.LaunchedEffect(Unit) {
@@ -109,6 +113,9 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                 dest = RipsterDestination.Player; return@LaunchedEffect
             }
         }
+    }
+    androidx.compose.runtime.LaunchedEffect(dest) {
+        if (dest != RipsterDestination.Player) lastTab = dest
     }
     var showSearch by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(startInAccountsSettings) }
@@ -308,37 +315,79 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                             format = playback.format,
                             artworkUrl = playback.artworkUrl,
                         )
-                        if (settings.playerStyle == "immersive") {
-                            net.ripster.mobile.ui.screens.ImmersivePlayerScreen(
-                                state = npState,
-                                onSeek = { app.player.seekTo(it) },
-                                onPlayPause = { app.player.togglePlay() },
-                                onNext = { app.player.next() },
-                                onPrevious = { app.player.previous() },
-                            )
-                        } else if (settings.playerStyle == "studio") {
-                            NowPlayingScreen(
-                                state = npState,
-                                onSeek = { app.player.seekTo(it) },
-                                onScrubPreview = {},
-                                onPlayPause = { app.player.togglePlay() },
-                                onNext = { app.player.next() },
-                                onPrevious = { app.player.previous() },
-                                onToggleShuffle = { app.player.toggleShuffle() },
-                                onToggleRepeat = { app.player.cycleRepeat() },
-                                onDownloadAlbum = {},
-                            )
-                        } else {
-                            net.ripster.mobile.ui.screens.ReferencePlayerScreen(
-                                state = npState,
-                                onSeek = { app.player.seekTo(it) },
-                                onPlayPause = { app.player.togglePlay() },
-                                onNext = { app.player.next() },
-                                onPrevious = { app.player.previous() },
-                                onToggleShuffle = { app.player.toggleShuffle() },
-                                onToggleRepeat = { app.player.cycleRepeat() },
-                                onDownloadAlbum = {},
-                            )
+                        val minimize = { userNavigated = true; dest = lastTab }
+                        val close = { app.player.stop(); userNavigated = true; dest = lastTab }
+                        androidx.activity.compose.BackHandler(enabled = true) { minimize() }
+                        Box(
+                            Modifier.fillMaxSize().pointerInput(Unit) {
+                                var accX = 0f
+                                var accY = 0f
+                                detectDragGestures(
+                                    onDragEnd = {
+                                        // свайп вбок (любой) — закрыть плеер и остановить;
+                                        // свайп вниз — просто свернуть (плеер играет дальше)
+                                        if (kotlin.math.abs(accX) > 140f && kotlin.math.abs(accX) > kotlin.math.abs(accY)) close()
+                                        else if (accY > 160f) minimize()
+                                        accX = 0f; accY = 0f
+                                    },
+                                    onDragCancel = { accX = 0f; accY = 0f },
+                                ) { ch, dr ->
+                                    accX += dr.x; accY += dr.y
+                                    if (kotlin.math.abs(dr.x) > kotlin.math.abs(dr.y)) ch.consume()
+                                }
+                            },
+                        ) {
+                            if (settings.playerStyle == "immersive") {
+                                net.ripster.mobile.ui.screens.ImmersivePlayerScreen(
+                                    state = npState,
+                                    onSeek = { app.player.seekTo(it) },
+                                    onPlayPause = { app.player.togglePlay() },
+                                    onNext = { app.player.next() },
+                                    onPrevious = { app.player.previous() },
+                                )
+                            } else if (settings.playerStyle == "studio") {
+                                NowPlayingScreen(
+                                    state = npState,
+                                    onSeek = { app.player.seekTo(it) },
+                                    onScrubPreview = {},
+                                    onPlayPause = { app.player.togglePlay() },
+                                    onNext = { app.player.next() },
+                                    onPrevious = { app.player.previous() },
+                                    onToggleShuffle = { app.player.toggleShuffle() },
+                                    onToggleRepeat = { app.player.cycleRepeat() },
+                                    onDownloadAlbum = {},
+                                )
+                            } else {
+                                net.ripster.mobile.ui.screens.ReferencePlayerScreen(
+                                    state = npState,
+                                    onSeek = { app.player.seekTo(it) },
+                                    onPlayPause = { app.player.togglePlay() },
+                                    onNext = { app.player.next() },
+                                    onPrevious = { app.player.previous() },
+                                    onToggleShuffle = { app.player.toggleShuffle() },
+                                    onToggleRepeat = { app.player.cycleRepeat() },
+                                    onDownloadAlbum = {},
+                                )
+                            }
+                            // свернуть (⌄) + закрыть (×) — правый верх поверх плеера
+                            Row(
+                                Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.systemBars)
+                                    .padding(top = 6.dp, end = 10.dp),
+                                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp),
+                            ) {
+                                GlyphButton(onClick = { minimize() }) {
+                                    drawLine(c.text_secondary, Offset(size.width * 0.28f, size.height * 0.42f),
+                                        Offset(size.width * 0.5f, size.height * 0.62f), 6f, androidx.compose.ui.graphics.StrokeCap.Round)
+                                    drawLine(c.text_secondary, Offset(size.width * 0.5f, size.height * 0.62f),
+                                        Offset(size.width * 0.72f, size.height * 0.42f), 6f, androidx.compose.ui.graphics.StrokeCap.Round)
+                                }
+                                GlyphButton(onClick = { close() }) {
+                                    drawLine(c.text_secondary, Offset(size.width * 0.32f, size.height * 0.32f),
+                                        Offset(size.width * 0.68f, size.height * 0.68f), 6f, androidx.compose.ui.graphics.StrokeCap.Round)
+                                    drawLine(c.text_secondary, Offset(size.width * 0.68f, size.height * 0.32f),
+                                        Offset(size.width * 0.32f, size.height * 0.68f), 6f, androidx.compose.ui.graphics.StrokeCap.Round)
+                                }
+                            }
                         }
                     } else {
                         Placeholder(tr("player.pick_track", lang))

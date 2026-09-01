@@ -533,6 +533,13 @@ private val STRINGS: Map<String, Row> = mapOf(
         "この端末ではこのファイルをデコードできませんでした",
         "无法在设备上解码此文件",
     ),
+    "ref.spectrum_stream" to row(
+        "Спектр строится по скачанному файлу — скачай трек, потом открой здесь",
+        "The spectrum needs a downloaded file — download the track, then open this",
+        "स्पेक्ट्रम के लिए डाउनलोड की गई फ़ाइल चाहिए — पहले ट्रैक डाउनलोड करें",
+        "スペクトラムには保存済みファイルが必要です — 先に曲をダウンロードしてください",
+        "频谱需要已下载的文件 — 请先下载曲目再查看",
+    ),
     "ref.spectrum_hint" to row(
         "Срез частот сверху выдаёт lossy: у настоящего lossless энергия доходит до верхнего края.",
         "A ceiling near the top is the lossy tell: true lossless carries energy to the top edge.",

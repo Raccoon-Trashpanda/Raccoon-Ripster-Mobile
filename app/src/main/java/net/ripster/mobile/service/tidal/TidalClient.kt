@@ -111,7 +111,16 @@ class TidalClient(
 
     override suspend fun streamInfo(track: Track, preference: List<String>): StreamInfo {
         val id = track.raw["tdId"] ?: throw IOException("Tidal: no track id")
-        return when (val s = resolveStream(id, preference)) {
+        var s = resolveStream(id, preference)
+        if (s is TdStream.Dash) {
+            // Потоковое воспроизведение НЕ тянет DASH (у нас только init-сегмент
+            // без media-сегментов → ExoPlayer: «malformed content»). Для стрима
+            // берём ПРЯМОЙ URL: LOSSLESS FLAC, иначе HIGH AAC. HI-RES остаётся
+            // только для скачивания (там сегменты склеиваются в файл).
+            val direct = runCatching { resolveStream(id, listOf("lossless_direct")) }.getOrNull()
+            if (direct is TdStream.Direct) s = direct
+        }
+        return when (s) {
             is TdStream.Direct -> StreamInfo(url = s.url, quality = s.tier)
             is TdStream.Dash -> StreamInfo(url = s.initUrl, quality = s.tier)
         }
@@ -221,6 +230,8 @@ class TidalClient(
         if (!ensureToken()) throw IOException("Tidal: not authorized (re-login in Accounts)")
         val order = buildList {
             for (p in preference) when {
+                // спец-режим для стрима: только прямые URL, без HI-RES/DASH
+                p == "lossless_direct" -> { add("LOSSLESS" to flac); add("HIGH" to aac) }
                 p.startsWith("flac_24") || p.contains("hires") || p.contains("hi_res") -> add("HI_RES_LOSSLESS" to hires)
                 p.startsWith("flac") -> { add("HI_RES_LOSSLESS" to hires); add("LOSSLESS" to flac) }
                 p == "mp3_320" || p == "aac_256" -> add("HIGH" to aac)

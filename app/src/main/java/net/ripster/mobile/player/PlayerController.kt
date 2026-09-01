@@ -339,6 +339,15 @@ class PlayerController(context: Context) {
         if (c.isPlaying) c.pause() else c.play()
     }
 
+    /** Полностью остановить и очистить — по кнопке «закрыть плеер». */
+    fun stop() {
+        if (nativeActive) { runCatching { NativeAudioEngine.stop() }; nativeQueue = emptyList() }
+        runCatching { controller?.stop() }
+        runCatching { controller?.clearMediaItems() }
+        queueEntities = emptyList()
+        pushState()
+    }
+
     fun seekTo(ms: Long) {
         if (nativeActive) { NativeAudioEngine.seekMs(ms); pushNativeState(); return }
         controller?.seekTo(ms)

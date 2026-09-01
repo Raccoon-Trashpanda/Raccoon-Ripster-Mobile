@@ -414,8 +414,23 @@ fun SearchScreen(
             val filteredToNothing = albums.isEmpty() && tracks.isEmpty() &&
                 (sel.albums.isNotEmpty() || sel.tracks.isNotEmpty())
             if (sortNew) {
-                albums = albums.sortedByDescending { it.year ?: 0 }
-                tracks = tracks.sortedByDescending { it.year ?: 0 }
+                // «Сначала новые» — ВТОРИЧНАЯ сортировка: сперва держим наверху то,
+                // что реально совпало со всем запросом (иначе точный трек 2017-го
+                // тонул под рыхлым релизом 2022-го — «искал X, нашёл Y»).
+                val words = query.lowercase().trim().split(Regex("\\s+")).filter { it.length > 1 }
+                fun hit(hay: String): Boolean {
+                    if (words.isEmpty()) return false
+                    val h = hay.lowercase()
+                    return words.all { it in h }
+                }
+                albums = albums.sortedWith(
+                    compareByDescending<net.ripster.mobile.core.model.Album> { hit(it.artist + " " + it.title) }
+                        .thenByDescending { it.year ?: 0 },
+                )
+                tracks = tracks.sortedWith(
+                    compareByDescending<net.ripster.mobile.core.model.Track> { hit(it.artist + " " + it.title) }
+                        .thenByDescending { it.year ?: 0 },
+                )
             }
 
             val quality = settings.qualityFor(onWifi = true)

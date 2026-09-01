@@ -112,7 +112,17 @@ fun HomeScreen(
         value = if (!app.pcBridge.paired) emptyList()
         else runCatching { app.pcBridge.radar().getOrDefault(emptyList()) }.getOrDefault(emptyList())
     }
-    val radar = remember(radarAll) { radarAll.filter { it.latestUrl.isNotBlank() }.take(12) }
+    // Витрина «новые релизы»: только то, что реально можно проиграть — релиз с
+    // датой в будущем ни один поток ещё не отдаёт (напр. Spotify-радар владельца
+    // видит анонс за неделю). Плюс перемешиваем за заход, как коллекцию/станции.
+    val radar = remember(radarAll, visitSeed) {
+        val today = java.time.LocalDate.now().toString()   // ISO, лексикографически сравнимо
+        radarAll
+            .filter { it.latestUrl.isNotBlank() }
+            .filter { it.date.isBlank() || it.date <= today }
+            .shuffled(kotlin.random.Random(visitSeed xor 0x2545F4914F6CDD1DL))
+            .take(12)
+    }
     // «Источники» = ТОЛЬКО сервисы, откуда реально приходят данные об артистах
     // (вишлист + подписки в стриминге — их сводит радар ПК). Просто вставленные
     // токены движка (Qobuz для скачивания) сюда НЕ попадают.
