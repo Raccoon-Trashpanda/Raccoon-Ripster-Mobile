@@ -64,6 +64,32 @@ data class LibraryEntity(
  * (как «по жанрам/настроениям» в Apple/Яндексе). Одна строка = один запуск
  * трека; для галереи берём самый свежий по каждому жанру.
  */
+/**
+ * Локальный радар: за кем следит ТЕЛЕФОН сам, без ПК. Периодический воркер
+ * дёргает `ServiceClient.getArtist()` и сравнивает самый свежий релиз с
+ * [latestReleaseId]; появился новый — ставит [unseen] и шлёт уведомление.
+ */
+@Entity(tableName = "watchlist")
+data class WatchEntity(
+    /** "<serviceId>:<kind>:<artistId|name>". */
+    @PrimaryKey val key: String,
+    val kind: String,                 // artist | label
+    val serviceId: String,
+    val artistId: String = "",
+    val name: String,
+    val coverUrl: String? = null,
+    /** id самого свежего СВОЕГО релиза, что телефон уже видел. */
+    val latestReleaseId: String = "",
+    val latestTitle: String = "",
+    val latestUrl: String = "",
+    val latestCoverUrl: String? = null,
+    val latestDate: String = "",
+    /** Есть непросмотренная новинка. */
+    val unseen: Boolean = false,
+    val lastCheck: Long = 0,
+    val addedAt: Long,
+)
+
 @Entity(tableName = "play_history")
 data class PlayEntity(
     @PrimaryKey(autoGenerate = true) val rowId: Long = 0,

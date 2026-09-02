@@ -45,6 +45,8 @@ class RipsterApp : Application() {
         private set
     lateinit var pcBridge: PcBridge
         private set
+    lateinit var localRadar: net.ripster.mobile.core.radar.LocalRadar
+        private set
 
     @Volatile
     private var lastActivityPush = 0L
@@ -82,6 +84,9 @@ class RipsterApp : Application() {
             wifiOnlyProvider = { settings.state.value.wifiOnly },
         )
         DownloadWorker.ensureChannel(this)
+
+        localRadar = net.ripster.mobile.core.radar.LocalRadar(db)
+        net.ripster.mobile.core.radar.RadarWorker.schedule(this)
 
         registerClients()
 

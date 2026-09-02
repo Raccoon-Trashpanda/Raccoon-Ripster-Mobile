@@ -70,6 +70,49 @@ interface LibraryDao {
 }
 
 @Dao
+interface WatchDao {
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(row: WatchEntity)
+
+    @Query("SELECT * FROM watchlist ORDER BY unseen DESC, latestDate DESC, addedAt DESC")
+    fun observeAll(): Flow<List<WatchEntity>>
+
+    @Query("SELECT * FROM watchlist ORDER BY addedAt DESC")
+    suspend fun all(): List<WatchEntity>
+
+    @Query("SELECT * FROM watchlist WHERE key = :key")
+    suspend fun get(key: String): WatchEntity?
+
+    @Query("SELECT COUNT(*) FROM watchlist WHERE serviceId = :service AND artistId = :artistId AND artistId <> ''")
+    suspend fun countFor(service: String, artistId: String): Int
+
+    @Query("SELECT COUNT(*) FROM watchlist WHERE unseen = 1")
+    fun unseenCount(): Flow<Int>
+
+    @Query(
+        "UPDATE watchlist SET latestReleaseId = :relId, latestTitle = :title, latestUrl = :url, " +
+            "latestCoverUrl = :cover, latestDate = :date, unseen = :unseen, lastCheck = :ts WHERE key = :key"
+    )
+    suspend fun setLatest(
+        key: String, relId: String, title: String, url: String,
+        cover: String?, date: String, unseen: Boolean, ts: Long,
+    )
+
+    @Query("UPDATE watchlist SET lastCheck = :ts WHERE key = :key")
+    suspend fun touch(key: String, ts: Long)
+
+    @Query("UPDATE watchlist SET unseen = 0 WHERE key = :key")
+    suspend fun markSeen(key: String)
+
+    @Query("UPDATE watchlist SET unseen = 0")
+    suspend fun markAllSeen()
+
+    @Query("DELETE FROM watchlist WHERE key = :key")
+    suspend fun delete(key: String)
+}
+
+@Dao
 interface PlayDao {
 
     @Insert

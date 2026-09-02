@@ -6,8 +6,8 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 
 @Database(
-    entities = [DownloadEntity::class, LibraryEntity::class, PlayEntity::class],
-    version = 5,
+    entities = [DownloadEntity::class, LibraryEntity::class, PlayEntity::class, WatchEntity::class],
+    version = 6,
     exportSchema = false,
 )
 abstract class RipsterDb : RoomDatabase() {
@@ -15,6 +15,7 @@ abstract class RipsterDb : RoomDatabase() {
     abstract fun downloads(): DownloadDao
     abstract fun library(): LibraryDao
     abstract fun plays(): PlayDao
+    abstract fun watch(): WatchDao
 
     companion object {
         fun build(context: Context): RipsterDb =

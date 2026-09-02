@@ -198,6 +198,8 @@ private val STRINGS: Map<String, Row> = mapOf(
     "art.appears_as" to row("трек:", "track:", "ट्रैक:", "曲:", "曲目："),
     "art.appears_on" to row("на релизе", "on release", "रिलीज़ पर", "リリース内", "在发行中"),
     "art.va" to row("разные артисты", "various artists", "विभिन्न कलाकार", "V.A.", "群星"),
+    "art.follow" to row("Следить", "Follow", "फ़ॉलो करें", "フォロー", "关注"),
+    "art.following" to row("Отслеживается", "Following", "फ़ॉलो किया", "フォロー中", "已关注"),
     "art.dl_all" to row("Скачать дискографию", "Download discography", "डिस्कोग्राफ़ी डाउनलोड करें", "ディスコグラフィをDL", "下载全部唱片"),
     "art.dl_all_busy" to row("Ставлю в очередь…", "Queueing…", "कतार में डाल रहे…", "キューに追加中…", "正在排队…"),
     "art.live" to row("Концертные", "Live", "लाइव", "ライブ", "现场"),

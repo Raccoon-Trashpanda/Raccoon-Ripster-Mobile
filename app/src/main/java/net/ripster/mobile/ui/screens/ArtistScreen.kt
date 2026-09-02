@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -200,6 +201,45 @@ fun ArtistScreen(
                         BasicText(
                             tr(if (busy) "art.dl_all_busy" else "art.dl_all", lang) + "  ·  " + ownDl.size,
                             style = TextStyle(color = c.text_on_fill, fontSize = 12.5.sp, fontWeight = FontWeight.W600),
+                        )
+                    }
+                }
+            }
+            // ── «Следить» — локальный радар (работает БЕЗ ПК): телефон сам
+            //    проверяет новые релизы этого артиста раз в ~6 ч.
+            if (!isLabel && artistId.isNotBlank()) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    var followed by remember(artistId) { mutableStateOf(false) }
+                    LaunchedEffect(artistId, service) {
+                        followed = app.localRadar.isFollowed(service, artistId)
+                    }
+                    Row(
+                        Modifier.padding(start = 4.dp, top = 2.dp, bottom = 2.dp)
+                            .clip(RoundedCornerShape(999.dp))
+                            .border(1.dp, if (followed) c.accent_text else c.border_subtle, RoundedCornerShape(999.dp))
+                            .background(if (followed) c.surface_active else c.surface_raised)
+                            .pressable {
+                                scope.launch {
+                                    if (followed) {
+                                        app.localRadar.unfollow("$service:artist:$artistId")
+                                        followed = false
+                                    } else {
+                                        app.localRadar.follow(service, artistId, p.name.ifBlank { name }, p.pictureUrl)
+                                        followed = true
+                                    }
+                                }
+                            }
+                            .padding(horizontal = 16.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    ) {
+                        BasicText(
+                            if (followed) "✓" else "+",
+                            style = TextStyle(color = if (followed) c.accent_text else c.text_secondary, fontSize = 13.sp, fontWeight = FontWeight.Bold),
+                        )
+                        BasicText(
+                            tr(if (followed) "art.following" else "art.follow", lang),
+                            style = TextStyle(color = if (followed) c.accent_text else c.text_secondary, fontSize = 12.5.sp, fontWeight = FontWeight.W600),
                         )
                     }
                 }

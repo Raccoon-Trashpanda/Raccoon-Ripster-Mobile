@@ -108,9 +108,22 @@ fun HomeScreen(
     var building by remember { mutableStateOf<String?>(null) }   // id станции в процессе сборки
     var stationMsg by remember { mutableStateOf<String?>(null) }
 
-    val radarAll by produceState<List<net.ripster.mobile.core.pair.PcBridge.RadarItem>>(initialValue = emptyList()) {
+    // Локальный радар (без ПК) — за кем следит сам телефон.
+    val localWatches by app.localRadar.feed().collectAsState(initial = emptyList())
+    val pcRadar by produceState<List<net.ripster.mobile.core.pair.PcBridge.RadarItem>>(initialValue = emptyList()) {
         value = if (!app.pcBridge.paired) emptyList()
         else runCatching { app.pcBridge.radar().getOrDefault(emptyList()) }.getOrDefault(emptyList())
+    }
+    val radarAll = remember(localWatches, pcRadar) {
+        val local = localWatches.filter { it.latestUrl.isNotBlank() }.map { w ->
+            net.ripster.mobile.core.pair.PcBridge.RadarItem(
+                name = w.name, service = w.serviceId, lastCheck = w.latestDate.ifBlank { null },
+                latestUrl = w.latestUrl, auto = false, seenCount = 0, kind = w.kind,
+                coverUrl = w.latestCoverUrl ?: w.coverUrl, artistId = w.artistId, date = w.latestDate,
+            )
+        }
+        val names = local.map { it.name.lowercase() }.toSet()
+        local + pcRadar.filter { it.name.lowercase() !in names }
     }
     // Витрина «новые релизы»: только то, что реально можно проиграть — релиз с
     // датой в будущем ни один поток ещё не отдаёт (напр. Spotify-радар владельца

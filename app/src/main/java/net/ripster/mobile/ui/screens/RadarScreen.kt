@@ -32,6 +32,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -91,15 +92,21 @@ fun RadarScreen(
     var query by rememberSaveable { mutableStateOf("") }
     var svcFilter by rememberSaveable { mutableStateOf<String?>(null) }
 
-    if (!bridge.paired) {
-        Box(modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-            BasicText(tr("radar.need_pair", lang), style = TextStyle(color = c.text_tertiary, fontSize = 13.sp))
+    // Локальный радар (без ПК): за кем следит сам телефон.
+    val localWatches by app.localRadar.feed().collectAsState(initial = emptyList())
+    val localItems = remember(localWatches) {
+        localWatches.filter { it.latestUrl.isNotBlank() }.map { w ->
+            PcBridge.RadarItem(
+                name = w.name, service = w.serviceId, lastCheck = w.latestDate.ifBlank { null },
+                latestUrl = w.latestUrl, auto = false, seenCount = 0, kind = w.kind,
+                coverUrl = w.latestCoverUrl ?: w.coverUrl, artistId = w.artistId,
+                date = w.latestDate,
+            )
         }
-        return
     }
 
-    val state by produceState<Result<List<PcBridge.RadarItem>>?>(initialValue = null) {
-        value = bridge.radar()
+    val state by produceState<Result<List<PcBridge.RadarItem>>?>(initialValue = null, bridge.paired) {
+        value = if (bridge.paired) bridge.radar() else Result.success(emptyList())
     }
 
     Column(modifier.fillMaxSize().background(c.surface_canvas)) {
@@ -126,10 +133,14 @@ fun RadarScreen(
 
         val res = state
         when {
-            res == null -> Centered(tr("radar.loading", lang), c)
-            res.isFailure -> Centered(tr("radar.err", lang) + ": " + (res.exceptionOrNull()?.message ?: ""), c)
+            res == null && localItems.isEmpty() -> Centered(tr("radar.loading", lang), c)
+            res?.isFailure == true && localItems.isEmpty() ->
+                Centered(tr("radar.err", lang) + ": " + (res.exceptionOrNull()?.message ?: ""), c)
             else -> {
-                val all = res.getOrDefault(emptyList())
+                val pc = res?.getOrDefault(emptyList()).orEmpty()
+                // локальные подписки + радар ПК; дедуп по имени артиста (низкий регистр)
+                val localNames = localItems.map { it.name.lowercase() }.toSet()
+                val all = localItems + pc.filter { it.name.lowercase() !in localNames }
                 val allReleases = all.filter { it.latestUrl.isNotBlank() }.sortedByDescending { it.lastCheck ?: "" }
                 val services = remember(allReleases) {
                     allReleases.map { it.service.lowercase().trim() }
