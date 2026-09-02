@@ -109,6 +109,65 @@ class AppleProxyClient(
         }
     }
 
+    override suspend fun getArtist(artistId: String): net.ripster.mobile.core.pair.PcBridge.ArtistPage? {
+        if (artistId.isBlank() || !artistId.all(Char::isDigit)) return null
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                // Витрина подписки, иначе релиза может «не быть»; при пустом
+                // ответе — без страны и us.
+                val stores = listOfNotNull(storefront.takeIf { it.isNotBlank() }, null, "us").distinct()
+                var items: List<kotlinx.serialization.json.JsonElement> = emptyList()
+                for (cc in stores) {
+                    val u = "https://itunes.apple.com/lookup".toHttpUrl().newBuilder()
+                        .addQueryParameter("id", artistId)
+                        .addQueryParameter("entity", "album")
+                        .addQueryParameter("limit", "200")
+                        .apply { if (cc != null) addQueryParameter("country", cc) }
+                        .build()
+                    items = itunes(u.toString())
+                    if (items.any { it.jsonObject["collectionType"]?.jsonPrimitive?.contentOrNull == "Album" }) break
+                }
+                val artistRow = items.firstOrNull {
+                    it.jsonObject["wrapperType"]?.jsonPrimitive?.contentOrNull == "artist"
+                }?.jsonObject
+                val aName = artistRow?.get("artistName")?.jsonPrimitive?.contentOrNull.orEmpty()
+                val aLow = aName.lowercase()
+
+                val releases = items.mapNotNull { el ->
+                    val o = el.jsonObject
+                    if (o["collectionType"]?.jsonPrimitive?.contentOrNull != "Album") return@mapNotNull null
+                    val cid = o["collectionId"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                    val owner = o["artistName"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                    val date = o["releaseDate"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                    val tc = o["trackCount"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
+                    // «с этим артистом» — если релиз кредитован не на него
+                    // (Various Artists / другой артист)
+                    val appears = owner.isNotBlank() && owner.lowercase() != aLow
+                    net.ripster.mobile.core.pair.PcBridge.ArtistRelease(
+                        id = cid,
+                        title = o["collectionName"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                        coverUrl = o["artworkUrl100"]?.jsonPrimitive?.contentOrNull?.replace("100x100bb", "600x600bb"),
+                        year = date.take(4),
+                        date = date,
+                        trackCount = tc,
+                        type = if (appears) "compilation" else if ((tc ?: 99) in 1..3) "single" else "album",
+                        url = o["collectionViewUrl"]?.jsonPrimitive?.contentOrNull
+                            ?: "https://music.apple.com/album/$cid",
+                        service = "apple",
+                        albumArtist = if (appears) owner else "",
+                    )
+                }.sortedByDescending { it.date }
+
+                val pic = artistRow?.get("artworkUrl100")?.jsonPrimitive?.contentOrNull
+                    ?: releases.firstOrNull()?.coverUrl
+                net.ripster.mobile.core.pair.PcBridge.ArtistPage(
+                    name = aName.ifBlank { return@runCatching null },
+                    pictureUrl = pic, releases = releases,
+                )
+            }.getOrNull()
+        }
+    }
+
     private fun stubSelection(url: String): MediaSelection {
         val slug = url.substringAfterLast('/').substringBefore('?').replace('-', ' ').trim()
         return MediaSelection(
@@ -141,6 +200,7 @@ class AppleProxyClient(
         val art = o["artworkUrl100"]?.jsonPrimitive?.contentOrNull
             ?.replace("100x100bb", "600x600bb")
         val durMs = o["trackTimeMillis"]?.jsonPrimitive?.longOrNull
+        val artId = o["artistId"]?.jsonPrimitive?.longOrNull?.toString().orEmpty()
         // trackViewUrl уже в нужной витрине (country=storefront запроса)
         val viewUrl = o["trackViewUrl"]?.jsonPrimitive?.contentOrNull
             ?: "https://music.apple.com/$storefront/song/$trackId"
@@ -152,7 +212,7 @@ class AppleProxyClient(
             service = Service.APPLE,
             durationMs = durMs,
             artworkUrl = art,
-            raw = mapOf("appleUrl" to canonicalUrl(viewUrl)),
+            raw = mapOf("appleUrl" to canonicalUrl(viewUrl), "artId" to artId),
         )
     }
 

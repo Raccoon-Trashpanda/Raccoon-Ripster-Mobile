@@ -10,6 +10,10 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import net.ripster.mobile.core.model.Album
 import net.ripster.mobile.core.model.Artist
 import net.ripster.mobile.core.model.DownloadEvent
@@ -159,6 +163,57 @@ class YandexMusicClient(
         tier to url
     }
 
+    override suspend fun getArtist(artistId: String): net.ripster.mobile.core.pair.PcBridge.ArtistPage? {
+        if (artistId.isBlank()) return null
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                val raw = api("artists/$artistId/brief-info") {}
+                val res = kotlinx.serialization.json.Json.parseToJsonElement(raw)
+                    .jsonObject["result"]?.jsonObject ?: return@runCatching null
+                val artist = res["artist"]?.jsonObject
+                val name = artist?.get("name")?.jsonPrimitive?.contentOrNull.orEmpty()
+                val pic = artist?.get("cover")?.jsonObject?.get("uri")?.jsonPrimitive?.contentOrNull
+                    ?.let { "https://" + it.removeSuffix("%%") + "400x400" }
+
+                fun mapAlbum(el: kotlinx.serialization.json.JsonElement, appears: Boolean):
+                    net.ripster.mobile.core.pair.PcBridge.ArtistRelease? {
+                    val o = el.jsonObject
+                    val id = o["id"]?.jsonPrimitive?.contentOrNull ?: return null
+                    val date = o["releaseDate"]?.jsonPrimitive?.contentOrNull
+                        ?: o["year"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                    val owner = (o["artists"]?.jsonArray?.firstOrNull()?.jsonObject
+                        ?.get("name")?.jsonPrimitive?.contentOrNull).orEmpty()
+                    val tc = o["trackCount"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
+                    val kind = (o["type"]?.jsonPrimitive?.contentOrNull ?: "").lowercase()
+                    return net.ripster.mobile.core.pair.PcBridge.ArtistRelease(
+                        id = id,
+                        title = o["title"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                        coverUrl = o["coverUri"]?.jsonPrimitive?.contentOrNull
+                            ?.let { "https://" + it.removeSuffix("%%") + "400x400" },
+                        year = date.take(4),
+                        date = date,
+                        trackCount = tc,
+                        type = if (appears || kind == "compilation") "compilation"
+                        else if ((tc ?: 99) in 1..3 || kind == "single") "single" else "album",
+                        url = "https://music.yandex.ru/album/$id",
+                        service = "yandex",
+                        albumArtist = if (appears && owner.isNotBlank() && !owner.equals(name, true)) owner else "",
+                    )
+                }
+
+                val own = (res["albums"]?.jsonArray ?: emptyList()).mapNotNull { mapAlbum(it, false) }
+                val also = (res["alsoAlbums"]?.jsonArray ?: emptyList()).mapNotNull { mapAlbum(it, true) }
+                val seen = HashSet<String>()
+                val releases = (own + also).filter { seen.add(it.id) }.sortedByDescending { it.date }
+
+                net.ripster.mobile.core.pair.PcBridge.ArtistPage(
+                    name = name.ifBlank { return@runCatching null },
+                    pictureUrl = pic, releases = releases,
+                )
+            }.getOrNull()
+        }
+    }
+
     private suspend fun api(path: String, params: (okhttp3.HttpUrl.Builder) -> Unit): String {
         val url = "$BASE/$path".toHttpUrl().newBuilder().apply(params).build()
         return get(url.toString())
@@ -233,7 +288,10 @@ class YandexMusicClient(
                 durationMs = durationMs.takeIf { it > 0 },
                 year = alb?.year,
                 artworkUrl = alb?.coverUri?.let { "https://" + it.removeSuffix("%%") + "400x400" },
-                raw = mapOf("ymId" to (realId.ifBlank { id })),
+                raw = mapOf(
+                    "ymId" to (realId.ifBlank { id }),
+                    "artId" to (artists.firstOrNull()?.id?.toString().orEmpty()),
+                ),
             )
         }
     }
