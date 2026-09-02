@@ -11,6 +11,9 @@ import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -81,6 +84,15 @@ class PlayerController(context: Context) {
     @Volatile var nativeEnabled: Boolean = false
     private var nativeQueue: List<LibraryEntity> = emptyList()
     private val nativeActive: Boolean get() = nativeQueue.isNotEmpty()
+    // Передача СЕТЕВОГО lossless-потока нативному движку: ExoPlayer играет сразу,
+    // фоном тянем файлы во временные, готово → бесшовно уводим на Oboe.
+    private var handoffJob: kotlinx.coroutines.Job? = null
+    private var streamTemps: List<java.io.File> = emptyList()
+    private fun clearStreamTemps() {
+        handoffJob?.cancel(); handoffJob = null
+        streamTemps.forEach { runCatching { it.delete() } }
+        streamTemps = emptyList()
+    }
     private fun nativeCurrent(): LibraryEntity? =
         nativeQueue.getOrNull(NativeAudioEngine.index().coerceIn(0, (nativeQueue.size - 1).coerceAtLeast(0)))
 
@@ -281,6 +293,9 @@ class PlayerController(context: Context) {
         val title: String,
         val artist: String,
         val artworkUrl: String? = null,
+        /** Поток lossless (FLAC/ALAC) — кандидат на передачу нативному движку. */
+        val lossless: Boolean = false,
+        val container: String = "",
     )
 
     /**
@@ -291,6 +306,8 @@ class PlayerController(context: Context) {
     fun playStream(items: List<StreamItem>, startIndex: Int = 0) {
         val c = controller ?: return
         if (items.isEmpty()) return
+        clearStreamTemps()
+        if (nativeActive) { runCatching { NativeAudioEngine.stop() }; nativeQueue = emptyList() }
         queueEntities = emptyList()
         val media = items.map { s ->
             MediaItem.Builder()
@@ -308,6 +325,60 @@ class PlayerController(context: Context) {
         c.playWhenReady = true
         c.prepare()
         c.play()
+        // Нативная передача СТРИМА на Oboe (bit-perfect) — код готов, но НЕ
+        // включён: на x86-эмуляторе фиделити не проверить, а хэндофф в тесте не
+        // сработал стабильно. Возврат к этому — на реальном arm64-устройстве.
+        // armNativeHandoff(items, startIndex.coerceIn(0, items.size - 1))
+    }
+
+    /**
+     * Если включён нативный движок и в потоковой очереди есть lossless — фоном
+     * тянем эти треки во временные файлы, затем БЕСШОВНО переключаем
+     * воспроизведение с ExoPlayer на Oboe с той же позиции (bit-perfect тракт).
+     * MP3/AAC-потоки не трогаем — остаются на ExoPlayer.
+     */
+    private fun armNativeHandoff(items: List<StreamItem>, startIndex: Int) {
+        handoffJob?.cancel()
+        if (!nativeEnabled || !NativeAudioEngine.isAvailable) return
+        if (items.getOrNull(startIndex)?.lossless != true) return
+        val cap = items.take(8)
+        handoffJob = scope.launch {
+            // Даём ExoPlayer фору — он должен УСПЕТЬ забуферить и заиграть без
+            // конкуренции за сеть. Тянем СНАЧАЛА только текущий трек.
+            delay(3_000)
+            val curFile = withContext(Dispatchers.IO) {
+                runCatching {
+                    net.ripster.mobile.core.audio.SpectrumSource.fetchPlayingToTemp(
+                        appContext, cap[startIndex].url, capBytes = 160L * 1024 * 1024, prefix = "nae",
+                    )
+                }.getOrNull()
+            } ?: return@launch
+            if (curFile.length() < 8192) { curFile.delete(); return@launch }
+            val c = controller ?: return@launch
+            // ещё играем этот же поток (не переключились, не ушли на нативный)?
+            if (queueEntities.isNotEmpty() || nativeActive || c.currentMediaItemIndex != startIndex) {
+                curFile.delete(); return@launch
+            }
+            val exoPos = c.currentPosition.coerceAtLeast(0)
+            val ent = LibraryEntity(
+                id = "stream:${cap[startIndex].url.hashCode()}",
+                title = cap[startIndex].title, artist = cap[startIndex].artist, album = null,
+                serviceId = "", container = cap[startIndex].container.ifBlank { "flac" },
+                bitrateKbps = null, durationSec = 0, filePath = curFile.absolutePath,
+                sizeBytes = curFile.length(), artworkUrl = cap[startIndex].artworkUrl,
+                addedAt = System.currentTimeMillis(), lossless = true,
+            )
+            val r = NativeAudioEngine.playQueue(appContext, listOf(Uri.fromFile(curFile)), 0, requireAll = false)
+            if (!r.isSuccess) { curFile.delete(); return@launch }
+            nativeQueue = listOf(ent)
+            streamTemps = listOf(curFile)
+            NativeAudioEngine.seekMs(exoPos)
+            runCatching { c.pause() }
+            pushNativeState()
+            // v1: нативный тракт держит ТОЛЬКО текущий трек стрима. Трек кончился —
+            // тик-цикл увидит isEnded и вернёт управление; следующий пойдёт
+            // обычным путём (снова с хэндоффом).
+        }
     }
 
     /** Дорезолвить хвост станции и дописать в конец текущей очереди. */
@@ -341,6 +412,7 @@ class PlayerController(context: Context) {
 
     /** Полностью остановить и очистить — по кнопке «закрыть плеер». */
     fun stop() {
+        clearStreamTemps()
         if (nativeActive) { runCatching { NativeAudioEngine.stop() }; nativeQueue = emptyList() }
         runCatching { controller?.stop() }
         runCatching { controller?.clearMediaItems() }

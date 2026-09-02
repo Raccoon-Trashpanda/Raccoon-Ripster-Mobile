@@ -155,6 +155,8 @@ object StreamResolver {
                         title = tr.title,
                         artist = tr.artist,
                         artworkUrl = tr.artworkUrl?.takeIf { it.isNotBlank() } ?: fallbackArtwork,
+                        lossless = info.quality.lossless,
+                        container = info.quality.container,
                     )
                 }.getOrNull()
             }

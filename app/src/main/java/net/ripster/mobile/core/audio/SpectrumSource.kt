@@ -9,20 +9,23 @@ import okhttp3.Request
 import java.io.File
 
 /**
- * Играющий сейчас трек уже течёт по сети — значит байты доступны, и спектр по
- * нему построить МОЖНО, не заставляя человека «сначала скачай». Тянем начало
- * потока (~14 МБ, этого хватает и на пару минут, и на отпечаток), при
- * необходимости расшифровываем Deezer, кладём во временный файл рядом с кэшем —
- * дальше обычный [Spectrogram.analyze] по локальному пути.
+ * Играющий сейчас трек уже течёт по сети — значит байты доступны. Тянем поток
+ * целиком (до потолка), при необходимости расшифровываем Deezer, кладём во
+ * временный файл рядом с кэшем. Используется и для спектра ([Spectrogram.analyze]),
+ * и для передачи lossless-потока нативному Oboe-движку (bit-perfect тракт).
  */
 object SpectrumSource {
 
-    // Полный трек, но с потолком: FLAC 4-минутника ~30–40 МБ, спектру-отпечатку
-    // хватает и меньшего, а MediaExtractor давится обрезанным по Range файлом —
-    // поэтому качаем контейнер целиком (до потолка), без Range.
+    // Потолок по умолчанию — для спектра-отпечатка хватает и меньшего; для
+    // нативной передачи трека вызывающий поднимает лимит.
     private const val CAP_BYTES = 48L * 1024 * 1024
 
-    suspend fun fetchPlayingToTemp(context: Context, playingUrl: String): File? =
+    suspend fun fetchPlayingToTemp(
+        context: Context,
+        playingUrl: String,
+        capBytes: Long = CAP_BYTES,
+        prefix: String = "spec",
+    ): File? =
         withContext(Dispatchers.IO) {
             runCatching {
                 val frag = playingUrl.substringAfter('#', "")
@@ -47,7 +50,7 @@ object SpectrumSource {
                         "wav" in ct -> "wav"
                         else -> "m4a"
                     }
-                    val tmp = File(context.cacheDir, "spec_${playingUrl.hashCode()}.$ext")
+                    val tmp = File(context.cacheDir, "${prefix}_${playingUrl.hashCode()}.$ext")
                     tmp.outputStream().use { os ->
                         if (dzId != null) {
                             DeezerCrypto.decryptStream(
@@ -63,7 +66,7 @@ object SpectrumSource {
                                     if (n < 0) break
                                     os.write(buf, 0, n)
                                     total += n
-                                    if (total >= CAP_BYTES) break
+                                    if (total >= capBytes) break
                                 }
                             }
                         }
