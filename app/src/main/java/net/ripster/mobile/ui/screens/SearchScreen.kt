@@ -448,7 +448,11 @@ fun SearchScreen(
                 }
                 if (albums.isNotEmpty()) {
                     item(key = "h-albums") { SectionHeader(tr("search.type_albums", lang)) }
-                    items(albums, key = { "a:" + it.service.id + ":" + it.id }) { a ->
+                    // Индекс в ключе обязателен: у части источников id альбома
+                    // приходит пустым, и два таких результата дают одинаковый ключ
+                    // «a:qobuz:» → LazyGrid роняет весь экран (IllegalArgumentException
+                    // "Key … was already used").
+                    itemsIndexed(albums, key = { i, it -> "a:${it.service.id}:${it.id}:$i" }) { _, a ->
                         val akey = "a:${a.service.id}:${a.id}"
                         val albTracks = sel.tracks.filter {
                             it.service == a.service && (it.albumTitle == a.title || it.raw["albumId"] == a.id)
@@ -491,7 +495,7 @@ fun SearchScreen(
                 }
                 if (tracks.isNotEmpty()) {
                     item(key = "h-tracks") { SectionHeader(tr("search.type_tracks", lang)) }
-                    itemsIndexed(tracks, key = { _, it -> "t:" + it.service.id + ":" + it.id }) { idx, t ->
+                    itemsIndexed(tracks, key = { i, it -> "t:${it.service.id}:${it.id}:$i" }) { idx, t ->
                         TrackRow(
                             track = t,
                             queued = queued["${t.service.id}:${t.id}"] == true,
