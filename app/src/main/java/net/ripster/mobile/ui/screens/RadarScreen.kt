@@ -478,7 +478,7 @@ private fun RadarReleaseTile(
                     buffering = true
                     val q = app.settings.state.value.qualityFor(onWifi = true)
                     val ok = kotlinx.coroutines.withTimeoutOrNull(25_000) {
-                        net.ripster.mobile.core.service.ReleasePlayback.play(app.player, item.latestUrl, q)
+                        net.ripster.mobile.core.service.ReleasePlayback.play(app.player, item.latestUrl, q, fallbackArtwork = cover)
                     } ?: false
                     buffering = false
                     if (ok) onOpenPlayer()

@@ -369,23 +369,40 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                                     onDownloadAlbum = {},
                                 )
                             }
-                            // свернуть (⌄) + закрыть (×) — правый верх поверх плеера
+                            // свернуть (⌄) + закрыть (×) — одна аккуратная капсула
+                            // в правом верхнем углу поверх плеера, приглушённо
                             Row(
-                                Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.systemBars)
-                                    .padding(top = 6.dp, end = 10.dp),
-                                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp),
+                                Modifier.align(Alignment.TopEnd)
+                                    .windowInsetsPadding(WindowInsets.systemBars)
+                                    .padding(top = 8.dp, end = 8.dp)
+                                    .clip(RoundedCornerShape(50))
+                                    .background(Color.Black.copy(alpha = 0.26f))
+                                    .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(50)),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                GlyphButton(onClick = { minimize() }) {
-                                    drawLine(c.text_secondary, Offset(size.width * 0.28f, size.height * 0.42f),
-                                        Offset(size.width * 0.5f, size.height * 0.62f), 6f, androidx.compose.ui.graphics.StrokeCap.Round)
-                                    drawLine(c.text_secondary, Offset(size.width * 0.5f, size.height * 0.62f),
-                                        Offset(size.width * 0.72f, size.height * 0.42f), 6f, androidx.compose.ui.graphics.StrokeCap.Round)
+                                val glyph = Color.White.copy(alpha = 0.60f)
+                                Box(
+                                    Modifier.size(width = 40.dp, height = 34.dp).clickable { minimize() },
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Canvas(Modifier.size(16.dp)) {
+                                        drawLine(glyph, Offset(size.width * 0.22f, size.height * 0.40f),
+                                            Offset(size.width * 0.5f, size.height * 0.64f), 5f, androidx.compose.ui.graphics.StrokeCap.Round)
+                                        drawLine(glyph, Offset(size.width * 0.5f, size.height * 0.64f),
+                                            Offset(size.width * 0.78f, size.height * 0.40f), 5f, androidx.compose.ui.graphics.StrokeCap.Round)
+                                    }
                                 }
-                                GlyphButton(onClick = { close() }) {
-                                    drawLine(c.text_secondary, Offset(size.width * 0.32f, size.height * 0.32f),
-                                        Offset(size.width * 0.68f, size.height * 0.68f), 6f, androidx.compose.ui.graphics.StrokeCap.Round)
-                                    drawLine(c.text_secondary, Offset(size.width * 0.68f, size.height * 0.32f),
-                                        Offset(size.width * 0.32f, size.height * 0.68f), 6f, androidx.compose.ui.graphics.StrokeCap.Round)
+                                Box(Modifier.size(width = 1.dp, height = 16.dp).background(Color.White.copy(alpha = 0.14f)))
+                                Box(
+                                    Modifier.size(width = 40.dp, height = 34.dp).clickable { close() },
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Canvas(Modifier.size(14.dp)) {
+                                        drawLine(glyph, Offset(size.width * 0.2f, size.height * 0.2f),
+                                            Offset(size.width * 0.8f, size.height * 0.8f), 5f, androidx.compose.ui.graphics.StrokeCap.Round)
+                                        drawLine(glyph, Offset(size.width * 0.8f, size.height * 0.2f),
+                                            Offset(size.width * 0.2f, size.height * 0.8f), 5f, androidx.compose.ui.graphics.StrokeCap.Round)
+                                    }
                                 }
                             }
                         }

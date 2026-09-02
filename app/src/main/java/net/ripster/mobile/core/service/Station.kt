@@ -76,11 +76,17 @@ object ReleasePlayback {
     /** Сервисы, которые реально отдают поток (для конверсии Spotify/Apple). */
     private val STREAMABLE = listOf(Service.DEEZER, Service.QOBUZ, Service.TIDAL, Service.SOUNDCLOUD)
 
-    /** @return true, если что-то удалось поставить на воспроизведение. */
+    /**
+     * @param fallbackArtwork обложка карточки релиза — подставляется трекам,
+     *        у которых своей обложки нет (напр. Spotify-ссылку резолвим поиском
+     *        в Deezer/Tidal, а те не всегда отдают арт → плеер был пустой).
+     * @return true, если что-то удалось поставить на воспроизведение.
+     */
     suspend fun play(
         player: PlayerController,
         url: String,
         quality: List<String>,
+        fallbackArtwork: String? = null,
     ): Boolean {
         val sel = ServiceRegistry.all()
             .firstNotNullOfOrNull { runCatching { it.resolve(url) }.getOrNull() }
@@ -88,11 +94,11 @@ object ReleasePlayback {
         // 1) есть треклист от resolve() — резолвим потоки как есть
         val tracks = sel?.tracks.orEmpty()
         if (tracks.isNotEmpty()) {
-            val head = StreamResolver.toStreamItems(tracks.take(4), quality, limit = 4)
+            val head = StreamResolver.toStreamItems(tracks.take(4), quality, limit = 4, fallbackArtwork = fallbackArtwork)
             if (head.isNotEmpty()) {
                 player.playStream(head)
                 if (tracks.size > 4) {
-                    player.appendStream(StreamResolver.toStreamItems(tracks.drop(4), quality, limit = 40))
+                    player.appendStream(StreamResolver.toStreamItems(tracks.drop(4), quality, limit = 40, fallbackArtwork = fallbackArtwork))
                 }
                 return true
             }
@@ -113,11 +119,11 @@ object ReleasePlayback {
             }.awaitAll()
         }.firstOrNull { it.isNotEmpty() } ?: return false
 
-        val head = StreamResolver.toStreamItems(fromSearch.take(4), quality, limit = 4)
+        val head = StreamResolver.toStreamItems(fromSearch.take(4), quality, limit = 4, fallbackArtwork = fallbackArtwork)
         if (head.isEmpty()) return false
         player.playStream(head)
         if (fromSearch.size > 4) {
-            player.appendStream(StreamResolver.toStreamItems(fromSearch.drop(4), quality, limit = 40))
+            player.appendStream(StreamResolver.toStreamItems(fromSearch.drop(4), quality, limit = 40, fallbackArtwork = fallbackArtwork))
         }
         return true
     }
@@ -130,6 +136,7 @@ object StreamResolver {
         tracks: List<Track>,
         quality: List<String>,
         limit: Int = 40,
+        fallbackArtwork: String? = null,
     ): List<PlayerController.StreamItem> = coroutineScope {
         tracks.take(limit).map { tr ->
             async {
@@ -147,7 +154,7 @@ object StreamResolver {
                         },
                         title = tr.title,
                         artist = tr.artist,
-                        artworkUrl = tr.artworkUrl,
+                        artworkUrl = tr.artworkUrl?.takeIf { it.isNotBlank() } ?: fallbackArtwork,
                     )
                 }.getOrNull()
             }

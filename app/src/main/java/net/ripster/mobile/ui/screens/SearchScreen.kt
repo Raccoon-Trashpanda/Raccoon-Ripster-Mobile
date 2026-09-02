@@ -465,12 +465,12 @@ fun SearchScreen(
                                     // альбом по URL — как карточки релизов везде.
                                     var ok = false
                                     val items = net.ripster.mobile.core.service.StreamResolver
-                                        .toStreamItems(albTracks, quality, limit = 40)
+                                        .toStreamItems(albTracks, quality, limit = 40, fallbackArtwork = a.artworkUrl)
                                     if (items.isNotEmpty()) { app.player.playStream(items); ok = true }
                                     if (!ok) {
                                         val u = dzTidalQobuzAlbumUrl(a.service.id, a.id)
                                         if (u.isNotBlank()) ok = kotlinx.coroutines.withTimeoutOrNull(20_000) {
-                                            net.ripster.mobile.core.service.ReleasePlayback.play(app.player, u, quality)
+                                            net.ripster.mobile.core.service.ReleasePlayback.play(app.player, u, quality, fallbackArtwork = a.artworkUrl)
                                         } == true
                                     }
                                     if (ok) onOpenPlayer() else error = tr("search.album_open_tracks", lang)

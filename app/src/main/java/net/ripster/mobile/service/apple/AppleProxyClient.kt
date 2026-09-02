@@ -75,18 +75,37 @@ class AppleProxyClient(
         val songId = Regex("""[?&]i=(\d+)""").find(url)?.groupValues?.get(1)
         val tailId = url.substringBefore('?').trimEnd('/').substringAfterLast('/').takeIf { it.all(Char::isDigit) }
         val id = songId ?: tailId ?: return stubSelection(url)
-        val entity = if (songId != null) "song" else "album"
+        val isAlbum = songId == null
         return withContext(Dispatchers.IO) {
-            val look = "https://itunes.apple.com/lookup".toHttpUrl().newBuilder()
-                .addQueryParameter("id", id)
-                .addQueryParameter("entity", entity)
-                .addQueryParameter("country", storefront)
-                .build()
-            val items = itunes(look.toString())
+            // entity=song ВСЕГДА: для альбома iTunes вернёт строку-коллекцию +
+            // все треки; entity=album отдавал только коллекцию → фильтр «track»
+            // давал ноль → заглушка с голым ID вместо названия.
+            // Витрина подписки (RU) часто не содержит релиз — тогда пробуем без
+            // страны и us: метаданные для показа берём откуда есть, качает всё
+            // равно ПК по канонической ссылке.
+            val stores = listOfNotNull(storefront.takeIf { it.isNotBlank() }, null, "us").distinct()
+            var items: List<kotlinx.serialization.json.JsonElement> = emptyList()
+            for (cc in stores) {
+                val look = "https://itunes.apple.com/lookup".toHttpUrl().newBuilder()
+                    .addQueryParameter("id", id)
+                    .addQueryParameter("entity", "song")
+                    .apply { if (cc != null) addQueryParameter("country", cc) }
+                    .build()
+                items = itunes(look.toString())
+                if (items.any { it.jsonObject["wrapperType"]?.jsonPrimitive?.contentOrNull == "track" }) break
+            }
+            val collection = items.firstOrNull {
+                it.jsonObject["wrapperType"]?.jsonPrimitive?.contentOrNull == "collection"
+            }?.jsonObject
             val tracks = items.filter { it.jsonObject["wrapperType"]?.jsonPrimitive?.contentOrNull == "track" }
                 .mapNotNull { it.toTrack() }
             if (tracks.isEmpty()) stubSelection(url)
-            else MediaSelection(kind = if (entity == "album") MediaKind.ALBUM else MediaKind.TRACK, tracks = tracks)
+            else MediaSelection(
+                kind = if (isAlbum) MediaKind.ALBUM else MediaKind.TRACK,
+                tracks = tracks,
+                containerTitle = collection?.get("collectionName")?.jsonPrimitive?.contentOrNull
+                    ?: tracks.firstOrNull()?.albumTitle,
+            )
         }
     }
 
