@@ -242,17 +242,30 @@ class TidalClient(
             if (isEmpty()) { add("HI_RES_LOSSLESS" to hires); add("LOSSLESS" to flac); add("HIGH" to aac) }
         }.distinctBy { it.first }
 
+        // Последняя реальная причина отказа — чтобы финальная ошибка называла
+        // ЧТО случилось (401 / 403 / 404 / регион), а не молчаливое «не удалось».
+        var lastErr: String? = null
         for ((q, tier) in order) {
-            val pb = runCatching {
-                json.decodeFromString(
-                    TdPlayback.serializer(),
-                    api("https://api.tidal.com/v1/tracks/$id/playbackinfopostpaywall") {
-                        it.addQueryParameter("audioquality", q)
-                        it.addQueryParameter("playbackmode", "STREAM")
-                        it.addQueryParameter("assetpresentation", "FULL")
-                    },
-                )
-            }.getOrNull() ?: continue
+            suspend fun fetch(): TdPlayback = json.decodeFromString(
+                TdPlayback.serializer(),
+                api("https://api.tidal.com/v1/tracks/$id/playbackinfopostpaywall") {
+                    it.addQueryParameter("audioquality", q)
+                    it.addQueryParameter("playbackmode", "STREAM")
+                    it.addQueryParameter("assetpresentation", "FULL")
+                },
+            )
+            val pb = runCatching { fetch() }.getOrElse { e1 ->
+                // 401 в середине перебора: api() уже обнулил accessToken —
+                // добудем свежий через refresh и повторим ЭТО качество один раз.
+                if ((e1.message ?: "").contains("401") &&
+                    runCatching { ensureToken() }.getOrDefault(false)
+                ) {
+                    runCatching { fetch() }.getOrElse { e2 -> lastErr = e2.message; null }
+                } else {
+                    lastErr = e1.message
+                    null
+                }
+            } ?: continue
 
             val decoded = String(Base64.decode(pb.manifest, Base64.DEFAULT), Charsets.UTF_8)
             when {
@@ -272,7 +285,19 @@ class TidalClient(
                 }
             }
         }
-        throw IOException("Tidal: не удалось получить поток для этого трека")
+        val why = lastErr ?: ""
+        throw IOException(
+            when {
+                why.contains("401") ->
+                    "Tidal: токен истёк — открой «Забрать учётки с ПК» в сопряжении"
+                why.contains("403") || why.contains("4005") ->
+                    "Tidal: этот трек недоступен по твоей подписке или в регионе ($cc)"
+                why.contains("404") ->
+                    "Tidal: трек не найден в каталоге региона ($cc)"
+                why.isNotBlank() -> "Tidal: поток недоступен — $why"
+                else -> "Tidal: не удалось получить поток для этого трека"
+            },
+        )
     }
 
     /** MPD (SegmentTemplate + SegmentTimeline или duration) → (initUrl, [mediaUrls]). */
