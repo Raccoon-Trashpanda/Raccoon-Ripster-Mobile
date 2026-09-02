@@ -63,6 +63,28 @@ class SoundCloudApi(private val oauthToken: String? = null) {
                 .collection.map { it.track }.filter { it.id != 0L }
         }
 
+    /** Профиль пользователя (= «артиста» в SC): имя, аватар, число треков. */
+    suspend fun user(userId: String): net.ripster.mobile.service.soundcloud.dto.ScUser =
+        withContext(Dispatchers.IO) {
+            json.decodeFromString(
+                net.ripster.mobile.service.soundcloud.dto.ScUser.serializer(),
+                getJson("$API/users/$userId") {},
+            )
+        }
+
+    /** Загрузки пользователя — на SC это и есть его «релизы». */
+    suspend fun userTracks(userId: String, limit: Int = 60): List<ScTrack> = withContext(Dispatchers.IO) {
+        val raw = getJson("$API/users/$userId/tracks") {
+            it.addQueryParameter("limit", limit.toString())
+            it.addQueryParameter("linked_partitioning", "1")
+        }
+        runCatching {
+            json.decodeFromString(ScSearch.serializer(), raw).collection
+        }.getOrElse {
+            json.decodeFromString(kotlinx.serialization.builtins.ListSerializer(ScTrack.serializer()), raw)
+        }.filter { it.id != 0L }
+    }
+
     /** Добор заглушечных треков плейлиста: `/tracks?ids=1,2,3`. SC режет на ~50 за раз. */
     suspend fun tracksByIds(ids: List<Long>): List<ScTrack> = withContext(Dispatchers.IO) {
         if (ids.isEmpty()) return@withContext emptyList()

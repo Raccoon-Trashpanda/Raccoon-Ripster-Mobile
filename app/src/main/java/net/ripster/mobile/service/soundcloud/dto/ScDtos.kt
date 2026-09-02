@@ -16,6 +16,8 @@ data class ScUser(
     val id: Long = 0,
     val username: String = "",
     @SerialName("permalink_url") val permalinkUrl: String = "",
+    @SerialName("avatar_url") val avatarUrl: String? = null,
+    @SerialName("track_count") val trackCount: Int? = null,
 )
 
 @Serializable
@@ -55,6 +57,8 @@ data class ScTrack(
     val genre: String? = null,
     val isrc: String? = null,
     @SerialName("release_year") val releaseYear: Int? = null,
+    @SerialName("display_date") val displayDate: String? = null,
+    @SerialName("created_at") val createdAt: String? = null,
     @SerialName("permalink_url") val permalinkUrl: String = "",
     @SerialName("artwork_url") val artworkUrl: String? = null,
     @SerialName("publisher_metadata") val publisherMetadata: ScPublisherMeta? = null,

@@ -109,6 +109,36 @@ class SoundCloudClient(
         }
     }
 
+    override suspend fun getArtist(artistId: String): net.ripster.mobile.core.pair.PcBridge.ArtistPage? {
+        if (artistId.isBlank() || !artistId.all(Char::isDigit)) return null
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                val u = api.user(artistId)
+                val name = u.username.ifBlank { return@runCatching null }
+                // На SoundCloud «релиз» = загруженный трек; альбомов почти нет.
+                val releases = api.userTracks(artistId, 80).map { t ->
+                    val date = (t.displayDate ?: t.createdAt ?: "").take(10)
+                    net.ripster.mobile.core.pair.PcBridge.ArtistRelease(
+                        id = t.id.toString(),
+                        title = t.title,
+                        coverUrl = bigArt(t.artworkUrl),
+                        year = date.take(4),
+                        date = date,
+                        trackCount = 1,
+                        type = "single",
+                        url = t.permalinkUrl,
+                        service = "soundcloud",
+                    )
+                }.sortedByDescending { it.date }
+                net.ripster.mobile.core.pair.PcBridge.ArtistPage(
+                    name = name,
+                    pictureUrl = u.avatarUrl?.replace("-large.", "-t500x500."),
+                    releases = releases,
+                )
+            }.getOrNull()
+        }
+    }
+
     override suspend fun streamInfo(track: Track, preference: List<String>): StreamInfo {
         val fresh = freshScTrack(track)
         val candidates = orderedNonDrm(fresh, preference)
@@ -271,6 +301,7 @@ class SoundCloudClient(
             raw = buildMap {
                 put("permalink", permalinkUrl)
                 put("scTrackId", id.toString())
+                if (user.id != 0L) put("artId", user.id.toString())
             },
         )
     }
