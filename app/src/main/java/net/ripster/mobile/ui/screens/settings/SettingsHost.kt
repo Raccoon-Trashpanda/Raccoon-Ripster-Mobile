@@ -189,7 +189,7 @@ private fun NavRow(label: String, c: RipsterColors, onClick: () -> Unit) {
 
 private val ACCOUNT_SERVICES = listOf(
     Service.SOUNDCLOUD, Service.DEEZER, Service.QOBUZ, Service.TIDAL,
-    Service.SPOTIFY, Service.YANDEX, Service.BBC,
+    Service.SPOTIFY, Service.YANDEX, Service.BEATPORT, Service.BBC,
 )
 
 @Composable
@@ -244,6 +244,7 @@ private fun AccountScreen(svc: Service, lang: AppLang, c: RipsterColors) {
             Service.YANDEX -> "svc.d_yandex"
             Service.BBC -> "svc.d_bbc"
             Service.APPLE -> "svc.d_apple"
+            Service.BEATPORT -> "svc.d_beatport"
         }
         BasicText(tr(descKey, lang), style = TextStyle(color = c.text_tertiary, fontSize = 12.sp))
         Box(Modifier.height(16.dp))
@@ -309,6 +310,18 @@ private fun AccountScreen(svc: Service, lang: AppLang, c: RipsterColors) {
                 Box(Modifier.height(10.dp))
                 BasicText(
                     tr("svc.apple_no_creds", lang),
+                    style = TextStyle(color = c.text_tertiary, fontSize = 11.sp),
+                )
+            }
+            Service.BEATPORT -> {
+                var u by remember { mutableStateOf(cred(CredentialStore.Key.BEATPORT_USERNAME)) }
+                var p by remember { mutableStateOf(cred(CredentialStore.Key.BEATPORT_PASSWORD)) }
+                Field("beatport.username", u, c, { u = it }) { save(CredentialStore.Key.BEATPORT_USERNAME, u) }
+                Box(Modifier.height(8.dp))
+                Field("beatport.password", p, c, { p = it }) { save(CredentialStore.Key.BEATPORT_PASSWORD, p) }
+                Box(Modifier.height(6.dp))
+                BasicText(
+                    tr("svc.beatport_hint", lang),
                     style = TextStyle(color = c.text_tertiary, fontSize = 11.sp),
                 )
             }

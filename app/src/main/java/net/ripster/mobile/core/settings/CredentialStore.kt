@@ -90,6 +90,8 @@ class CredentialStore(context: Context) {
         SOUNDCLOUD_OAUTH("soundcloud.oauth"),
         SPOTIFY_SP_DC("spotify.sp_dc"),
         YANDEX_OAUTH("yandex.oauth"),
+        BEATPORT_USERNAME("beatport.username"),
+        BEATPORT_PASSWORD("beatport.password"),
     }
 
     fun get(key: Key): String? = prefs.getString(key.id, null)?.ifBlank { null }

@@ -21,6 +21,7 @@ enum class Service(val id: String, val label: String) {
     BBC("bbc", "BBC"),
     SPOTIFY("spotify", "Spotify"),
     YANDEX("yandex", "Яндекс.Музыка"),
+    BEATPORT("beatport", "Beatport"),
     /** Только через сопряжение с ПК (Docker-враппер живёт там). */
     APPLE("apple", "Apple Music");
 

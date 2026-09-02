@@ -68,7 +68,7 @@ object SearchRanker {
 
     // предпочтение сервиса при прочих равных (lossless-способность + надёжность)
     private fun serviceBonus(s: Service): Double = when (s) {
-        Service.QOBUZ, Service.TIDAL -> 6.0
+        Service.QOBUZ, Service.TIDAL, Service.BEATPORT -> 6.0
         Service.APPLE, Service.DEEZER -> 4.0
         Service.YANDEX -> 3.0
         Service.SOUNDCLOUD -> 1.0

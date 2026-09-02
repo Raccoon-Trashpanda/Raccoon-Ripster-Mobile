@@ -162,6 +162,15 @@ class RipsterApp : Application() {
         credentials.get(CredentialStore.Key.YANDEX_OAUTH)?.let { yt ->
             ServiceRegistry.register(YandexMusicClient(oauthToken = yt, cacheDir = cacheDir))
         }
+        val bpUser = credentials.get(CredentialStore.Key.BEATPORT_USERNAME)
+        val bpPass = credentials.get(CredentialStore.Key.BEATPORT_PASSWORD)
+        if (!bpUser.isNullOrBlank() && !bpPass.isNullOrBlank()) {
+            ServiceRegistry.register(
+                net.ripster.mobile.service.beatport.BeatportClient(
+                    username = bpUser, password = bpPass, cacheDir = cacheDir,
+                ),
+            )
+        }
 
         val qbEmail = credentials.get(CredentialStore.Key.QOBUZ_EMAIL)
         val qbToken = credentials.get(CredentialStore.Key.QOBUZ_TOKEN)

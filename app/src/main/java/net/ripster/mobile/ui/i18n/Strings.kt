@@ -728,6 +728,20 @@ private val STRINGS: Map<String, Row> = mapOf(
         "スマホにAppleのログイン/パスワードはありません：Appleの復号はPCのDockerラッパーのみが行います。",
         "手机上没有 Apple 登录名/密码：只有电脑的 Docker 封装器能解密 Apple。",
     ),
+    "svc.d_beatport" to row(
+        "Beatport — клубный каталог (FLAC / AAC 256). Логин и пароль от аккаунта Beatport с активной подпиской Beatport Streaming; они же подтягиваются с ПК при сопряжении.",
+        "Beatport — the club catalogue (FLAC / AAC 256). Your Beatport account login and password with an active Beatport Streaming subscription; also synced from the PC on pairing.",
+        "Beatport — क्लब कैटलॉग (FLAC / AAC 256)। सक्रिय Beatport Streaming सदस्यता वाला लॉगिन/पासवर्ड।",
+        "Beatport — クラブ系カタログ（FLAC / AAC 256）。Beatport Streaming 契約中のアカウントのログイン/パスワード。",
+        "Beatport — 俱乐部曲库（FLAC / AAC 256）。需要有效 Beatport Streaming 订阅的账号登录名和密码。",
+    ),
+    "svc.beatport_hint" to row(
+        "Нужна подписка Beatport Streaming — без неё придут только 2-минутные превью.",
+        "Requires a Beatport Streaming subscription — without it you only get 2-minute previews.",
+        "Beatport Streaming सदस्यता आवश्यक है — इसके बिना केवल 2 मिनट के प्रीव्यू मिलेंगे।",
+        "Beatport Streaming の契約が必要です — ないと2分プレビューのみ。",
+        "需要 Beatport Streaming 订阅 — 否则只能获取 2 分钟试听。",
+    ),
     "svc.d_apple" to row(
         "Apple Music качает ПК (Docker-враппер живёт там). Сопряги телефон с ПК на вкладке «Сопряжение с ПК» — после этого ссылки music.apple.com можно ставить в очередь из поиска, файл придёт с ПК.",
         "Apple Music is fetched by the PC (the Docker wrapper lives there). Pair the phone with the PC under Pairing with PC — after that, music.apple.com links can be queued from search and the file comes from the PC.",
