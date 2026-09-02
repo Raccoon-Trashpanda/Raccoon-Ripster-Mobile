@@ -145,9 +145,11 @@ class TidalClient(
             }
             is TdStream.Dash -> {
                 // HI_RES / lossless-в-DASH: init-сегмент + все media-сегменты
-                // склеиваются в один fMP4 (.m4a) — играбельный файл.
+                // склеиваются в один fMP4 → расширение ВСЕГДА .m4a (а не
+                // s.tier.container: у lossless-тиров он «flac» для подписи, но
+                // на диске здесь всё равно MP4-контейнер).
                 emit(DownloadEvent.Log("Tidal: ${s.tier.label} (DASH, ${s.mediaUrls.size} сегм.)"))
-                val out = File(cacheDir, "td_$id.${s.tier.container}")
+                val out = File(cacheDir, "td_$id.m4a")
                 out.outputStream().buffered().use { sink ->
                     streamAppend(s.initUrl, sink)
                     s.mediaUrls.forEachIndexed { i, u ->
@@ -226,7 +228,9 @@ class TidalClient(
         exp <= System.currentTimeMillis() / 1000 + 60
     }.getOrDefault(true)
 
-    private val hires = QualityTier("flac_24", "FLAC Hi-Res", lossless = true, container = "m4a", bitDepth = 24)
+    // HI_RES у Tidal — FLAC в MP4 (DASH). Файл на диске .m4a (для ExoPlayer),
+    // но кодек FLAC → в подписи качества это FLAC, а не «M4A».
+    private val hires = QualityTier("flac_24", "FLAC Hi-Res", lossless = true, container = "flac", bitDepth = 24)
 
     private suspend fun resolveStream(id: String, preference: List<String>): TdStream {
         if (!ensureToken()) throw IOException("Tidal: not authorized (re-login in Accounts)")
@@ -268,20 +272,27 @@ class TidalClient(
             } ?: continue
 
             val decoded = String(Base64.decode(pb.manifest, Base64.DEFAULT), Charsets.UTF_8)
+            // Тир — от того, что Tidal РЕАЛЬНО отдал (`audioQuality`), а не от того,
+            // что мы просили: запрос HI_RES часто отдаёт LOSSLESS 16/44.1, и трек
+            // подписывался как «24-bit Hi-Res», хотя это CD-качество.
+            val flacInManifest = decoded.contains("flac", true)
+            fun tierFor(): QualityTier = when (pb.audioQuality.uppercase()) {
+                "HI_RES_LOSSLESS", "HI_RES" -> hires
+                "LOSSLESS" -> flac
+                "HIGH" -> aac
+                "LOW" -> low
+                else -> if (flacInManifest) {
+                    if (q.startsWith("HI_RES")) hires else flac
+                } else tier
+            }
             when {
                 pb.manifestMimeType == "application/vnd.tidal.bts" -> {
                     val url = json.decodeFromString(TdBts.serializer(), decoded).urls.firstOrNull() ?: continue
-                    val realTier = if (decoded.contains("flac", true)) flac else tier
-                    return TdStream.Direct(realTier, url)
+                    return TdStream.Direct(tierFor(), url)
                 }
                 pb.manifestMimeType == "application/dash+xml" || decoded.contains("<MPD") -> {
                     val dash = parseDash(decoded) ?: continue
-                    val t = when {
-                        decoded.contains("flac", true) && q.startsWith("HI_RES") -> hires
-                        decoded.contains("flac", true) -> flac
-                        else -> tier
-                    }
-                    return TdStream.Dash(t, dash.first, dash.second)
+                    return TdStream.Dash(tierFor(), dash.first, dash.second)
                 }
             }
         }
