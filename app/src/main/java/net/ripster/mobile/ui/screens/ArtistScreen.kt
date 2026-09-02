@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
@@ -252,7 +253,10 @@ fun ArtistScreen(
                         style = TextStyle(color = c.text_secondary, fontSize = 12.sp, fontWeight = FontWeight.W700, letterSpacing = 1.sp),
                     )
                 }
-                items(rels, key = { it.service + "|" + it.title.lowercase() + "|" + it.id }) { r ->
+                // Индекс в ключе: у релиза может не быть id (search-fallback,
+                // компиляции), и два одноимённых дают один ключ → LazyColumn
+                // роняет весь экран.
+                itemsIndexed(rels, key = { i, it -> "${it.service}|${it.title.lowercase()}|${it.id}|$i" }) { _, r ->
                     // Для участия в сборнике/миксе показываем ЧЕСТНО: чей это
                     // релиз (куратор микса / «разные артисты») и КАКОЙ трек
                     // артиста туда входит — а не имя артиста и общее число.

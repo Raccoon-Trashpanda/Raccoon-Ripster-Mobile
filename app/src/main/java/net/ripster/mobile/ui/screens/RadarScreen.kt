@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -227,7 +228,7 @@ fun RadarScreen(
                                         }
                                     }
                                 }
-                                items(rows, key = { it.joinToString { r -> r.name + r.service } }) { pair ->
+                                itemsIndexed(rows, key = { i, it -> it.joinToString { r -> r.name + r.service } + "|$i" }) { _, pair ->
                                     Row(
                                         Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -343,7 +344,7 @@ fun RadarScreen(
                             )
                         }
                     }
-                    items(arts, key = { it.name + it.service + it.kind + "s" }) { a ->
+                    itemsIndexed(arts, key = { i, it -> it.name + it.service + it.kind + "|$i" }) { _, a ->
                         Row(
                             Modifier.fillMaxWidth()
                                 .clickable {
