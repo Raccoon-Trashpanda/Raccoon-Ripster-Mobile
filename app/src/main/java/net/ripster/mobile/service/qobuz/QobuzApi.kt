@@ -39,6 +39,8 @@ class QobuzApi(
     @Volatile private var authToken: String = ""
     /** Секрет, который реально дал рабочую подпись — кэшируем. */
     @Volatile private var goodSecret: String = ""
+    /** Один раз добывали свежие app_id/секреты из bundle.js после отказа подписи. */
+    @Volatile private var refreshedFromBundle: Boolean = false
 
     /** Есть чем логиниться (без сети). Для быстрой проверки готовности сервиса. */
     fun hasCredentials(): Boolean =
@@ -106,12 +108,37 @@ class QobuzApi(
     /** Прямая ссылка на файл нужного формата. Пробует секреты по очереди. */
     suspend fun fileUrl(trackId: String, formatId: Int): QbFileUrl {
         ensureAuth()
-        val toTry = if (goodSecret.isNotBlank()) listOf(goodSecret) + secrets else secrets
-        var last: Exception? = null
+        tryFileUrl(trackId, formatId)?.let { return it }
+
+        // Все секреты дали 400/пустой url. Синхронизированные с ПК `app_id`+секрет
+        // могли протухнуть (у ПК за спиной свой фолбэк streamrip, у нас — нет).
+        // ОДИН раз добываем свежую пару из bundle.js веб-плеера и пробуем снова.
+        if (!refreshedFromBundle) {
+            refreshedFromBundle = true
+            runCatching { QobuzBundle.resolve(null, null) }.getOrNull()?.let { fresh ->
+                mutex.withLock {
+                    if (fresh.appId.isNotBlank()) appId = fresh.appId
+                    secrets = (fresh.secrets + secrets).distinct()
+                    goodSecret = ""
+                }
+                tryFileUrl(trackId, formatId)?.let { return it }
+            }
+        }
+        throw IOException("Qobuz: не удалось подписать запрос файла — обнови app_id/app_secret в Настройках → Учётные записи")
+    }
+
+    /** Одна серия попыток по всем известным секретам. null — ни один не сработал. */
+    private suspend fun tryFileUrl(trackId: String, formatId: Int): QbFileUrl? {
+        val toTry = (if (goodSecret.isNotBlank()) listOf(goodSecret) else emptyList()) + secrets
         for (secret in toTry.distinct()) {
             try {
                 val ts = System.currentTimeMillis() / 1000
-                val sig = md5("trackgetFileUrlformat_id${formatId}intentstreamtrack_id${trackId}request_ts$ts$secret")
+                // Подпись Qobuz: "trackgetFileUrl" + params БЕЗ имён-разделителей
+                // + сырой timestamp + secret. Здесь годами лишним куском стоял
+                // литерал "request_ts" перед $ts → md5 не совпадал → КАЖДАЯ
+                // загрузка Qobuz падала «no streamable file», хотя аккаунт и
+                // секрет верные. (сверено со streamrip client/qobuz.py)
+                val sig = md5("trackgetFileUrlformat_id${formatId}intentstreamtrack_id${trackId}$ts$secret")
                 val raw = get("track/getFileUrl") {
                     it.addQueryParameter("request_ts", ts.toString())
                     it.addQueryParameter("request_sig", sig)
@@ -124,11 +151,11 @@ class QobuzApi(
                     goodSecret = secret
                     return fu
                 }
-            } catch (e: Exception) {
-                last = e
+            } catch (_: Exception) {
+                // 400 = неверная подпись под этот app_id; пробуем следующий секрет
             }
         }
-        throw last ?: IOException("Qobuz: no valid app secret for getFileUrl")
+        return null
     }
 
     private suspend fun get(

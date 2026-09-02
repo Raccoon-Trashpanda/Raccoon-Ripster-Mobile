@@ -30,13 +30,11 @@ object QobuzBundle {
         Regex("""<script[^>]+src="(/[^"]*bundle(?:\.[a-z0-9]+)?\.js)""""),
         Regex("""src="(/[^"]*\.bundle\.js)""""),
     )
-    // appId + appSecret рядом (порядок ключей и пробелы могут гулять).
-    private val APPID_SECRET = Regex("""appId:"(\d{9,10})"[^}]{0,80}?appSecret:"([a-f0-9]{32})"""")
-    private val APPID_SECRET_REV = Regex("""appSecret:"([a-f0-9]{32})"[^}]{0,80}?appId:"(\d{9,10})"""")
-    private val APPID_ONLY = Regex("""appId:"(\d{9,10})"""")
+    // app_id живёт в `production:{api:{appId:"…",appSecret:"…"` — якорь обязателен,
+    // иначе голый `appId:"…"` цепляет ЧУЖОЙ id из другого места бандла → 400 на
+    // getFileUrl. (1:1 со streamrip client/qobuz.py `app_id_regex`.)
+    private val APPID = Regex("""production:\{api:\{appId:"(\d{9})",appSecret:"(\w{32})""")
     private val SEED_TZ = Regex("""[a-z]\.initialSeed\("([\w=]+)",window\.utimezone\.([a-z]+)\)""")
-    private val INFO_EXTRAS =
-        Regex("""name:"\w+/([a-z]+)",info:"([\w=]+)",extras:"([\w=]+)"""")
 
     suspend fun resolve(overrideId: String?, overrideSecret: String?): Creds = withContext(Dispatchers.IO) {
         if (!overrideId.isNullOrBlank() && !overrideSecret.isNullOrBlank()) {
@@ -48,32 +46,42 @@ object QobuzBundle {
             ?: throw IOException("Qobuz: не нашёл bundle.js на странице входа — формат сайта изменился; введите app_id и app_secret вручную в Настройках → Учётные записи")
         val bundle = body("https://play.qobuz.com$bundlePath")
 
-        APPID_SECRET.find(bundle)?.let {
-            return@withContext Creds(it.groupValues[1], listOf(it.groupValues[2]))
-        }
-        APPID_SECRET_REV.find(bundle)?.let {
-            return@withContext Creds(it.groupValues[2], listOf(it.groupValues[1]))
-        }
-
+        val appIdM = APPID.find(bundle)
         val appId = overrideId?.trim()?.ifBlank { null }
-            ?: APPID_ONLY.find(bundle)?.groupValues?.get(1)
+            ?: appIdM?.groupValues?.get(1)
             ?: throw IOException("Qobuz: app_id не найден в bundle — введите app_id и app_secret вручную в Настройках")
 
-        val seeds = SEED_TZ.findAll(bundle).map { it.groupValues[1] to it.groupValues[2] }.toList()
-        val infos = INFO_EXTRAS.findAll(bundle)
-            .associate { it.groupValues[1] to (it.groupValues[2] to it.groupValues[3]) }
-
-        val secrets = seeds.mapNotNull { (seed, tz) ->
-            val (info, extras) = infos[tz] ?: return@mapNotNull null
-            val joined = seed + info + extras
+        // Восстановление секретов по методу веб-плеера (порт streamrip Spoofer):
+        //  seed+timezone из initialSeed(); ВТОРОЙ timezone двигаем в начало
+        //  (Qobuz-код с двумя ложными тернарниками использует именно вторую пару);
+        //  к каждому timezone добавляем info+extras; base64(seed+info+extras без
+        //  хвостовых 44 символов).
+        val seeds = LinkedHashMap<String, MutableList<String>>()
+        SEED_TZ.findAll(bundle).forEach { m ->
+            seeds.getOrPut(m.groupValues[2]) { mutableListOf() }.add(m.groupValues[1])
+        }
+        val ordered = LinkedHashMap<String, MutableList<String>>()
+        val keys = seeds.keys.toList()
+        if (keys.size >= 2) {
+            ordered[keys[1]] = seeds[keys[1]]!!
+            keys.forEachIndexed { i, k -> if (i != 1) ordered[k] = seeds[k]!! }
+        } else {
+            ordered.putAll(seeds)
+        }
+        val tzAlt = ordered.keys.joinToString("|") { it.replaceFirstChar { c -> c.uppercase() } }
+        val infoExtras = Regex("""name:"\w+/($tzAlt)",info:"([\w=]+)",extras:"([\w=]+)"""")
+        infoExtras.findAll(bundle).forEach { m ->
+            ordered[m.groupValues[1].lowercase()]?.apply { add(m.groupValues[2]); add(m.groupValues[3]) }
+        }
+        val secrets = ordered.values.mapNotNull { parts ->
             runCatching {
-                String(Base64.decode(joined.dropLast(44), Base64.DEFAULT), Charsets.UTF_8)
+                String(Base64.decode(parts.joinToString("").dropLast(44), Base64.DEFAULT), Charsets.UTF_8)
             }.getOrNull()?.takeIf { it.length == 32 }
         }
-        if (secrets.isEmpty() && overrideSecret.isNullOrBlank()) {
-            throw IOException("Qobuz: could not reconstruct any app secret")
-        }
-        Creds(appId, (secrets + listOfNotNull(overrideSecret?.trim()?.ifBlank { null })).distinct())
+        val merged = (secrets + listOfNotNull(overrideSecret?.trim()?.ifBlank { null })
+            + listOfNotNull(appIdM?.groupValues?.get(2))).distinct()
+        if (merged.isEmpty()) throw IOException("Qobuz: could not reconstruct any app secret")
+        Creds(appId, merged)
     }
 
     private fun body(url: String): String {
