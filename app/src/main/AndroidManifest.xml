@@ -42,6 +42,12 @@
             </intent-filter>
         </activity>
 
+        <!-- Окно входа в сервис (WebView) — без DevTools и копипаста токенов. -->
+        <activity
+            android:name=".ui.login.LoginWebViewActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
         <!-- API 34+ требует явный тип у foreground-сервиса WorkManager. -->
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"

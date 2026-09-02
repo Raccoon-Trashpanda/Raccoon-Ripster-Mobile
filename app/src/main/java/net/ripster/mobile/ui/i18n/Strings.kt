@@ -707,6 +707,9 @@ private val STRINGS: Map<String, Row> = mapOf(
         "通过节目链接。仅限英国访问。",
     ),
     "svc.or_token" to row("Или вставить токен вручную:", "Or paste a token manually:", "या टोकन मैन्युअल रूप से चिपकाएँ:", "またはトークンを手動で貼り付け:", "或手动粘贴令牌："),
+    "svc.login_via_site" to row("Войти через сайт", "Sign in on the site", "साइट पर साइन इन करें", "サイトでログイン", "在网站登录"),
+    "svc.login_ok" to row("Готово — токен подхвачен", "Done — token captured", "हो गया — टोकन मिल गया", "完了 — トークンを取得", "完成 — 已获取令牌"),
+    "svc.login_cancel" to row("Вход не завершён", "Sign-in not completed", "साइन-इन पूरा नहीं हुआ", "ログイン未完了", "登录未完成"),
     "svc.tidal_json_hint" to row(
         "JSON вида {\"accessToken\":\"…\",\"refreshToken\":\"…\",\"countryCode\":\"NZ\"} или просто refresh-токен.",
         "JSON like {\"accessToken\":\"…\",\"refreshToken\":\"…\",\"countryCode\":\"NZ\"} or just the refresh token.",

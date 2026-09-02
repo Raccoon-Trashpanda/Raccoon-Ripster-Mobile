@@ -252,10 +252,18 @@ private fun AccountScreen(svc: Service, lang: AppLang, c: RipsterColors) {
         when (svc) {
             Service.SOUNDCLOUD -> {
                 var v by remember { mutableStateOf(cred(CredentialStore.Key.SOUNDCLOUD_OAUTH)) }
+                WebLoginButton("soundcloud", c, lang) { v = it; save(CredentialStore.Key.SOUNDCLOUD_OAUTH, it) }
+                Box(Modifier.height(10.dp))
+                BasicText(tr("svc.or_token", lang), style = TextStyle(color = c.text_tertiary, fontSize = 11.sp))
+                Box(Modifier.height(6.dp))
                 Field("soundcloud.oauth", v, c, { v = it }) { save(CredentialStore.Key.SOUNDCLOUD_OAUTH, v) }
             }
             Service.DEEZER -> {
                 var v by remember { mutableStateOf(cred(CredentialStore.Key.DEEZER_ARL)) }
+                WebLoginButton("deezer", c, lang) { v = it; save(CredentialStore.Key.DEEZER_ARL, it) }
+                Box(Modifier.height(10.dp))
+                BasicText(tr("svc.or_token", lang), style = TextStyle(color = c.text_tertiary, fontSize = 11.sp))
+                Box(Modifier.height(6.dp))
                 Field("deezer.arl", v, c, { v = it }) { save(CredentialStore.Key.DEEZER_ARL, v) }
             }
             Service.QOBUZ -> {
@@ -279,20 +287,17 @@ private fun AccountScreen(svc: Service, lang: AppLang, c: RipsterColors) {
             }
             Service.SPOTIFY -> {
                 var v by remember { mutableStateOf(cred(CredentialStore.Key.SPOTIFY_SP_DC)) }
+                WebLoginButton("spotify", c, lang) { v = it; save(CredentialStore.Key.SPOTIFY_SP_DC, it) }
+                Box(Modifier.height(10.dp))
+                BasicText(tr("svc.or_token", lang), style = TextStyle(color = c.text_tertiary, fontSize = 11.sp))
+                Box(Modifier.height(6.dp))
                 Field("spotify.sp_dc", v, c, { v = it }) { save(CredentialStore.Key.SPOTIFY_SP_DC, v) }
             }
             Service.YANDEX -> {
                 var v by remember { mutableStateOf(cred(CredentialStore.Key.YANDEX_OAUTH)) }
-                Btn(tr("svc.open_login_page", lang), c) {
-                    runCatching {
-                        ctx.startActivity(
-                            Intent(Intent.ACTION_VIEW, Uri.parse(YANDEX_OAUTH_URL))
-                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                        )
-                    }
-                }
+                WebLoginButton("yandex", c, lang) { v = it; save(CredentialStore.Key.YANDEX_OAUTH, it) }
                 Box(Modifier.height(6.dp))
-                BasicText(tr("svc.paste_token", lang), style = TextStyle(color = c.text_tertiary, fontSize = 11.sp))
+                BasicText(tr("svc.or_token", lang), style = TextStyle(color = c.text_tertiary, fontSize = 11.sp))
                 Box(Modifier.height(8.dp))
                 Field("yandex.oauth", v, c, { v = it }) { save(CredentialStore.Key.YANDEX_OAUTH, v) }
                 Box(Modifier.height(16.dp))
@@ -1077,6 +1082,40 @@ private fun LabeledField(label: String, value: String, c: RipsterColors, onChang
 private fun Btn(label: String, c: RipsterColors, onClick: () -> Unit) {
     Box(Modifier.background(c.accent_fill, RoundedCornerShape(8.dp)).pressable { onClick() }.padding(horizontal = 16.dp, vertical = 9.dp)) {
         BasicText(label, style = TextStyle(color = c.text_on_fill, fontSize = 13.sp, fontWeight = FontWeight.Bold))
+    }
+}
+
+/**
+ * «Войти через сайт» — открывает окно входа сервиса (WebView) и, как только
+ * появится нужная кука/токен, отдаёт её в [onToken]. Без DevTools и копипаста.
+ */
+@Composable
+private fun WebLoginButton(service: String, c: RipsterColors, lang: AppLang, onToken: (String) -> Unit) {
+    val ctx = LocalContext.current
+    var status by remember { mutableStateOf<String?>(null) }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+        val tok = res.data?.getStringExtra(
+            net.ripster.mobile.ui.login.LoginWebViewActivity.EXTRA_TOKEN,
+        )
+        if (res.resultCode == android.app.Activity.RESULT_OK && !tok.isNullOrBlank()) {
+            onToken(tok)
+            status = tr("svc.login_ok", lang)
+        } else {
+            status = tr("svc.login_cancel", lang)
+        }
+    }
+    Column {
+        Btn(tr("svc.login_via_site", lang), c) {
+            status = null
+            launcher.launch(
+                android.content.Intent(ctx, net.ripster.mobile.ui.login.LoginWebViewActivity::class.java)
+                    .putExtra(net.ripster.mobile.ui.login.LoginWebViewActivity.EXTRA_SERVICE, service),
+            )
+        }
+        status?.let {
+            Box(Modifier.height(6.dp))
+            BasicText(it, style = TextStyle(color = c.text_secondary, fontSize = 11.sp))
+        }
     }
 }
 
