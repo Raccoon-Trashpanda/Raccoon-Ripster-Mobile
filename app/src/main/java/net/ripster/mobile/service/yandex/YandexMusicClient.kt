@@ -31,6 +31,9 @@ import okhttp3.Request
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
+import javax.crypto.Cipher
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.SecretKeySpec
 
 /**
  * Яндекс.Музыка как источник. OAuth-токен (`YANDEX_OAUTH`) — тот же, что у
@@ -48,6 +51,7 @@ class YandexMusicClient(
     private val json = Json { ignoreUnknownKeys = true; coerceInputValues = true }
 
     private val flac = QualityTier("flac", "FLAC", lossless = true, container = "flac")
+    private val flacMp4 = QualityTier("flac", "FLAC (Lossless)", lossless = true, container = "m4a")
     private val mp3 = QualityTier("mp3_320", "MP3 320", lossless = false, container = "mp3", bitrateKbps = 320)
 
     // Есть токен — сервис считается подключённым. НЕ гейтим на живой
@@ -117,6 +121,55 @@ class YandexMusicClient(
     override fun download(request: DownloadRequest): Flow<DownloadEvent> = flow {
         val id = request.track.raw["ymId"] ?: throw IOException("Yandex: no track id")
         val pref = request.forcedQualityId?.let { listOf(it) } ?: request.qualityPreference
+        val wantFlac = pref.any { it.startsWith("flac") || it.contains("hires") }
+
+        // Настоящий lossless у Яндекса отдаёт ТОЛЬКО новый эндпоинт
+        // `get-file-info?quality=lossless` (со своей HMAC-подписью и клиент-
+        // хедером). Старый `download-info` для Plus-аккаунта всё равно возвращает
+        // только mp3 — из-за этого мобилка качала Яндекс в mp3, хотя подписка
+        // есть. Файл приходит AES-CTR-зашифрованным (`transport: encraw`) —
+        // расшифровываем на лету при записи. Не вышло — тихо падаем на mp3.
+        val lossless = if (wantFlac) runCatching { losslessInfo(id) }.getOrNull() else null
+        if (lossless != null) {
+            val out = File(cacheDir, "ym_$id.${flacMp4.container}")
+            val ok = runCatching {
+                emit(DownloadEvent.Log("Yandex: ${flacMp4.label}"))
+                val req = Request.Builder().url(lossless.url).header("User-Agent", UA).build()
+                RipsterHttp.client.newCall(req).execute().use { resp ->
+                    if (!resp.isSuccessful) throw IOException("Yandex: lossless -> HTTP ${resp.code}")
+                    val body = resp.body ?: throw IOException("Yandex: empty lossless body")
+                    val total = body.contentLength().takeIf { it > 0 }
+                    // encraw = AES-128-CTR, IV = 16 нулей (nonce 12 + counter 0).
+                    // CTR — потоковый шифр: только update(), doFinal() не нужен.
+                    val ctr = lossless.keyHex?.let { hex ->
+                        Cipher.getInstance("AES/CTR/NoPadding").apply {
+                            init(Cipher.DECRYPT_MODE, SecretKeySpec(hexToBytes(hex), "AES"), IvParameterSpec(ByteArray(16)))
+                        }
+                    }
+                    body.byteStream().use { input ->
+                        out.outputStream().buffered().use { sink ->
+                            val buf = ByteArray(64 * 1024); var got = 0L
+                            while (true) {
+                                currentCoroutineContext().ensureActive()
+                                val n = input.read(buf); if (n < 0) break
+                                val chunk = ctr?.update(buf, 0, n) ?: buf.copyOf(n)
+                                if (chunk.isNotEmpty()) sink.write(chunk)
+                                got += n
+                                emit(DownloadEvent.Progress(total?.let { got.toFloat() / it }, got, total))
+                            }
+                        }
+                    }
+                }
+                out.length() > 4096
+            }.getOrDefault(false)
+            if (ok) {
+                emit(DownloadEvent.Done(out.absolutePath, flacMp4, out.length()))
+                return@flow
+            }
+            runCatching { out.delete() }
+            emit(DownloadEvent.Log("Yandex: lossless не отдался — беру mp3"))
+        }
+
         val (tier, url) = signedUrl(id, pref)
         emit(DownloadEvent.Log("Yandex: ${tier.label}"))
         val out = File(cacheDir, "ym_$id.${tier.container}")
@@ -139,6 +192,49 @@ class YandexMusicClient(
         }
         emit(DownloadEvent.Done(out.absolutePath, tier, out.length()))
     }.flowOn(Dispatchers.IO)
+
+    private class LosslessInfo(val url: String, val keyHex: String?)
+
+    /** Новый lossless-путь Яндекса: `get-file-info?quality=lossless` + HMAC-sign. */
+    private suspend fun losslessInfo(id: String): LosslessInfo? = withContext(Dispatchers.IO) {
+        val ts = System.currentTimeMillis() / 1000
+        // порядок и содержимое строго как у ymd: ts,trackId,quality,codecs,transports
+        val signMsg = "$ts$id" + "lossless" + YM_CODECS.replace(",", "") + "encraw"
+        val mac = javax.crypto.Mac.getInstance("HmacSHA256").apply {
+            init(SecretKeySpec(YM_SIGN_KEY.toByteArray(Charsets.UTF_8), "HmacSHA256"))
+        }
+        val sign = android.util.Base64.encodeToString(
+            mac.doFinal(signMsg.toByteArray(Charsets.UTF_8)), android.util.Base64.NO_WRAP,
+        ).dropLast(1)   // ymd режет последний символ (padding '=')
+        val url = "$BASE/get-file-info".toHttpUrl().newBuilder()
+            .addQueryParameter("ts", ts.toString())
+            .addQueryParameter("trackId", id)
+            .addQueryParameter("quality", "lossless")
+            .addQueryParameter("codecs", YM_CODECS)
+            .addQueryParameter("transports", "encraw")
+            .addQueryParameter("sign", sign)
+            .build().toString()
+        val req = Request.Builder().url(url)
+            .header("Authorization", "OAuth $oauthToken")
+            .header("X-Yandex-Music-Client", YM_CLIENT)
+            .header("User-Agent", UA)
+            .build()
+        RipsterHttp.client.newCall(req).execute().use { r ->
+            if (!r.isSuccessful) return@withContext null
+            val di = Json { ignoreUnknownKeys = true }
+                .parseToJsonElement(r.body?.string() ?: return@withContext null)
+                .jsonObject["result"]?.jsonObject?.get("downloadInfo")?.jsonObject
+                ?: return@withContext null
+            val codec = di["codec"]?.jsonPrimitive?.contentOrNull ?: return@withContext null
+            if (!codec.startsWith("flac")) return@withContext null   // не lossless — уступаем mp3
+            val u = di["urls"]?.jsonArray?.firstOrNull()?.jsonPrimitive?.contentOrNull
+                ?: return@withContext null
+            LosslessInfo(u, di["key"]?.jsonPrimitive?.contentOrNull?.takeIf { it.length == 32 })
+        }
+    }
+
+    private fun hexToBytes(h: String): ByteArray =
+        ByteArray(h.length / 2) { ((h[it * 2].digitToInt(16) shl 4) + h[it * 2 + 1].digitToInt(16)).toByte() }
 
     // --- подписанный URL ---
 
@@ -319,5 +415,10 @@ class YandexMusicClient(
         private const val BASE = "https://api.music.yandex.net"
         private const val SALT = "XGRlBW9FXlekgbPrRHuSiA"
         private const val UA = "Yandex-Music-API"
+        // Новый lossless-путь (`get-file-info`): клиент-хедер обязателен (без него
+        // 403 not-allowed), ключ подписи и список кодеков — как в `ymd` api.py.
+        private const val YM_CLIENT = "YandexMusicAndroid/24023621"
+        private const val YM_SIGN_KEY = "p93jhgh689SBReK6ghtw62"
+        private const val YM_CODECS = "flac,flac-mp4,mp3,aac,he-aac,aac-mp4,he-aac-mp4"
     }
 }
