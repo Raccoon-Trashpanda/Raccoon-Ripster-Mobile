@@ -499,7 +499,10 @@ class PlayerController(context: Context) {
                 )
             },
             queueIndex = c.currentMediaItemIndex,
-            currentPath = e?.filePath,
+            // Скачанный файл → его путь; потоковое воспроизведение → URI потока
+            // (панель «Спектр» вытянет его сама и построит спектр по нему).
+            currentPath = e?.filePath
+                ?: c.currentMediaItem?.localConfiguration?.uri?.toString(),
         )
     }
 }

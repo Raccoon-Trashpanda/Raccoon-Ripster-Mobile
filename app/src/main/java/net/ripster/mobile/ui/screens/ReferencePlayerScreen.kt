@@ -499,20 +499,26 @@ private fun SpectrumPanel(
     val ext = path?.substringAfterLast('.', "")?.lowercase()?.take(5)
     val style = net.ripster.mobile.core.audio.Spectrogram.Style.byId(settings.spectrumStyle)
 
-    // «Локальный» = скачанный файл (file://, content://, голый путь). Поток по
-    // сети MediaCodec не разберёт (Deezer вообще шифрован) — спектр строим
-    // только по скачанному, иначе панель выглядит «сломанной».
+    // «Локальный» = уже скачанный файл (file://, content://, голый путь).
     val isLocal = path != null && !path.startsWith("http", ignoreCase = true)
 
-    // 0 — строю, 1 — готово, 2 — не удалось, 3 — трек не скачан (спектр не применим)
+    // 0 — строю, 1 — готово, 2 — не удалось, 3 — нет трека вообще
     var phase by remember(path, style) { mutableStateOf(0) }
     var result by remember(path, style) { mutableStateOf<net.ripster.mobile.core.audio.Spectrogram.Result?>(null) }
     LaunchedEffect(path, style) {
         phase = 0; result = null
-        if (path == null || !isLocal) { phase = 3; return@LaunchedEffect }
+        if (path == null) { phase = 3; return@LaunchedEffect }
+        // Локальный файл — разбираем как есть. Сетевой поток (он УЖЕ играет,
+        // значит байты доступны) — тянем начало во временный файл (Deezer по
+        // пути расшифровываем) и строим спектр по нему.
+        val src: String? = if (isLocal) path else
+            net.ripster.mobile.core.audio.SpectrumSource.fetchPlayingToTemp(ctx, path)?.absolutePath
+        if (src == null) { phase = 2; return@LaunchedEffect }
+        val srcExt = if (isLocal) ext else src.substringAfterLast('.', "").lowercase().take(5)
         val r = runCatching {
-            net.ripster.mobile.core.audio.Spectrogram.analyze(ctx, path, style, heightPx = 360, containerExt = ext)
+            net.ripster.mobile.core.audio.Spectrogram.analyze(ctx, src, style, heightPx = 360, containerExt = srcExt)
         }.getOrNull()
+        if (!isLocal) runCatching { java.io.File(src).delete() }
         result = r
         phase = if (r != null) 1 else 2
     }
@@ -545,7 +551,7 @@ private fun SpectrumPanel(
 
         when {
             phase == 0 -> Centered(tr("ref.spectrum_building", lang), c)
-            phase == 3 -> Centered(tr("ref.spectrum_stream", lang), c)
+            phase == 3 -> Centered(tr("ref.no_track", lang), c)
             phase == 2 || result == null -> Centered(tr("ref.spectrum_fail", lang), c)
             else -> {
                 val r = result!!

@@ -350,6 +350,9 @@ private fun AppDemo() {
                 isPlaying = isPlaying,
             ),
             onPlayPause = { isPlaying = !isPlaying },
+            onPrev = {},
+            onNext = {},
+            onClose = {},
             onExpand = {},
         )
         BottomNav(current = dest, onSelect = { dest = it })

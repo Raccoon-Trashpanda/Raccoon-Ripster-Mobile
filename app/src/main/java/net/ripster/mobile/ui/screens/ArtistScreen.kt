@@ -200,13 +200,18 @@ fun ArtistScreen(
                     )
                 }
                 items(rels, key = { it.service + "|" + it.title.lowercase() + "|" + it.id }) { r ->
+                    // Для участия в сборнике/миксе показываем ЧЕСТНО: чей это
+                    // релиз (куратор микса / «разные артисты») и КАКОЙ трек
+                    // артиста туда входит — а не имя артиста и общее число.
+                    val isAppears = normType(r.type) == "compilation"
                     val cd = ReleaseCardData(
                         title = r.title,
-                        // для участия в сборнике/миксе — показываем, КАКОЙ трек
-                        // артиста туда входит, вместо имени артиста
-                        artist = if (r.appearsAs.isNotBlank())
-                            tr("art.appears_as", lang) + " " + r.appearsAs
-                        else p.name.ifBlank { name },
+                        artist = if (isAppears) {
+                            val who = r.albumArtist.ifBlank { tr("art.va", lang) }
+                            val track = if (r.appearsAs.isNotBlank())
+                                "  ·  " + tr("art.appears_as", lang) + " " + r.appearsAs else ""
+                            who + track
+                        } else p.name.ifBlank { name },
                         service = r.service,
                         url = r.url,
                         type = type,
@@ -283,7 +288,8 @@ private fun normType(t: String) = when (t.lowercase()) {
 private fun groupLabelKey(t: String) = when (t) {
     "single" -> "art.singles"
     "ep" -> "art.eps"
-    "compilation" -> "art.comps"
+    // «сборник» в дискографии = чужой релиз с треком артиста → называем честно
+    "compilation" -> "art.appears_group"
     "live" -> "art.live"
     else -> "art.albums"
 }
@@ -360,7 +366,14 @@ private suspend fun searchFallback(name: String): PcBridge.ArtistPage {
         val k = al.trim().lowercase()
         if (byAlbum.containsKey(k)) return@forEach          // уже как собственный релиз
         val albId = t.raw["albId"]?.takeIf { it.isNotBlank() && it != "0" }
-        val ownRelease = t.albumArtist.isNullOrBlank() || nameMatches(t.albumArtist!!)
+        // В выдаче ПОИСКА album_artist почти всегда = сам артист (сервисы так
+        // отдают), поэтому одного его мало. Плюс — эвристика по названию: серии
+        // и радио-компиляции узнаются по имени.
+        val compHint = Regex(
+            """(?i)\b(vol\.?\s*\d+|radio|mansion|sessions?|selected|mixed|dj[ -]?mix|compilation|present[s]?|pres\.|anjunadeep\s*\d+|caf[eé] del mar|all day i dream|this never happened|best of|various)\b""",
+        ).containsMatchIn(al)
+        val ownRelease = !compHint &&
+            (t.albumArtist.isNullOrBlank() || nameMatches(t.albumArtist!!))
         byAlbum[k] = PcBridge.ArtistRelease(
             id = albId.orEmpty(), title = al, coverUrl = t.artworkUrl,
             year = t.year?.toString().orEmpty(), date = t.year?.toString().orEmpty(),
@@ -369,6 +382,7 @@ private suspend fun searchFallback(name: String): PcBridge.ArtistPage {
             url = albumUrl(t.service.id, albId.orEmpty()),
             service = t.service.id,
             appearsAs = if (ownRelease) "" else t.title,
+            albumArtist = if (ownRelease) "" else (t.albumArtist ?: "").trim(),
         )
     }
     // порядок: сначала собственные релизы, потом участия — и то и другое по годам

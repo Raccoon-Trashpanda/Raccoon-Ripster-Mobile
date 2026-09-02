@@ -194,7 +194,10 @@ private val STRINGS: Map<String, Row> = mapOf(
     "art.singles" to row("Синглы", "Singles", "सिंगल्स", "シングル", "单曲"),
     "art.eps" to row("EP", "EPs", "EP", "EP", "EP"),
     "art.comps" to row("Сборники", "Compilations", "संकलन", "コンピレーション", "合辑"),
+    "art.appears_group" to row("С этим артистом", "Featuring this artist", "इस आर्टिस्ट के साथ", "このアーティスト参加", "有此艺人参与"),
     "art.appears_as" to row("трек:", "track:", "ट्रैक:", "曲:", "曲目："),
+    "art.appears_on" to row("на релизе", "on release", "रिलीज़ पर", "リリース内", "在发行中"),
+    "art.va" to row("разные артисты", "various artists", "विभिन्न कलाकार", "V.A.", "群星"),
     "art.dl_all" to row("Скачать дискографию", "Download discography", "डिस्कोग्राफ़ी डाउनलोड करें", "ディスコグラフィをDL", "下载全部唱片"),
     "art.dl_all_busy" to row("Ставлю в очередь…", "Queueing…", "कतार में डाल रहे…", "キューに追加中…", "正在排队…"),
     "art.live" to row("Концертные", "Live", "लाइव", "ライブ", "现场"),
@@ -524,6 +527,7 @@ private val STRINGS: Map<String, Row> = mapOf(
     "search.year" to row("Год", "Year", "वर्ष", "年", "年份"),
     "search.year_any" to row("любой", "any", "कोई भी", "指定なし", "任意"),
     "ref.no_lyrics" to row("Текст не найден", "No lyrics found", "बोल नहीं मिले", "歌詞が見つかりません", "未找到歌词"),
+    "ref.no_track" to row("Ничего не играет", "Nothing is playing", "कुछ नहीं चल रहा", "再生中の曲がありません", "当前没有播放"),
     "ref.spectrum" to row("Спектр", "Spectrum", "स्पेक्ट्रम", "スペクトラム", "频谱"),
     "ref.spectrum_building" to row("Строю спектр…", "Building spectrum…", "स्पेक्ट्रम बना रहा है…", "スペクトラムを生成中…", "正在生成频谱…"),
     "ref.spectrum_fail" to row(

@@ -226,7 +226,7 @@ class DeezerClient(
             year = year,
             isrc = isrc,
             artworkUrl = cover,
-            raw = mapOf("dzId" to id.toString(), "albId" to ((album?.id ?: 0L).toString())),
+            raw = mapOf("dzId" to id.toString(), "albId" to ((album?.id ?: 0L).toString()), "artId" to artist.id.toString()),
         )
     }
 }

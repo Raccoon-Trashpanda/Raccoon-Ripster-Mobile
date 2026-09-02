@@ -162,7 +162,7 @@ class QobuzClient(
             year = year,
             isrc = isrc,
             artworkUrl = img,
-            raw = mapOf("qbId" to id.toString(), "albId" to (album?.id?.toString() ?: "")),
+            raw = mapOf("qbId" to id.toString(), "albId" to (album?.id?.toString() ?: ""), "artId" to (album?.artist?.id?.toString() ?: performer?.id?.toString() ?: "")),
         )
     }
 }

@@ -495,7 +495,7 @@ fun SearchScreen(
                         TrackRow(
                             track = t,
                             queued = queued["${t.service.id}:${t.id}"] == true,
-                            onArtist = { onOpenArtist(t.artist, t.service.id, "") },
+                            onArtist = { onOpenArtist(t.artist, t.service.id, t.raw["artId"].orEmpty()) },
                             onPlay = {
                                 scope.launch {
                                     val ordered = tracks.drop(idx)

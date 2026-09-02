@@ -482,6 +482,9 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                         artworkUrl = playback.artworkUrl,
                     ),
                     onPlayPause = { app.player.togglePlay() },
+                    onPrev = { app.player.previous() },
+                    onNext = { app.player.next() },
+                    onClose = { app.player.stop() },
                     onExpand = { dest = RipsterDestination.Player },
                 )
             }

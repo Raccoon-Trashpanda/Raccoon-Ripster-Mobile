@@ -1,9 +1,11 @@
 package net.ripster.mobile.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,26 +26,17 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import net.ripster.mobile.ui.theme.MinTouchTarget
 import net.ripster.mobile.ui.theme.RipsterTheme
 
 /**
  * Мини-плеер — компактная плашка "сейчас играет", закреплённая над нижней
- * навигацией на всех экранах, кроме самого полноэкранного Now Playing.
- * Показывает обложку, название/исполнителя, кнопку play/pause и тонкую
- * полосу прогресса. Тап по плашке (кроме самой кнопки play/pause) раскрывает
- * NowPlayingScreen.
+ * навигацией на всех экранах, кроме полноэкранного плеера.
  *
- * Как и остальной управляющий слой — BasicText, не Material Text (в проекте
- * нет зависимости на androidx.compose.material вообще, только foundation/ui);
- * indication = null на кликабельной строке — тот же приём, что у
- * TransportIconButton в Transport.kt, не внешний ripple.
- *
- * Прогресс-бар размещён у самого нижнего края компонента (а не над hairline-
- * разделителем): так он читается как прогресс воспроизведения текущего трека,
- * а не как «хвост» контента, который скроллится позади плеера.
+ * Органы управления как в ПК-версии, но только основные: назад / пауза /
+ * вперёд / закрыть (×). Тап по обложке+тексту раскрывает полный плеер.
+ * Название и исполнитель, если не влезают, плавно проматываются
+ * (`basicMarquee`) — с паузой в начале, чтобы успеть прочитать.
  */
 data class MiniPlayerState(
     val title: String,
@@ -58,20 +51,19 @@ data class MiniPlayerState(
 fun MiniPlayer(
     state: MiniPlayerState,
     onPlayPause: () -> Unit,
+    onPrev: () -> Unit,
+    onNext: () -> Unit,
+    onClose: () -> Unit,
     onExpand: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = RipsterTheme.colors
-    val spacing = RipsterTheme.spacing
     val type = RipsterTheme.type
 
     val progress = if (state.durationMs > 0) {
         (state.positionMs.toFloat() / state.durationMs.toFloat()).coerceIn(0f, 1f)
-    } else {
-        0f
-    }
+    } else 0f
 
-    // skin_2: плавающая скруглённая плашка, а не полоса на всю ширину с hairline.
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -83,8 +75,8 @@ fun MiniPlayer(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp)
-                .height(56.dp),
+                .padding(start = 10.dp, end = 4.dp)
+                .height(58.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Row(
@@ -104,47 +96,77 @@ fun MiniPlayer(
                     modifier = Modifier.size(38.dp),
                     shape = RoundedCornerShape(9.dp),
                 )
-
-                Spacer(Modifier.width(12.dp))
-
+                Spacer(Modifier.width(11.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     BasicText(
                         text = state.title,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth().basicMarquee(
+                            iterations = Int.MAX_VALUE,
+                            initialDelayMillis = 1400,
+                            repeatDelayMillis = 1600,
+                        ),
                         style = TextStyle(color = colors.text_primary, fontSize = type.body),
                     )
                     BasicText(
                         text = state.artist,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth().basicMarquee(
+                            iterations = Int.MAX_VALUE,
+                            initialDelayMillis = 1800,
+                            repeatDelayMillis = 1600,
+                        ),
                         style = TextStyle(color = colors.text_secondary, fontSize = type.caption),
                     )
                 }
             }
 
-            Spacer(Modifier.width(10.dp))
-
-            PlayPauseButton(
-                isPlaying = state.isPlaying,
-                onClick = onPlayPause,
-                size = 36.dp,
-            )
+            Spacer(Modifier.width(6.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                MiniGlyph(onClick = onPrev, cd = "Предыдущий") { drawPrevGlyph(colors.text_secondary) }
+                PlayPauseButton(isPlaying = state.isPlaying, onClick = onPlayPause, size = 34.dp)
+                MiniGlyph(onClick = onNext, cd = "Следующий") { drawNextGlyph(colors.text_secondary) }
+                MiniGlyph(onClick = onClose, cd = "Закрыть плеер", icon = 12.dp) {
+                    drawLine(colors.text_tertiary, androidx.compose.ui.geometry.Offset(size.width * 0.15f, size.height * 0.15f),
+                        androidx.compose.ui.geometry.Offset(size.width * 0.85f, size.height * 0.85f), 5f, androidx.compose.ui.graphics.StrokeCap.Round)
+                    drawLine(colors.text_tertiary, androidx.compose.ui.geometry.Offset(size.width * 0.85f, size.height * 0.15f),
+                        androidx.compose.ui.geometry.Offset(size.width * 0.15f, size.height * 0.85f), 5f, androidx.compose.ui.graphics.StrokeCap.Round)
+                }
+            }
         }
 
-        // Тонкая полоса прогресса у нижнего края плашки (внутри скругления).
         Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(2.dp)
-                .background(colors.surface_sunken),
+            modifier = Modifier.fillMaxWidth().height(2.dp).background(colors.surface_sunken),
         ) {
             Box(
-                modifier = Modifier
-                    .fillMaxWidth(fraction = progress)
-                    .height(2.dp)
-                    .background(colors.accent_fill),
+                modifier = Modifier.fillMaxWidth(fraction = progress).height(2.dp).background(colors.accent_fill),
             )
         }
+    }
+}
+
+@Composable
+private fun MiniGlyph(
+    onClick: () -> Unit,
+    cd: String,
+    icon: androidx.compose.ui.unit.Dp = 16.dp,
+    draw: androidx.compose.ui.graphics.drawscope.DrawScope.() -> Unit,
+) {
+    Box(
+        Modifier
+            .size(34.dp)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                role = Role.Button,
+                onClick = onClick,
+            )
+            .semantics { contentDescription = cd },
+        contentAlignment = Alignment.Center,
+    ) {
+        androidx.compose.foundation.Canvas(Modifier.size(icon)) { draw() }
     }
 }
