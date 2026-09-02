@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentHeight
@@ -93,6 +94,20 @@ fun BottomNav(
     val lang = LocalAppLang.current
 
     Column(modifier = modifier.fillMaxWidth()) {
+        // Мягкий подъём цвета к бару — единственная «глубина», которую эта
+        // дизайн-система допускает вне листа: бар физически выше содержимого,
+        // и его ведущая кромка не рубит контент встык, а растворяет его.
+        androidx.compose.foundation.layout.Box(
+            Modifier
+                .fillMaxWidth()
+                .height(10.dp)
+                .background(
+                    androidx.compose.ui.graphics.Brush.verticalGradient(
+                        0f to Color.Transparent,
+                        1f to colors.surface_raised,
+                    ),
+                ),
+        )
         RipsterHairline(modifier = Modifier.fillMaxWidth())
 
         Row(

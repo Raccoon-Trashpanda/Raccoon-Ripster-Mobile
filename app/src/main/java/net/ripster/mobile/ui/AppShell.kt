@@ -272,21 +272,30 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                 transitionSpec = {
                     val toPlayer = targetState == RipsterDestination.Player
                     val fromPlayer = initialState == RipsterDestination.Player
+                    // Слайды — по пружине (Motion): плеер большой → gentle, без
+                    // отскока; смена вкладок мельче → standard, с едва заметным
+                    // доводчиком. Растворение остаётся коротким линейным.
                     when {
                         toPlayer -> (androidx.compose.animation.slideInVertically(
-                            animationSpec = androidx.compose.animation.core.tween(260),
-                        ) { it / 2 } + androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220))) togetherWith
-                            androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(140))
-                        fromPlayer -> androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)) togetherWith
+                            animationSpec = net.ripster.mobile.ui.theme.Motion.gentleOffset,
+                        ) { it / 2 } + androidx.compose.animation.fadeIn(
+                            androidx.compose.animation.core.tween(net.ripster.mobile.ui.theme.Motion.fadeMed))) togetherWith
+                            androidx.compose.animation.fadeOut(
+                                androidx.compose.animation.core.tween(net.ripster.mobile.ui.theme.Motion.fadeFast))
+                        fromPlayer -> androidx.compose.animation.fadeIn(
+                            androidx.compose.animation.core.tween(net.ripster.mobile.ui.theme.Motion.fadeMed)) togetherWith
                             (androidx.compose.animation.slideOutVertically(
-                                animationSpec = androidx.compose.animation.core.tween(240),
-                            ) { it / 2 } + androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(180)))
+                                animationSpec = net.ripster.mobile.ui.theme.Motion.gentleOffset,
+                            ) { it / 2 } + androidx.compose.animation.fadeOut(
+                                androidx.compose.animation.core.tween(net.ripster.mobile.ui.theme.Motion.fadeMed)))
                         else -> (androidx.compose.animation.slideInHorizontally(
-                            animationSpec = androidx.compose.animation.core.tween(220),
-                        ) { it / 6 } + androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180))) togetherWith
+                            animationSpec = net.ripster.mobile.ui.theme.Motion.standardOffset,
+                        ) { it / 6 } + androidx.compose.animation.fadeIn(
+                            androidx.compose.animation.core.tween(net.ripster.mobile.ui.theme.Motion.fadeFast))) togetherWith
                             (androidx.compose.animation.slideOutHorizontally(
-                                animationSpec = androidx.compose.animation.core.tween(200),
-                            ) { -it / 6 } + androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(160)))
+                                animationSpec = net.ripster.mobile.ui.theme.Motion.standardOffset,
+                            ) { -it / 6 } + androidx.compose.animation.fadeOut(
+                                androidx.compose.animation.core.tween(net.ripster.mobile.ui.theme.Motion.fadeFast)))
                     }
                 },
                 label = "tab-switch",
@@ -466,11 +475,13 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
             androidx.compose.animation.AnimatedVisibility(
                 visible = playback.hasItem && dest != RipsterDestination.Player,
                 enter = androidx.compose.animation.slideInVertically(
-                    androidx.compose.animation.core.tween(240),
-                ) { it } + androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
+                    net.ripster.mobile.ui.theme.Motion.standardOffset,
+                ) { it } + androidx.compose.animation.fadeIn(
+                    androidx.compose.animation.core.tween(net.ripster.mobile.ui.theme.Motion.fadeMed)),
                 exit = androidx.compose.animation.slideOutVertically(
-                    androidx.compose.animation.core.tween(200),
-                ) { it } + androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(160)),
+                    net.ripster.mobile.ui.theme.Motion.standardOffset,
+                ) { it } + androidx.compose.animation.fadeOut(
+                    androidx.compose.animation.core.tween(net.ripster.mobile.ui.theme.Motion.fadeFast)),
             ) {
                 MiniPlayer(
                     state = MiniPlayerState(

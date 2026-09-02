@@ -1023,7 +1023,13 @@ private fun ChipsRow(label: String, options: List<String>, selected: Int, c: Rip
     Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
         BasicText(label, style = TextStyle(color = c.text_tertiary, fontSize = 11.sp))
         Box(Modifier.height(4.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        // Один ряд с горизонтальной прокруткой — у эквалайзера ~10 пресетов
+        // ("Hip Hop", "Heavy Metal" и т.д.) в экран не влезают и раньше
+        // сминались по вертикали. Короткие ряды (язык/тема) выглядят как прежде.
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()).padding(end = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
             options.forEachIndexed { i, opt ->
                 val on = i == selected
                 Box(Modifier.background(if (on) c.surface_active else c.surface_raised, RoundedCornerShape(7.dp))

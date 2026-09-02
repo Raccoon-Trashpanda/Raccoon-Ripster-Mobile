@@ -2,6 +2,7 @@ package net.ripster.mobile.ui.components
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import net.ripster.mobile.ui.theme.Motion
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -28,13 +29,16 @@ fun Modifier.pressable(
 ): Modifier = composed {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
+    // Утапливание — по пружине (Motion.pressScale): палец отпустил, элемент
+    // возвращается с массой, а не по таймеру. Затемнение оставляем на коротком
+    // линейном твине — на альфе пружина видна как рывок.
     val s by animateFloatAsState(
         if (pressed && enabled) pressedScale else 1f,
-        tween(90), label = "press-scale",
+        Motion.pressScale, label = "press-scale",
     )
     val a by animateFloatAsState(
-        if (pressed && enabled) 0.78f else 1f,
-        tween(90), label = "press-alpha",
+        if (pressed && enabled) 0.80f else 1f,
+        tween(if (pressed) 60 else 140), label = "press-alpha",
     )
     this
         .scale(s)
