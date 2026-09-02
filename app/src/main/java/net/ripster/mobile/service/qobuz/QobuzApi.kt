@@ -108,28 +108,33 @@ class QobuzApi(
     /** Прямая ссылка на файл нужного формата. Пробует секреты по очереди. */
     suspend fun fileUrl(trackId: String, formatId: Int): QbFileUrl {
         ensureAuth()
-        tryFileUrl(trackId, formatId)?.let { return it }
+        tryFileUrl(trackId, formatId, appId, secrets)?.let { return it }
 
-        // Все секреты дали 400/пустой url. Синхронизированные с ПК `app_id`+секрет
-        // могли протухнуть (у ПК за спиной свой фолбэк streamrip, у нас — нет).
-        // ОДИН раз добываем свежую пару из bundle.js веб-плеера и пробуем снова.
+        // Все секреты дали 400/пустой url. Синхронизированный с ПК секрет мог
+        // протухнуть (у ПК за спиной свой фолбэк streamrip, у нас — нет). ОДИН раз
+        // добываем свежую пару из bundle.js веб-плеера. `app_id` из бандла Qobuz
+        // сейчас часто не совпадает с рабочим (для этого пути/аккаунта), поэтому
+        // НЕ затираем синхронизированный, а пробуем свежие секреты под ОБА id.
         if (!refreshedFromBundle) {
             refreshedFromBundle = true
             runCatching { QobuzBundle.resolve(null, null) }.getOrNull()?.let { fresh ->
-                mutex.withLock {
-                    if (fresh.appId.isNotBlank()) appId = fresh.appId
-                    secrets = (fresh.secrets + secrets).distinct()
-                    goodSecret = ""
+                val pool = (fresh.secrets + secrets).distinct()
+                for (aid in listOf(appId, fresh.appId).filter { it.isNotBlank() }.distinct()) {
+                    tryFileUrl(trackId, formatId, aid, pool)?.let {
+                        mutex.withLock { appId = aid; secrets = pool }
+                        return it
+                    }
                 }
-                tryFileUrl(trackId, formatId)?.let { return it }
             }
         }
         throw IOException("Qobuz: не удалось подписать запрос файла — обнови app_id/app_secret в Настройках → Учётные записи")
     }
 
-    /** Одна серия попыток по всем известным секретам. null — ни один не сработал. */
-    private suspend fun tryFileUrl(trackId: String, formatId: Int): QbFileUrl? {
-        val toTry = (if (goodSecret.isNotBlank()) listOf(goodSecret) else emptyList()) + secrets
+    /** Одна серия попыток по всем секретам под конкретным [aid]. null — мимо. */
+    private suspend fun tryFileUrl(
+        trackId: String, formatId: Int, aid: String, secretPool: List<String>,
+    ): QbFileUrl? {
+        val toTry = (if (goodSecret.isNotBlank()) listOf(goodSecret) else emptyList()) + secretPool
         for (secret in toTry.distinct()) {
             try {
                 val ts = System.currentTimeMillis() / 1000
@@ -139,7 +144,7 @@ class QobuzApi(
                 // загрузка Qobuz падала «no streamable file», хотя аккаунт и
                 // секрет верные. (сверено со streamrip client/qobuz.py)
                 val sig = md5("trackgetFileUrlformat_id${formatId}intentstreamtrack_id${trackId}$ts$secret")
-                val raw = get("track/getFileUrl") {
+                val raw = getWithAppId(aid, "track/getFileUrl") {
                     it.addQueryParameter("request_ts", ts.toString())
                     it.addQueryParameter("request_sig", sig)
                     it.addQueryParameter("track_id", trackId)
@@ -162,11 +167,18 @@ class QobuzApi(
         path: String,
         authed: Boolean = true,
         params: (okhttp3.HttpUrl.Builder) -> Unit,
+    ): String = getWithAppId(appId, path, authed, params)
+
+    private suspend fun getWithAppId(
+        aid: String,
+        path: String,
+        authed: Boolean = true,
+        params: (okhttp3.HttpUrl.Builder) -> Unit,
     ): String {
         val url = "https://www.qobuz.com/api.json/0.2/$path".toHttpUrl().newBuilder().apply(params).build()
         val req = Request.Builder()
             .url(url)
-            .header("X-App-Id", appId)
+            .header("X-App-Id", aid)
             .apply { if (authed && authToken.isNotBlank()) header("X-User-Auth-Token", authToken) }
             .header("User-Agent", "RipsterMobile/0.1")
             .build()
