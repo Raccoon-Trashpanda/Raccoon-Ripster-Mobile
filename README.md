@@ -63,10 +63,6 @@ Requires pairing with a PC:
 
 ## Codecs & engines
 
-![Codecs](docs/assets/codecs.svg)
-
-![Engines](docs/assets/engines.svg)
-
 **Codecs** — `FLAC`, `ALAC`, `WAV` decode straight through the native engine
 (no resample when the device rate matches); `AAC` / `M4A`, `MP3`, `Vorbis` (OGG)
 and `Opus` play through the system engine. Tags are written as Vorbis comments
