@@ -90,6 +90,19 @@ class QobuzApi(
         )
     }
 
+    /** Артист + все его альбомы (для дискографии без ПК). */
+    suspend fun artist(id: String): net.ripster.mobile.service.qobuz.dto.QbArtistFull {
+        ensureAuth()
+        return json.decodeFromString(
+            net.ripster.mobile.service.qobuz.dto.QbArtistFull.serializer(),
+            get("artist/get") {
+                it.addQueryParameter("artist_id", id)
+                it.addQueryParameter("extra", "albums")
+                it.addQueryParameter("limit", "200")
+            },
+        )
+    }
+
     /** Прямая ссылка на файл нужного формата. Пробует секреты по очереди. */
     suspend fun fileUrl(trackId: String, formatId: Int): QbFileUrl {
         ensureAuth()

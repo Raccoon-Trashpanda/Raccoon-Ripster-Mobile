@@ -1,6 +1,8 @@
 package net.ripster.mobile.service.deezer
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
@@ -200,6 +202,85 @@ class DeezerClient(
 
     // suspend + IO: search()/resolve() вызываются из корутины Compose на Main —
     // синхронный execute() там роняет NetworkOnMainThreadException.
+    override suspend fun getArtist(artistId: String): net.ripster.mobile.core.pair.PcBridge.ArtistPage? {
+        if (artistId.isBlank()) return null
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                val info = json.parseToJsonElement(apiGet("https://api.deezer.com/artist/$artistId") {}).jsonObject
+                if (info["error"] != null) return@runCatching null
+                val aName = info["name"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                val aLow = aName.lowercase()
+                val pic = (info["picture_xl"] ?: info["picture_big"] ?: info["picture_medium"])
+                    ?.jsonPrimitive?.contentOrNull
+
+                val raw = ArrayList<kotlinx.serialization.json.JsonObject>()
+                var next: String? = "https://api.deezer.com/artist/$artistId/albums?limit=100"
+                var guard = 0
+                while (next != null && guard++ < 4) {
+                    val page = json.parseToJsonElement(apiGet(next!!) {}).jsonObject
+                    (page["data"]?.jsonArray ?: kotlinx.serialization.json.JsonArray(emptyList()))
+                        .forEach { raw.add(it.jsonObject) }
+                    next = page["next"]?.jsonPrimitive?.contentOrNull
+                }
+
+                // компиляции (record_type "compile" ИЛИ кредит не на артиста) →
+                // дотягиваем чей релиз и какой трек артиста в нём
+                val comps = raw.filter {
+                    (it["record_type"]?.jsonPrimitive?.contentOrNull ?: "") == "compile"
+                }.take(18)
+                val enrich = coroutineScope {
+                    comps.map { a ->
+                        val aid = a["id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                        async {
+                            aid to runCatching {
+                                val full = json.parseToJsonElement(apiGet("https://api.deezer.com/album/$aid") {}).jsonObject
+                                val va = (full["artist"]?.jsonObject?.get("name"))?.jsonPrimitive?.contentOrNull.orEmpty()
+                                val mine = (full["tracks"]?.jsonObject?.get("data")?.jsonArray ?: kotlinx.serialization.json.JsonArray(emptyList()))
+                                    .map { it.jsonObject }
+                                    .filter {
+                                        val tn = (it["artist"]?.jsonObject?.get("name"))?.jsonPrimitive?.contentOrNull.orEmpty().lowercase()
+                                        val tt = it["title"]?.jsonPrimitive?.contentOrNull.orEmpty().lowercase()
+                                        (aLow.isNotBlank() && (aLow in tn || aLow in tt))
+                                    }
+                                    .mapNotNull { it["title"]?.jsonPrimitive?.contentOrNull }
+                                    .distinct()
+                                va to mine.joinToString("; ")
+                            }.getOrDefault("" to "")
+                        }
+                    }.associate { it.await() }
+                }
+
+                val releases = raw.mapNotNull { a ->
+                    val aid = a["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                    val rt = (a["record_type"]?.jsonPrimitive?.contentOrNull ?: "album")
+                    val isComp = rt == "compile"
+                    val date = a["release_date"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                    val e = if (isComp) enrich[aid] else null
+                    net.ripster.mobile.core.pair.PcBridge.ArtistRelease(
+                        id = aid,
+                        title = a["title"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                        coverUrl = (a["cover_medium"] ?: a["cover_big"] ?: a["cover"])?.jsonPrimitive?.contentOrNull,
+                        year = date.take(4),
+                        date = date,
+                        trackCount = a["nb_tracks"]?.jsonPrimitive?.contentOrNull?.toIntOrNull(),
+                        type = if (isComp) "compilation" else when (rt) {
+                            "single" -> "single"; "ep" -> "ep"; else -> "album"
+                        },
+                        url = a["link"]?.jsonPrimitive?.contentOrNull
+                            ?: "https://www.deezer.com/album/$aid",
+                        service = "deezer",
+                        appearsAs = e?.second.orEmpty(),
+                        albumArtist = e?.first.orEmpty(),
+                    )
+                }.sortedByDescending { it.date }
+
+                net.ripster.mobile.core.pair.PcBridge.ArtistPage(
+                    name = aName, pictureUrl = pic, releases = releases,
+                )
+            }.getOrNull()
+        }
+    }
+
     private suspend fun apiGet(base: String, params: (okhttp3.HttpUrl.Builder) -> Unit): String =
         withContext(Dispatchers.IO) {
             val url = base.toHttpUrl().newBuilder().apply(params).build()

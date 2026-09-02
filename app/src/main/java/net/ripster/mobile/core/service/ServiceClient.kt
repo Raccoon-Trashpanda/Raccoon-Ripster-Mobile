@@ -31,6 +31,14 @@ interface ServiceClient {
     /** Разобрать ссылку сервиса (трек/альбом/плейлист/артист). null — ссылка не наша. */
     suspend fun resolve(url: String): MediaSelection?
 
+    /**
+     * Дискография артиста по его id в этом сервисе — БЕЗ ПК. Свои релизы плюс
+     * секция «с этим артистом» (компиляции/миксы, куда попал его трек):
+     * помечаются `type = "compilation"` + `albumArtist` (чей релиз) +
+     * `appearsAs` (какой трек артиста). null — клиент так не умеет.
+     */
+    suspend fun getArtist(artistId: String): net.ripster.mobile.core.pair.PcBridge.ArtistPage? = null
+
     /** Какие уровни качества доступны этому аккаунту, в порядке убывания. */
     suspend fun qualities(): List<QualityTier>
 

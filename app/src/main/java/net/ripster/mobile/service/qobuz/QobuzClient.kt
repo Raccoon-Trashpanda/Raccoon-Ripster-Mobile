@@ -1,6 +1,9 @@
 package net.ripster.mobile.service.qobuz
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
@@ -77,6 +80,71 @@ class QobuzClient(
                 )
             }
             else -> null
+        }
+    }
+
+    override suspend fun getArtist(artistId: String): net.ripster.mobile.core.pair.PcBridge.ArtistPage? {
+        if (artistId.isBlank()) return null
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                val a = api.artist(artistId)
+                val aLow = a.name.lowercase()
+                val items = a.albums.items
+
+                fun isComp(al: net.ripster.mobile.service.qobuz.dto.QbArtistAlbum): Boolean {
+                    if ((al.releaseType ?: "").lowercase() == "compilation") return true
+                    val aa = al.artist.name.lowercase()
+                    return aa.isNotBlank() && aa != aLow && aa != "various artists" &&
+                        al.artist.id.toString() != artistId
+                }
+
+                val comps = items.filter { it.id.isNotBlank() && isComp(it) }.take(18)
+                val enrich = coroutineScope {
+                    comps.map { al ->
+                        async {
+                            al.id to runCatching {
+                                val full = api.album(al.id)
+                                val mine = full.tracks.items.filter {
+                                    val pn = it.performer.name.lowercase()
+                                    (aLow.isNotBlank() && aLow in pn) ||
+                                        it.performer.id.toString() == artistId ||
+                                        (aLow.isNotBlank() && aLow in it.title.lowercase())
+                                }.mapNotNull { it.title.ifBlank { null } }.distinct()
+                                mine.joinToString("; ")
+                            }.getOrDefault("")
+                        }
+                    }.associate { it.await() }
+                }
+
+                val releases = items.mapNotNull { al ->
+                    if (al.id.isBlank()) return@mapNotNull null
+                    val comp = isComp(al)
+                    val date = al.releaseDateOriginal
+                        ?: al.releasedAt?.let {
+                            java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                                .format(java.util.Date(it * 1000))
+                        } ?: ""
+                    net.ripster.mobile.core.pair.PcBridge.ArtistRelease(
+                        id = al.id,
+                        title = al.title,
+                        coverUrl = al.image.large,
+                        year = date.take(4),
+                        date = date,
+                        trackCount = al.tracksCount,
+                        type = if (comp) "compilation" else when ((al.releaseType ?: "album").lowercase()) {
+                            "single" -> "single"; "ep", "epminialbum" -> "ep"; else -> "album"
+                        },
+                        url = al.url ?: "https://www.qobuz.com/album/${al.id}",
+                        service = "qobuz",
+                        appearsAs = if (comp) enrich[al.id].orEmpty() else "",
+                        albumArtist = if (comp) al.artist.name else "",
+                    )
+                }.sortedByDescending { it.date }
+
+                net.ripster.mobile.core.pair.PcBridge.ArtistPage(
+                    name = a.name, pictureUrl = a.image.large, releases = releases,
+                )
+            }.getOrNull()
         }
     }
 

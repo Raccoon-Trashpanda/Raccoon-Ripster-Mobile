@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -310,6 +312,90 @@ class TidalClient(
         initT to media
     }.getOrNull()
 
+    override suspend fun getArtist(artistId: String): net.ripster.mobile.core.pair.PcBridge.ArtistPage? {
+        if (artistId.isBlank()) return null
+        if (!ensureToken()) return null
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                val info = json.decodeFromString(
+                    TdArtistInfo.serializer(),
+                    api("https://api.tidal.com/v1/artists/$artistId") {},
+                )
+                val aLow = info.name.lowercase()
+
+                suspend fun albs(filter: String?): List<TdArtistAlbum> = json.decodeFromString(
+                    TdAlbumItems.serializer(),
+                    api("https://api.tidal.com/v1/artists/$artistId/albums") { b ->
+                        b.addQueryParameter("limit", "100")
+                        if (filter != null) b.addQueryParameter("filter", filter)
+                    },
+                ).items
+
+                // свои альбомы + EP/синглы + «с этим артистом» (COMPILATIONS —
+                // раньше не приходили, дискография была неполной)
+                val own = albs(null)
+                val eps = runCatching { albs("EPSANDSINGLES") }.getOrDefault(emptyList())
+                val comps = runCatching { albs("COMPILATIONS") }.getOrDefault(emptyList())
+
+                val compTracks = coroutineScope {
+                    comps.take(24).map { al ->
+                        async {
+                            al.id.toString() to runCatching {
+                                val tr = json.decodeFromString(
+                                    TdItems.serializer(),
+                                    api("https://api.tidal.com/v1/albums/${al.id}/tracks") { it.addQueryParameter("limit", "100") },
+                                ).items
+                                tr.filter { t ->
+                                    t.artist?.id?.toString() == artistId ||
+                                        t.artists?.any { it.id.toString() == artistId } == true ||
+                                        (aLow.isNotBlank() && aLow in t.title.lowercase())
+                                }.mapNotNull { it.title.ifBlank { null } }.distinct().joinToString("; ")
+                            }.getOrDefault("")
+                        }
+                    }.associate { it.await() }
+                }
+
+                val seen = HashSet<String>()
+                val out = ArrayList<net.ripster.mobile.core.pair.PcBridge.ArtistRelease>()
+                fun add(al: TdArtistAlbum, forced: String?) {
+                    val id = al.id.toString()
+                    if (id == "0" || !seen.add(id)) return
+                    val albArtist = al.artist?.name.orEmpty()
+                    val appears = forced == "compilation" || (
+                        albArtist.isNotBlank() && albArtist.lowercase() != aLow && forced == null &&
+                            al.artists?.any { it.id.toString() == artistId } != true)
+                    val type = if (appears) "compilation" else when (al.type.lowercase()) {
+                        "ep" -> "ep"; "single" -> "single"; else -> "album"
+                    }
+                    out.add(
+                        net.ripster.mobile.core.pair.PcBridge.ArtistRelease(
+                            id = id,
+                            title = al.title,
+                            coverUrl = coverUrl(al.cover),
+                            year = (al.releaseDate ?: "").take(4),
+                            date = al.releaseDate ?: "",
+                            trackCount = al.numberOfTracks,
+                            type = type,
+                            url = "https://listen.tidal.com/album/$id",
+                            service = "tidal",
+                            appearsAs = if (type == "compilation") compTracks[id].orEmpty() else "",
+                            albumArtist = if (type == "compilation") albArtist else "",
+                        ),
+                    )
+                }
+                own.forEach { add(it, null) }
+                eps.forEach { add(it, null) }
+                comps.forEach { add(it, "compilation") }
+
+                net.ripster.mobile.core.pair.PcBridge.ArtistPage(
+                    name = info.name,
+                    pictureUrl = coverUrl(info.picture),
+                    releases = out.sortedByDescending { it.date },
+                )
+            }.getOrNull()
+        }
+    }
+
     private suspend fun api(base: String, params: (okhttp3.HttpUrl.Builder) -> Unit): String {
         val url = base.toHttpUrl().newBuilder().apply(params).addQueryParameter("countryCode", cc).build()
         val req = Request.Builder().url(url).header("Authorization", "Bearer $accessToken").build()
@@ -347,6 +433,18 @@ class TidalClient(
 
     @Serializable private data class TdItems(val items: List<TdTrack> = emptyList())
     @Serializable private data class TdArtist(val id: Long = 0, val name: String = "")
+    @Serializable private data class TdArtistInfo(val id: Long = 0, val name: String = "", val picture: String? = null)
+    @Serializable private data class TdArtistAlbum(
+        val id: Long = 0,
+        val title: String = "",
+        val cover: String? = null,
+        val releaseDate: String? = null,
+        val numberOfTracks: Int? = null,
+        val type: String = "ALBUM",
+        val artist: TdArtist? = null,
+        val artists: List<TdArtist>? = null,
+    )
+    @Serializable private data class TdAlbumItems(val items: List<TdArtistAlbum> = emptyList())
     @Serializable private data class TdAlbumRef(val id: Long = 0, val title: String = "", val cover: String? = null)
     @Serializable
     private data class TdTrack(

@@ -61,6 +61,30 @@ data class QbAlbumFull(
 )
 
 @Serializable
+data class QbArtistAlbum(
+    val id: String = "",
+    val title: String = "",
+    val artist: QbArtist = QbArtist(),
+    val image: QbImage = QbImage(),
+    @SerialName("released_at") val releasedAt: Long? = null,
+    @SerialName("release_date_original") val releaseDateOriginal: String? = null,
+    @SerialName("tracks_count") val tracksCount: Int? = null,
+    @SerialName("release_type") val releaseType: String? = null,
+    val url: String? = null,
+)
+
+@Serializable
+data class QbArtistAlbums(val items: List<QbArtistAlbum> = emptyList())
+
+@Serializable
+data class QbArtistFull(
+    val id: Long = 0,
+    val name: String = "",
+    val image: QbImage = QbImage(),
+    val albums: QbArtistAlbums = QbArtistAlbums(),
+)
+
+@Serializable
 data class QbLogin(
     @SerialName("user_auth_token") val userAuthToken: String = "",
     val user: QbUser = QbUser(),

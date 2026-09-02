@@ -89,7 +89,20 @@ fun ArtistScreen(
 
     val page by produceState<PcBridge.ArtistPage?>(initialValue = null, name, service, artistId, isLabel) {
         value = null
-        // 1. с ПК (зрелый get_artist / релизы лейбла)
+        // 1. НАТИВНО из клиента сервиса — работает БЕЗ ПК: своя дискография
+        //    + секция «С этим артистом» (компиляции/миксы с треком артиста).
+        if (!isLabel && artistId.isNotBlank()) {
+            val svc = Service.entries.firstOrNull { it.id == service }
+            val native = svc?.let { s ->
+                withTimeoutOrNull(20_000) {
+                    runCatching { ServiceRegistry.get(s)?.getArtist(artistId) }.getOrNull()
+                }
+            }
+            if (native != null && native.error == null && native.releases.isNotEmpty()) {
+                value = native; return@produceState
+            }
+        }
+        // 2. с ПК (релизы лейбла; или если натив ничего не дал)
         var pcPage: PcBridge.ArtistPage? = null
         if (app.pcBridge.paired && (isLabel || artistId.isNotBlank())) {
             pcPage = withTimeoutOrNull(25_000) {
