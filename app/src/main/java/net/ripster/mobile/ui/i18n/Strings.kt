@@ -162,7 +162,6 @@ private val STRINGS: Map<String, Row> = mapOf(
     ),
     "home.digs" to row("Раскопки — копаем дальше вашей коллекции", "Digs — we dig past your collection", "Digs — हम आपके संग्रह से आगे खोदते हैं", "Digs — コレクションのその先を掘る", "Digs — 挖掘你收藏之外的音乐"),
     "home.new_releases" to row("Новые релизы", "New releases", "नई रिलीज़", "新着リリース", "新发行"),
-    "home.sources" to row("Источники", "Sources", "स्रोत", "ソース", "音源"),
     "home.badge_downloaded" to row("Скачано", "Downloaded", "डाउनलोड किया", "保存済み", "已下载"),
     "home.wave" to row("Жанры и настроения", "Genres & moods", "शैलियाँ और मूड", "ジャンルと気分", "流派与心情"),
     "home.wave_sub" to row("Тап собирает поток и включает", "Tap builds a stream and plays", "टैप करने पर स्ट्रीम बनती और चलती है", "タップでストリームを生成して再生", "点击即生成音流并播放"),

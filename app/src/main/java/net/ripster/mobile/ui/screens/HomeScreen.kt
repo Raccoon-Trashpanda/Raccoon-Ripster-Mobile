@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
@@ -136,15 +135,6 @@ fun HomeScreen(
             .shuffled(kotlin.random.Random(visitSeed xor 0x2545F4914F6CDD1DL))
             .take(12)
     }
-    // «Источники» = ТОЛЬКО сервисы, откуда реально приходят данные об артистах
-    // (вишлист + подписки в стриминге — их сводит радар ПК). Просто вставленные
-    // токены движка (Qobuz для скачивания) сюда НЕ попадают.
-    val sources = remember(radarAll) {
-        radarAll.map { it.service.lowercase().trim() }
-            .filter { it.isNotBlank() && it !in setOf("auto", "radar", "watchlist", "manual", "?") }
-            .distinct()
-    }
-
     // «Рекомендуем» — простая честная эвристика: артисты из вашей коллекции,
     // где скачано не всё. Тап — поиск этого артиста в выбранных сервисах.
     val recos = remember(library, visitSeed) {
@@ -462,29 +452,8 @@ fun HomeScreen(
             }
         }
 
-        // ── Источники ───────────────────────────────────────────────────
-        if (sources.isNotEmpty()) {
-            item("sources") {
-                Section(tr("home.sources", lang), c) { onOpen(RipsterDestination.Search) }
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 22.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    sources.take(6).forEach { id ->
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Box(
-                                Modifier.size(44.dp).clip(CircleShape).background(serviceColor(id)),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                BasicText(id.take(1).uppercase(), style = TextStyle(color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold))
-                            }
-                            Spacer(Modifier.height(6.dp))
-                            BasicText(id.replaceFirstChar { it.uppercase() }, style = TextStyle(color = c.text_tertiary, fontSize = 10.sp))
-                        }
-                    }
-                }
-            }
-        }
+        // «Источники»-плашка убрана: на карточках релизов сервис и так подписан,
+        // а кружки были некликабельны — дублирование без действия.
 
         // пустая коллекция и нет пары — как в Библиотеке, зовём в поиск
         if (library.isEmpty() && recos.isEmpty()) {
@@ -614,20 +583,6 @@ private val WAVE_STATIONS = listOf(
     WaveStation("sunset", "deephouse", "sunset chill balearic", "mood:romantic", nameKey = "wave.sunset"),
     WaveStation("rain", "", "rainy day mellow lofi", "mood:sentimental", nameKey = "wave.rain"),
 )
-
-/** Брендовые цвета сервисов для кружков «Источники» — как на рендере. */
-private fun serviceColor(id: String): Color = when (id.lowercase()) {
-    "spotify" -> Color(0xFF1DB954)
-    "apple", "apple music" -> Color(0xFFFB5C74)
-    "tidal" -> Color(0xFF00C2C7)
-    "qobuz" -> Color(0xFF7B3FE4)
-    "deezer" -> Color(0xFFA238FF)
-    "soundcloud" -> Color(0xFFFF5500)
-    "yandex", "yandex music" -> Color(0xFFFFCC00)
-    "beatport" -> Color(0xFF01FF95)
-    "bbc" -> Color(0xFFEB5757)
-    else -> Color(0xFF6A6A78)
-}
 
 private val WAVE_PALETTE = listOf(
     Color(0xFFFF4D8F), Color(0xFFA238FF), Color(0xFF3A5FD9),
