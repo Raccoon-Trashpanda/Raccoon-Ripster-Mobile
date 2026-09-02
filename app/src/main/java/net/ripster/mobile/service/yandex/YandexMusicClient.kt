@@ -51,7 +51,11 @@ class YandexMusicClient(
     private val json = Json { ignoreUnknownKeys = true; coerceInputValues = true }
 
     private val flac = QualityTier("flac", "FLAC", lossless = true, container = "flac")
-    private val flacMp4 = QualityTier("flac", "FLAC (Lossless)", lossless = true, container = "m4a")
+    // Яндекс lossless приходит кодеком FLAC в MP4-контейнере. Файл на диске —
+    // .m4a (так его правильно опознаёт ExoPlayer), но в подписи качества это
+    // FLAC, а не «M4A»: контейнер тут не про потерю данных. Сэмплрейт/битность
+    // Яндекс не сообщает — не выдумываем, показываем просто «FLAC».
+    private val flacMp4 = QualityTier("flac", "FLAC (Lossless)", lossless = true, container = "flac")
     private val mp3 = QualityTier("mp3_320", "MP3 320", lossless = false, container = "mp3", bitrateKbps = 320)
 
     // Есть токен — сервис считается подключённым. НЕ гейтим на живой
@@ -131,7 +135,7 @@ class YandexMusicClient(
         // расшифровываем на лету при записи. Не вышло — тихо падаем на mp3.
         val lossless = if (wantFlac) runCatching { losslessInfo(id) }.getOrNull() else null
         if (lossless != null) {
-            val out = File(cacheDir, "ym_$id.${flacMp4.container}")
+            val out = File(cacheDir, "ym_$id.m4a")   // FLAC-в-MP4 → расширение .m4a
             val ok = runCatching {
                 emit(DownloadEvent.Log("Yandex: ${flacMp4.label}"))
                 val req = Request.Builder().url(lossless.url).header("User-Agent", UA).build()
