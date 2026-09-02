@@ -154,9 +154,9 @@ fun SearchScreen(
                             val r = runCatching {
                                 kotlinx.coroutines.withTimeoutOrNull(15_000) {
                                     ServiceRegistry.get(svc)?.search(q)
-                                } ?: throw java.io.IOException("не ответил за 15 с")
+                                } ?: throw java.io.IOException("__timeout__")
                             }
-                            R(svc, r.getOrNull(), r.exceptionOrNull()?.let { it.message ?: it.javaClass.simpleName })
+                            R(svc, r.getOrNull(), r.exceptionOrNull()?.let { humanNetError(it, lang) })
                         }
                     }.awaitAll()
                 }
@@ -684,6 +684,21 @@ private fun DownloadPill(queued: Boolean, onClick: () -> Unit, c: net.ripster.mo
             BasicText("↓", style = TextStyle(color = c.text_on_fill, fontSize = 14.sp, fontWeight = FontWeight.Bold))
             BasicText(tr("search.dl", lang), style = TextStyle(color = c.text_on_fill, fontSize = 12.sp, fontWeight = FontWeight.Bold))
         }
+    }
+}
+
+/** Сетевую аварию — человеку, а не сырым Java-текстом. Юзер видел
+ *  «software caused connection abort» и «не ответил за 15 с» как есть. */
+private fun humanNetError(e: Throwable, lang: AppLang): String {
+    val m = (e.message ?: e.javaClass.simpleName).lowercase()
+    return when {
+        m == "__timeout__" || e is java.net.SocketTimeoutException || "timeout" in m || "timed out" in m ->
+            tr("search.svc_timeout", lang)
+        e is java.net.UnknownHostException || e is java.net.ConnectException ||
+            e is java.net.SocketException || "connection abort" in m ||
+            "connection reset" in m || "unreachable" in m || "failed to connect" in m ->
+            tr("search.svc_neterr", lang)
+        else -> e.message ?: e.javaClass.simpleName
     }
 }
 

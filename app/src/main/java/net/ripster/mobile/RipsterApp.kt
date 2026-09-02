@@ -192,6 +192,13 @@ class RipsterApp : Application() {
         }
         // Разбудить экран поиска — он переспросит configured() без перезапуска.
         ServiceRegistry.bumpGeneration()
+
+        // Прогреть авторизацию клиентов в фоне: первый поиск не должен платить
+        // за логин/скрейп внутри своего таймаута (жалоба: «Qobuz не ответил за
+        // 15 с» + «software caused connection abort» на холодном старте).
+        MainScope().launch(kotlinx.coroutines.Dispatchers.IO) {
+            ServiceRegistry.all().forEach { c -> runCatching { c.warmUp() } }
+        }
     }
 
     companion object {

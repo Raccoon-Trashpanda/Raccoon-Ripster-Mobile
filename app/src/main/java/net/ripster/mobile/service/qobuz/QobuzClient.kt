@@ -54,6 +54,11 @@ class QobuzClient(
     // пробе готовности (иначе сетевой вызов вешает экран поиска).
     override suspend fun isConfigured(): Boolean = api.hasCredentials()
 
+    // Вход Qobuz дорогой: если нет готовых app_id+secret, resolve() тянет
+    // многомегабайтный bundle.js со страницы веб-плеера. Делаем это в фоне при
+    // регистрации, а не в первом поиске под таймаутом.
+    override suspend fun warmUp() { runCatching { api.ensureAuth() } }
+
     override suspend fun qualities(): List<QualityTier> = listOf(flac24, flac16, mp3_320)
 
     override suspend fun search(query: String): MediaSelection {
