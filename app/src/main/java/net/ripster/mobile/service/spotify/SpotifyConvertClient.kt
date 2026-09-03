@@ -1,5 +1,6 @@
 package net.ripster.mobile.service.spotify
 
+import net.ripster.mobile.core.errors.EngineErrors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
@@ -59,7 +60,7 @@ class SpotifyConvertClient : ServiceClient {
     override suspend fun resolve(url: String): MediaSelection? {
         val m = Regex("""open\.spotify\.com/(?:embed/)?(track|album)/([A-Za-z0-9]+)""").find(url) ?: return null
         val (kind, id) = m.destructured
-        if (cooldownActive()) throw IOException("Spotify: пауза после лимита, попробуй позже")
+        if (cooldownActive()) throw IOException(EngineErrors.RATE_LIMITED)
         return when (kind) {
             "track" -> {
                 val t = embedTrack(id) ?: return null
@@ -75,14 +76,14 @@ class SpotifyConvertClient : ServiceClient {
     }
 
     override suspend fun streamInfo(track: Track, preference: List<String>): StreamInfo {
-        val (client, mapped) = convert(track) ?: throw IOException("Spotify: no match on a downloading service")
+        val (client, mapped) = convert(track) ?: throw IOException(EngineErrors.NOT_FOUND)
         return client.streamInfo(mapped, preference)
     }
 
     override fun download(request: DownloadRequest): Flow<DownloadEvent> = flow {
         val (client, mapped) = convert(request.track)
             ?: run {
-                emit(DownloadEvent.Error("Spotify: не нашёл этот трек на Deezer/Qobuz по ISRC/имени"))
+                emit(DownloadEvent.Error(EngineErrors.NOT_FOUND))
                 return@flow
             }
         emit(DownloadEvent.Log("Spotify → ${mapped.service.label} (ISRC ${request.track.isrc ?: "?"})"))
@@ -203,7 +204,7 @@ class SpotifyConvertClient : ServiceClient {
             if (r.code == 429 || r.code == 403) {
                 val retry = r.header("Retry-After")?.toLongOrNull()?.coerceAtMost(120L) ?: 60L
                 bannedUntil = System.currentTimeMillis() + retry * 1000
-                throw IOException("Spotify: лимит (${r.code}), пауза ${retry}s")
+                throw IOException(EngineErrors.code(EngineErrors.RATE_LIMITED, "${r.code}, ${retry}s"))
             }
             if (!r.isSuccessful) throw IOException("GET ${url.take(60)} -> HTTP ${r.code}")
             r.body?.string() ?: throw IOException("GET -> empty")

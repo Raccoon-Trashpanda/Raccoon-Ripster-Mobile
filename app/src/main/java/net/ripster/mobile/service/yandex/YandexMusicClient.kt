@@ -1,5 +1,6 @@
 package net.ripster.mobile.service.yandex
 
+import net.ripster.mobile.core.errors.EngineErrors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -181,7 +182,7 @@ class YandexMusicClient(
                 val req = Request.Builder().url(lossless.url).header("User-Agent", UA).build()
                 RipsterHttp.client.newCall(req).execute().use { resp ->
                     if (!resp.isSuccessful) throw IOException("Yandex: lossless -> HTTP ${resp.code}")
-                    val body = resp.body ?: throw IOException("Yandex: empty lossless body")
+                    val body = resp.body ?: throw IOException(EngineErrors.EMPTY_STREAM)
                     val total = body.contentLength().takeIf { it > 0 }
                     // encraw = AES-128-CTR, IV = 16 нулей (nonce 12 + counter 0).
                     // CTR — потоковый шифр: только update(), doFinal() не нужен.
@@ -220,7 +221,7 @@ class YandexMusicClient(
         val req = Request.Builder().url(url).header("User-Agent", UA).build()
         RipsterHttp.client.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) throw IOException("Yandex: stream -> HTTP ${resp.code}")
-            val body = resp.body ?: throw IOException("Yandex: empty stream body")
+            val body = resp.body ?: throw IOException(EngineErrors.EMPTY_STREAM)
             val total = body.contentLength().takeIf { it > 0 }
             body.byteStream().use { input ->
                 out.outputStream().buffered().use { sink ->
@@ -291,7 +292,7 @@ class YandexMusicClient(
         val chosen = infos
             .filter { !it.preview }
             .sortedWith(compareByDescending<YmDownloadInfo> { (it.codec == "flac") == wantFlac }.thenByDescending { it.bitrateInKbps })
-            .firstOrNull() ?: throw IOException("Yandex: no download info (track unavailable)")
+            .firstOrNull() ?: throw IOException(EngineErrors.TRACK_UNAVAILABLE)
 
         val xml = get(chosen.downloadInfoUrl)
         fun tag(name: String) = Regex("<$name>(.*?)</$name>").find(xml)?.groupValues?.get(1)
@@ -368,7 +369,7 @@ class YandexMusicClient(
             .header("User-Agent", UA)
             .build()
         RipsterHttp.client.newCall(req).execute().use { r ->
-            if (r.code == 401) throw IOException("Yandex: OAuth-токен недействителен")
+            if (r.code == 401) throw IOException(EngineErrors.TOKEN_INVALID)
             if (!r.isSuccessful) throw IOException("Yandex ${url.substringAfterLast('/')} -> HTTP ${r.code}")
             r.body?.string() ?: throw IOException("Yandex -> empty")
         }

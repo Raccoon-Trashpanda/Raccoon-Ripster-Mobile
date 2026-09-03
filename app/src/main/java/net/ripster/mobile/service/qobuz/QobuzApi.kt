@@ -1,5 +1,6 @@
 package net.ripster.mobile.service.qobuz
 
+import net.ripster.mobile.core.errors.EngineErrors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -158,7 +159,7 @@ class QobuzApi(
                 }
             }
         }
-        throw IOException("Qobuz: не удалось подписать запрос файла — обнови app_id/app_secret в Настройках → Учётные записи")
+        throw IOException(EngineErrors.QOBUZ_KEYS)
     }
 
     /** Одна серия попыток по всем секретам под конкретным [aid]. null — мимо. */
@@ -251,8 +252,8 @@ class QobuzApi(
                 // app_id» (протух/пустой app_id), а не проблема самого запроса.
                 // get() ловит это и один раз пере-скрейпит bundle.js.
                 if (r.code == 400) throw StaleAppId()
-                if (!r.isSuccessful) throw IOException("Qobuz: ошибка ${r.code} на ${url.encodedPath.substringAfterLast('/')}")
-                r.body?.string() ?: throw IOException("Qobuz: пустой ответ")
+                if (!r.isSuccessful) throw IOException(EngineErrors.code(EngineErrors.HTTP, "${r.code} ${url.encodedPath.substringAfterLast('/')}"))
+                r.body?.string() ?: throw IOException(EngineErrors.EMPTY_STREAM)
             }
         }
     }

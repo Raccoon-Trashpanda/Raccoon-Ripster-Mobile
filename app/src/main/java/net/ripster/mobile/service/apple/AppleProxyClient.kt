@@ -1,5 +1,6 @@
 package net.ripster.mobile.service.apple
 
+import net.ripster.mobile.core.errors.EngineErrors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -224,13 +225,13 @@ class AppleProxyClient(
     override suspend fun qualities(): List<QualityTier> = listOf(alac, aac)
 
     override suspend fun streamInfo(track: Track, preference: List<String>): StreamInfo =
-        throw IOException("Apple: поток отдаёт ПК, не прямой URL")
+        throw IOException(EngineErrors.PC_ONLY)
 
     override fun download(request: DownloadRequest): Flow<DownloadEvent> = channelFlow {
         val url = request.track.raw["appleUrl"] ?: request.track.raw["url"]
-            ?: throw IOException("Apple: нет ссылки в задаче")
+            ?: throw IOException(EngineErrors.NO_LINK)
         if (!pc.paired || !pc.capabilities.contains("apple_music")) {
-            send(DownloadEvent.Error("ПК не сопряжён или не умеет Apple Music"))
+            send(DownloadEvent.Error(EngineErrors.PC_UNPAIRED))
             return@channelFlow
         }
 
@@ -241,7 +242,7 @@ class AppleProxyClient(
 
         send(DownloadEvent.Log("Apple → ПК ($q)"))
         val taskId = pc.appleFetch(url, q).getOrElse {
-            send(DownloadEvent.Error("ПК отклонил задачу: ${it.message}"))
+            send(DownloadEvent.Error(EngineErrors.code(EngineErrors.PC_REJECTED, it.message)))
             return@channelFlow
         }
 
@@ -252,12 +253,12 @@ class AppleProxyClient(
         while (true) {
             delay(2000)
             if (System.currentTimeMillis() > deadline) {
-                send(DownloadEvent.Error("ПК не завершил задачу за 20 минут — проверь Рипстер на ПК"))
+                send(DownloadEvent.Error(EngineErrors.code(EngineErrors.PC_INCOMPLETE, "20 min")))
                 return@channelFlow
             }
             val job = pc.appleStatus(taskId).getOrElse {
                 if (++misses >= 5) {
-                    send(DownloadEvent.Error("нет связи с ПК: ${it.message}"))
+                    send(DownloadEvent.Error(EngineErrors.code(EngineErrors.PC_OFFLINE, it.message)))
                     return@channelFlow
                 }
                 null
@@ -268,7 +269,7 @@ class AppleProxyClient(
                 "running" -> send(DownloadEvent.Progress(job.progress / 100f, job.progress.toLong(), 100L))
                 "done" -> break
                 "error" -> {
-                    send(DownloadEvent.Error(job.error.ifBlank { "ПК не смог скачать" }))
+                    send(DownloadEvent.Error(job.error.ifBlank { EngineErrors.PC_INCOMPLETE }))
                     return@channelFlow
                 }
             }
@@ -277,7 +278,7 @@ class AppleProxyClient(
         // забрать файл
         val cache = File(cacheDir, "apple_${taskId}.m4a")
         val bytes = pc.appleFile(taskId, cache).getOrElse {
-            send(DownloadEvent.Error("не удалось забрать файл с ПК: ${it.message}"))
+            send(DownloadEvent.Error(EngineErrors.code(EngineErrors.PC_FETCH_FAILED, it.message)))
             return@channelFlow
         }
         // расширение — по факту (ПК мог отдать .flac для ALAC-remux)

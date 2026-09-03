@@ -1,5 +1,6 @@
 package net.ripster.mobile.service.beatport
 
+import net.ripster.mobile.core.errors.EngineErrors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -145,7 +146,7 @@ class BeatportClient(
     }
 
     private suspend fun apiGet(endpoint: String, params: Map<String, String> = emptyMap()): String {
-        if (!ensureToken()) throw IOException("Beatport: не удалось авторизоваться (логин/пароль/подписка)")
+        if (!ensureToken()) throw IOException(EngineErrors.AUTH_FAILED)
         val url = "$BASE/$endpoint".toHttpUrl().newBuilder()
             .apply { params.forEach { (k, v) -> addQueryParameter(k, v) } }.build()
         return withContext(Dispatchers.IO) {
@@ -154,7 +155,7 @@ class BeatportClient(
                     .header("Authorization", "Bearer $accessToken")
                     .header("User-Agent", "libbeatport/v2.8.2").build(),
             ).execute().use { r ->
-                if (r.code == 401) { accessToken = ""; throw IOException("Beatport: 401") }
+                if (r.code == 401) { accessToken = ""; throw IOException(EngineErrors.TOKEN_INVALID) }
                 if (!r.isSuccessful) throw IOException("Beatport ${url.encodedPath} -> HTTP ${r.code}")
                 r.body?.string() ?: throw IOException("Beatport -> empty")
             }
@@ -309,9 +310,9 @@ class BeatportClient(
         val out = File(cacheDir, "bp_${track.raw["bpId"]}.${si.quality.container}")
         val req = Request.Builder().url(si.url).header("User-Agent", "libbeatport/v2.8.2").build()
         RipsterHttp.client.newCall(req).execute().use { r ->
-            if (!r.isSuccessful) throw IOException("Beatport: поток -> HTTP ${r.code}")
+            if (!r.isSuccessful) throw IOException(EngineErrors.code(EngineErrors.HTTP, "HTTP ${r.code}"))
             val total = r.body?.contentLength()?.takeIf { it > 0 }
-            val src = r.body?.byteStream() ?: throw IOException("Beatport: пустой поток")
+            val src = r.body?.byteStream() ?: throw IOException(EngineErrors.EMPTY_STREAM)
             out.outputStream().use { os ->
                 val buf = ByteArray(64 * 1024); var got = 0L
                 while (true) {

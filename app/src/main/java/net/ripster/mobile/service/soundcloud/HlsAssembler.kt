@@ -1,5 +1,6 @@
 package net.ripster.mobile.service.soundcloud
 
+import net.ripster.mobile.core.errors.EngineErrors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -25,7 +26,7 @@ object HlsAssembler {
     fun assemble(m3u8Url: String, out: File): Flow<Progress> = flow {
         val playlist = fetchText(m3u8Url)
         if (playlist.contains("#EXT-X-KEY") && !playlist.contains("METHOD=NONE")) {
-            throw IOException("SoundCloud: HLS stream is encrypted (#EXT-X-KEY) — outside non-DRM download scope")
+            throw IOException(EngineErrors.DRM_UNSUPPORTED)
         }
         val segments = playlist.lineSequence()
             .map { it.trim() }

@@ -1,5 +1,6 @@
 package net.ripster.mobile.service.qobuz
 
+import net.ripster.mobile.core.errors.EngineErrors
 import android.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -85,13 +86,13 @@ object QobuzBundle {
 
         val loginHtml = body("https://play.qobuz.com/login")
         val bundlePath = BUNDLE_SRCS.firstNotNullOfOrNull { it.find(loginHtml)?.groupValues?.get(1) }
-            ?: throw IOException("Qobuz: не нашёл bundle.js на странице входа — формат сайта изменился; введите app_id и app_secret вручную в Настройках → Учётные записи")
+            ?: throw IOException(EngineErrors.QOBUZ_KEYS)
         val bundle = body("https://play.qobuz.com$bundlePath")
 
         val appIdM = APPID.find(bundle)
         val appId = overrideId?.trim()?.ifBlank { null }
             ?: appIdM?.groupValues?.get(1)
-            ?: throw IOException("Qobuz: app_id не найден в bundle — введите app_id и app_secret вручную в Настройках")
+            ?: throw IOException(EngineErrors.QOBUZ_KEYS)
 
         // Восстановление секретов по методу веб-плеера (порт streamrip Spoofer):
         //  seed+timezone из initialSeed(); ВТОРОЙ timezone двигаем в начало
@@ -122,7 +123,7 @@ object QobuzBundle {
         }
         val merged = (secrets + listOfNotNull(overrideSecret?.trim()?.ifBlank { null })
             + listOfNotNull(appIdM?.groupValues?.get(2))).distinct()
-        if (merged.isEmpty()) throw IOException("Qobuz: could not reconstruct any app secret")
+        if (merged.isEmpty()) throw IOException(EngineErrors.QOBUZ_KEYS)
         if (cacheFile != null) runCatching {
             cacheFile.parentFile?.mkdirs()
             cacheFile.writeText((listOf(appId) + merged.filter { it.length == 32 }).joinToString("\n"))

@@ -2,6 +2,7 @@ package net.ripster.mobile.ui.screens
 
 
 import net.ripster.mobile.ui.i18n.LocalAppLang
+import net.ripster.mobile.ui.i18n.engineErrorText
 import net.ripster.mobile.ui.i18n.tr
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -200,7 +201,9 @@ private fun DownloadTaskRow(
                 )
                 if (task.status == DownloadTaskStatus.Failed && task.errorReason != null) {
                     BasicText(
-                        text = task.errorReason,
+                        // Движок отдаёт маркер, а не готовый текст, — переводим
+                        // здесь; своё сообщение (от ПК, от сервиса) показываем как есть.
+                        text = engineErrorText(task.errorReason, lang) ?: task.errorReason,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         style = TextStyle(color = colors.danger_text, fontSize = type.caption),

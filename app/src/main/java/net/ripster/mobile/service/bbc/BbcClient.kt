@@ -1,5 +1,6 @@
 package net.ripster.mobile.service.bbc
 
+import net.ripster.mobile.core.errors.EngineErrors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -80,7 +81,7 @@ class BbcClient(private val cacheDir: java.io.File) : ServiceClient {
         val req = Request.Builder().url(url).header("User-Agent", UA).build()
         RipsterHttp.client.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) throw IOException("BBC: stream -> HTTP ${resp.code}")
-            val body = resp.body ?: throw IOException("BBC: empty stream body")
+            val body = resp.body ?: throw IOException(EngineErrors.EMPTY_STREAM)
             val total = body.contentLength().takeIf { it > 0 }
             body.byteStream().use { input ->
                 out.outputStream().buffered().use { sink ->
@@ -109,7 +110,7 @@ class BbcClient(private val cacheDir: java.io.File) : ServiceClient {
         val root = json.parseToJsonElement(raw).jsonObject
         val title = root["title"]?.jsonPrimitive?.contentOrNull ?: "BBC $pid"
         val versions = root["allAvailableVersions"]?.jsonArray
-            ?: throw IOException("BBC: no available versions (expired or region-locked)")
+            ?: throw IOException(EngineErrors.EXPIRED_OR_GEO)
         val item = versions.firstNotNullOfOrNull { v ->
             v.jsonObject["smpConfig"]?.jsonObject?.get("items")?.jsonArray?.firstOrNull()?.jsonObject
         } ?: throw IOException("BBC: no playable item")
@@ -125,7 +126,7 @@ class BbcClient(private val cacheDir: java.io.File) : ServiceClient {
             }.getOrNull() ?: continue
             val root = json.parseToJsonElement(raw).jsonObject
             root["result"]?.jsonPrimitive?.contentOrNull?.let { r ->
-                if (r == "geolocation") throw IOException("BBC: доступно только из Великобритании — нужен UK-прокси/VPN")
+                if (r == "geolocation") throw IOException(EngineErrors.GEO_UK)
                 if (r == "selectionunavailable") return@let
             }
             val media = root["media"]?.jsonArray ?: continue
@@ -142,7 +143,7 @@ class BbcClient(private val cacheDir: java.io.File) : ServiceClient {
                 ?.get("href")?.jsonPrimitive?.contentOrNull
             if (href != null) return@withContext href
         }
-        throw IOException("BBC: no downloadable audio for this programme")
+        throw IOException(EngineErrors.NO_AUDIO)
     }
 
     private fun get(url: String): String {

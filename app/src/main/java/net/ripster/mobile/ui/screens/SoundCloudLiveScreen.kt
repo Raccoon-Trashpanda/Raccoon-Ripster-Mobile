@@ -38,6 +38,7 @@ import net.ripster.mobile.core.service.ServiceRegistry
 import net.ripster.mobile.ui.components.DownloadOrb
 import net.ripster.mobile.ui.i18n.AppLang
 import net.ripster.mobile.ui.i18n.LocalAppLang
+import net.ripster.mobile.ui.i18n.engineErrorText
 import net.ripster.mobile.ui.i18n.tr
 import net.ripster.mobile.ui.theme.RipsterColors
 import net.ripster.mobile.ui.theme.RipsterTheme
@@ -203,7 +204,7 @@ private fun StatusBlock(
                 DownloadState.RUNNING -> tr("sc.downloading", lang) +
                     (live.fraction?.let { "  ${(it * 100).toInt()}%" } ?: "")
                 DownloadState.DONE -> tr("sc.done", lang)
-                DownloadState.FAILED -> tr("sc.failed", lang) + (live.errorReason?.let { "  ·  $it" } ?: "")
+                DownloadState.FAILED -> tr("sc.failed", lang) + ((engineErrorText(live.errorReason, lang) ?: live.errorReason)?.let { "  ·  $it" } ?: "")
                 DownloadState.CANCELLED -> tr("sc.failed", lang)
             }
             BasicText(label, style = TextStyle(color = c.text_secondary, fontSize = 13.sp))

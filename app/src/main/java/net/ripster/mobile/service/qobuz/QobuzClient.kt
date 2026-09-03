@@ -1,5 +1,6 @@
 package net.ripster.mobile.service.qobuz
 
+import net.ripster.mobile.core.errors.EngineErrors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -169,7 +170,7 @@ class QobuzClient(
         val req = Request.Builder().url(url).header("User-Agent", "RipsterMobile/0.1").build()
         RipsterHttp.client.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) throw IOException("Qobuz: stream -> HTTP ${resp.code}")
-            val body = resp.body ?: throw IOException("Qobuz: empty stream body")
+            val body = resp.body ?: throw IOException(EngineErrors.EMPTY_STREAM)
             val total = body.contentLength().takeIf { it > 0 }
             body.byteStream().use { input ->
                 outFile.outputStream().buffered().use { sink ->
@@ -190,7 +191,7 @@ class QobuzClient(
     }.flowOn(Dispatchers.IO)
 
     private suspend fun resolveStream(id: String, preference: List<String>): Pair<QualityTier, String> {
-        if (!api.ensureAuth()) throw IOException("Qobuz: not logged in (email/password or token, and app secret)")
+        if (!api.ensureAuth()) throw IOException(EngineErrors.AUTH_FAILED)
         val fmtOrder = buildList {
             for (p in preference) when {
                 p == "flac_24" || p == "flac" -> { add(27 to flac24); add(7 to flac24) }
@@ -225,7 +226,7 @@ class QobuzClient(
         // (протухший ключ/подпись/токен), и только если Qobuz честно отвечал
         // «нет файла» на все форматы — говорим про аккаунт и регион.
         lastErr?.let { throw it }
-        throw IOException("Qobuz: no streamable file for this account/region")
+        throw IOException(EngineErrors.NO_SOURCE_REGION)
     }
 
     private fun QbTrack.toTrack(albumFull: QbAlbumFull? = null): Track {

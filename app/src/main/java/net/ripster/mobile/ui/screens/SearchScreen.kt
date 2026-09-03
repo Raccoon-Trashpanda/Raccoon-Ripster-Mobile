@@ -59,6 +59,7 @@ import net.ripster.mobile.core.service.ServiceClient
 import net.ripster.mobile.core.service.ServiceRegistry
 import net.ripster.mobile.ui.i18n.AppLang
 import net.ripster.mobile.ui.i18n.LocalAppLang
+import net.ripster.mobile.ui.i18n.engineErrorText
 import net.ripster.mobile.ui.i18n.tr
 import net.ripster.mobile.ui.components.pressable
 import net.ripster.mobile.ui.theme.RipsterTheme
@@ -803,6 +804,7 @@ private fun DownloadPill(queued: Boolean, onClick: () -> Unit, c: net.ripster.mo
 /** Сетевую аварию — человеку, а не сырым Java-текстом. Юзер видел
  *  «software caused connection abort» и «не ответил за 15 с» как есть. */
 private fun humanNetError(e: Throwable, lang: AppLang): String {
+    engineErrorText(e.message, lang)?.let { return it }
     val m = (e.message ?: e.javaClass.simpleName).lowercase()
     return when {
         "__qobuz_stale_appid__" in m -> tr("search.qobuz_stale_appid", lang)

@@ -1,5 +1,6 @@
 package net.ripster.mobile.service.soundcloud
 
+import net.ripster.mobile.core.errors.EngineErrors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -209,7 +210,7 @@ class SoundCloudClient(
         val req = Request.Builder().url(url).header("User-Agent", SoundCloudClientId.UA).build()
         RipsterHttp.client.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) throw IOException("SoundCloud: stream -> HTTP ${resp.code}")
-            val body = resp.body ?: throw IOException("SoundCloud: empty stream body")
+            val body = resp.body ?: throw IOException(EngineErrors.EMPTY_STREAM)
             val total = body.contentLength().takeIf { it > 0 }
             body.byteStream().use { input ->
                 out.outputStream().buffered().use { sink ->
@@ -234,7 +235,7 @@ class SoundCloudClient(
             ?: throw IOException("SoundCloud: track has no permalink to re-resolve")
         return when (val r = api.resolve(permalink)) {
             is ScResolveResult.OneTrack -> r.track
-            else -> throw IOException("SoundCloud: permalink no longer resolves to a track ($permalink)")
+            else -> throw IOException(EngineErrors.TRACK_UNAVAILABLE)
         }
     }
 

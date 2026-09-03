@@ -1,5 +1,6 @@
 package net.ripster.mobile.service.tidal
 
+import net.ripster.mobile.core.errors.EngineErrors
 import android.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -187,7 +188,7 @@ class TidalClient(
         val req = Request.Builder().url(url).header("User-Agent", "RipsterMobile/0.1").build()
         RipsterHttp.client.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) throw IOException("Tidal: stream -> HTTP ${resp.code}")
-            val body = resp.body ?: throw IOException("Tidal: empty stream body")
+            val body = resp.body ?: throw IOException(EngineErrors.EMPTY_STREAM)
             val total = body.contentLength().takeIf { it > 0 }
             body.byteStream().use { input ->
                 out.outputStream().buffered().use { sink ->
@@ -262,7 +263,7 @@ class TidalClient(
     private val hires = QualityTier("flac_24", "FLAC Hi-Res", lossless = true, container = "flac", bitDepth = 24)
 
     private suspend fun resolveStream(id: String, preference: List<String>): TdStream {
-        if (!ensureToken()) throw IOException("Tidal: not authorized (re-login in Accounts)")
+        if (!ensureToken()) throw IOException(EngineErrors.TOKEN_INVALID)
         val order = buildList {
             for (p in preference) when {
                 // спец-режим для стрима: только прямые URL, без HI-RES/DASH

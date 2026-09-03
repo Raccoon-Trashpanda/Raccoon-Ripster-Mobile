@@ -44,6 +44,7 @@ import net.ripster.mobile.RipsterApp
 import net.ripster.mobile.core.service.ServiceRegistry
 import net.ripster.mobile.ui.components.Cover
 import net.ripster.mobile.ui.i18n.LocalAppLang
+import net.ripster.mobile.ui.i18n.engineErrorText
 import net.ripster.mobile.ui.i18n.tr
 import net.ripster.mobile.ui.navigation.RipsterDestination
 import net.ripster.mobile.ui.theme.RipsterColors
@@ -266,7 +267,7 @@ fun HomeScreen(
                     dlFailed.forEach { d ->
                         WideCard(
                             title = d.title.ifBlank { tr("home.dl_track", lang) },
-                            subtitle = (d.errorReason ?: tr("home.dl_failed", lang)).take(60),
+                            subtitle = (engineErrorText(d.errorReason, lang) ?: d.errorReason ?: tr("home.dl_failed", lang)).take(60),
                             art = dlArt[d.id], progress = 0f,
                             c = c, onClick = { onOpen(RipsterDestination.Downloads) },
                         )

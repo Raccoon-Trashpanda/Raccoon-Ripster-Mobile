@@ -1,5 +1,6 @@
 package net.ripster.mobile.service.deezer
 
+import net.ripster.mobile.core.errors.EngineErrors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -198,7 +199,7 @@ class DeezerClient(
         val req = Request.Builder().url(url).header("User-Agent", DeezerGw.UA).build()
         RipsterHttp.client.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) throw IOException("Deezer: stream -> HTTP ${resp.code}")
-            val body = resp.body ?: throw IOException("Deezer: empty stream body")
+            val body = resp.body ?: throw IOException(EngineErrors.EMPTY_STREAM)
             val total = body.contentLength().takeIf { it > 0 }
             body.byteStream().use { input ->
                 outFile.outputStream().buffered().use { sink ->
@@ -212,13 +213,13 @@ class DeezerClient(
     }.flowOn(Dispatchers.IO)
 
     private suspend fun resolveStream(sngId: String, preference: List<String>): Pair<QualityTier, String> {
-        if (!gw.ensureSession()) throw IOException("Deezer: ARL invalid or expired")
+        if (!gw.ensureSession()) throw IOException(EngineErrors.TOKEN_INVALID)
         val song = gw.songData(sngId)
-        val token = song.results.trackToken.ifBlank { throw IOException("Deezer: no track_token (track unavailable)") }
+        val token = song.results.trackToken.ifBlank { throw IOException(EngineErrors.TRACK_UNAVAILABLE) }
 
         val formats = buildFormatList(preference, song.results)
         val (url, gotFormat) = gw.mediaUrl(token, formats)
-            ?: throw IOException("Deezer: no playable source for this account/region")
+            ?: throw IOException(EngineErrors.NO_SOURCE_REGION)
         val tier = when (gotFormat.uppercase()) {
             "FLAC" -> flac
             "MP3_320" -> mp3_320
