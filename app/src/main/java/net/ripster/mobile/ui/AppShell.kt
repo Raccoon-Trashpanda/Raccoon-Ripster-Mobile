@@ -135,6 +135,37 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
     val playback by app.player.state.collectAsState()
     val settings by app.settings.state.collectAsState()
 
+    // Открыть полноэкранный плеер по «play» из поиска / радара / альбома.
+    // playStream() асинхронный — hasItem становится true не сразу, а в ветке
+    // when(Player) НЕТ отрисовки без трека, поэтому прямой dest=Player рисовал
+    // пусто (жалоба: из радара «Movement 7» плеер не показывался). Ставим
+    // намерение и переключаемся, КАК ТОЛЬКО трек появился; таймаут — если
+    // воспроизведение вообще не поднялось.
+    var pendingPlayer by remember { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(pendingPlayer, playback.hasItem) {
+        if (!pendingPlayer) return@LaunchedEffect
+        if (playback.hasItem) {
+            userNavigated = true
+            albumTarget = null
+            showSearch = false
+            dest = RipsterDestination.Player
+            pendingPlayer = false
+        } else {
+            kotlinx.coroutines.delay(8000)
+            pendingPlayer = false
+        }
+    }
+    val openPlayer: () -> Unit = {
+        userNavigated = true
+        if (playback.hasItem) {
+            albumTarget = null
+            showSearch = false
+            dest = RipsterDestination.Player
+        } else {
+            pendingPlayer = true
+        }
+    }
+
     // Neon-скин: near-black + радиальные подсветки. Плюс AMBILIGHT: НЕ картинка
     // обложки, а мягкая меш-заливка из её средней палитры — несколько
     // приглушённых пятен, сбалансированно разложенных по всему экрану. При
@@ -438,12 +469,12 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                         onOpenAlbum = { albumTarget = it },
                         onOpenArtist = openArtist,
                     )
-                    RipsterDestination.Search -> Box(Modifier.fillMaxSize()) { SearchScreen(onOpenArtist = openArtist, onOpenAlbum = { albumTarget = it }, onOpenPlayer = { userNavigated = true; dest = RipsterDestination.Player }) }
+                    RipsterDestination.Search -> Box(Modifier.fillMaxSize()) { SearchScreen(onOpenArtist = openArtist, onOpenAlbum = { albumTarget = it }, onOpenPlayer = openPlayer) }
                     RipsterDestination.Radar -> net.ripster.mobile.ui.screens.RadarScreen(
                         onOpenAlbum = { albumTarget = it },
                         onOpenArtist = openArtist,
                         onOpenLabel = openLabel,
-                        onOpenPlayer = { userNavigated = true; dest = RipsterDestination.Player },
+                        onOpenPlayer = openPlayer,
                     )
                     RipsterDestination.Library -> LibraryScreen(
                         items = library.map { it.toItem() },
@@ -452,7 +483,7 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                         onItemClick = { picked ->
                             val idx = library.indexOfFirst { it.id == picked.id }.coerceAtLeast(0)
                             app.player.playQueue(library, idx)
-                            dest = RipsterDestination.Player
+                            openPlayer()
                         },
                         onOpenSettings = { showSettings = true },
                         onOpenSearch = { userNavigated = true; dest = RipsterDestination.Search },
@@ -520,7 +551,7 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
             androidx.activity.compose.BackHandler(true) { showSearch = false }
             Column(Modifier.fillMaxSize().background(c.surface_canvas).windowInsetsPadding(WindowInsets.safeDrawing)) {
                 OverlayBar(tr("nav.search", lang)) { showSearch = false }
-                Box(Modifier.weight(1f)) { SearchScreen(onOpenPlayer = { showSearch = false; userNavigated = true; dest = RipsterDestination.Player }) }
+                Box(Modifier.weight(1f)) { SearchScreen(onOpenPlayer = openPlayer) }
                 // Только текстовый статус очереди — без анимированного кружка:
                 // на тяжёлых перекомпоновках экрана поиска второй экземпляр орба
                 // ремонтировался и мерцал. Орб живёт единственным — в оболочке.
@@ -544,7 +575,7 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                     url = at.url, service = at.service,
                     fallbackTitle = at.title, fallbackArtist = at.artist, fallbackCover = at.coverUrl,
                     onBack = { albumTarget = null },
-                    onOpenPlayer = { albumTarget = null; dest = RipsterDestination.Player },
+                    onOpenPlayer = openPlayer,
                     onOpenArtist = { n, s, id -> albumTarget = null; openArtist(n, s, id) },
                 )
             }

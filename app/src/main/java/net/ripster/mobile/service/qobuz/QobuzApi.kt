@@ -49,9 +49,22 @@ class QobuzApi(
     fun hasCredentials(): Boolean =
         !presetToken.isNullOrBlank() || (!email.isNullOrBlank() && !password.isNullOrBlank())
 
+    /** true, если appId сейчас — зашитый запасной (скрейп не прошёл). Тогда
+     *  ensureAuth не считается «готовым» и в следующий раз пробует настоящий. */
+    @Volatile private var appIdIsFallback = false
+
     suspend fun ensureAuth(force: Boolean = false): Boolean = mutex.withLock {
-        if (!force && authToken.isNotBlank() && appId.isNotBlank()) return true
-        val creds = QobuzBundle.resolve(overrideAppId, overrideSecret, bundleCache)
+        if (!force && authToken.isNotBlank() && appId.isNotBlank() && !appIdIsFallback) return true
+        // Скрейп bundle.js — многомегабайтный; на медленном канале не влезал в
+        // таймаут поиска (жалоба тестера, каждый Qobuz-поиск → «didn't respond
+        // in time»). Ограничиваем его 12 с и падаем на зашитый запасной app_id —
+        // для catalog/search достаточно валидного X-App-Id, подпись не нужна.
+        val creds = runCatching {
+            kotlinx.coroutines.withTimeoutOrNull(12_000) {
+                QobuzBundle.resolve(overrideAppId, overrideSecret, bundleCache)
+            }
+        }.getOrNull() ?: QobuzBundle.FALLBACK
+        appIdIsFallback = creds === QobuzBundle.FALLBACK
         appId = creds.appId
         secrets = creds.secrets
 

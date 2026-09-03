@@ -71,7 +71,10 @@ fun ServiceAccountsScreen() {
         net.ripster.mobile.ui.screens.cast.YandexStationBlock()
         Box(Modifier.height(16.dp))
 
-        CredentialStore.Key.entries.forEach { key ->
+        // TIDAL_OAUTH хранится как JSON-блоб (refresh_token + метаданные) — его
+        // не вставляют руками, вход целиком делает TidalLoginBlock выше. Сырое
+        // поле с «припиской вначале» только путало (жалоба 03.09.2026).
+        CredentialStore.Key.entries.filter { it != CredentialStore.Key.TIDAL_OAUTH }.forEach { key ->
             BasicText(
                 key.id,
                 style = TextStyle(color = c.text_secondary, fontSize = 12.sp, fontWeight = FontWeight.Bold),
