@@ -87,13 +87,16 @@ class QobuzApi(
 
     suspend fun search(query: String): QbSearch {
         ensureAuth()
-        if (appId.isBlank()) throw IOException(
-            "Qobuz: приложение не настроено — не удалось получить app_id (сеть/формат сайта). " +
-                "Задай app_id и app_secret вручную в Настройках → Учётные записи.")
-        val raw = get("catalog/search") {
+        // Поиск: `catalog/search` у рабочих app_id больше не отдаёт результаты, а
+        // свежескрейпленный app_id (798273057) сейчас 401. Рабочая связка (как в
+        // ПК-Ripster): `track/search` + `app_id=312369995` в query +
+        // `X-User-Auth-Token` в заголовке (без токена total=0). Скрейп bundle.js
+        // для поиска вообще не нужен — отсюда и уходят «didn't respond in time».
+        val searchAid = overrideAppId?.trim()?.ifBlank { null } ?: QobuzBundle.SEARCH_APP_ID
+        val raw = getWithAppId(searchAid, "track/search", authed = true) {
             it.addQueryParameter("query", query)
-            it.addQueryParameter("type", "tracks")
             it.addQueryParameter("limit", "25")
+            it.addQueryParameter("app_id", searchAid)
         }
         return json.decodeFromString(QbSearch.serializer(), raw)
     }
