@@ -786,6 +786,8 @@ private fun DownloadPill(queued: Boolean, onClick: () -> Unit, c: net.ripster.mo
 private fun humanNetError(e: Throwable, lang: AppLang): String {
     val m = (e.message ?: e.javaClass.simpleName).lowercase()
     return when {
+        "__qobuz_stale_appid__" in m -> tr("search.qobuz_stale_appid", lang)
+        "__qobuz_bad_token__" in m -> tr("search.qobuz_bad_token", lang)
         m == "__timeout__" || e is java.net.SocketTimeoutException || "timeout" in m || "timed out" in m ->
             tr("search.svc_timeout", lang)
         e is java.net.UnknownHostException || e is java.net.ConnectException ||

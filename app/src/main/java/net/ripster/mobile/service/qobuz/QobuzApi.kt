@@ -169,11 +169,39 @@ class QobuzApi(
         return null
     }
 
+    /** Брошено getWithAppId при 400 = Qobuz отверг app_id. Ловим в get() для
+     *  само-лечения; если не помогло — конвертируется в юзер-сообщение. */
+    private class StaleAppId : IOException("__qobuz_stale_appid__")
+
     private suspend fun get(
         path: String,
         authed: Boolean = true,
         params: (okhttp3.HttpUrl.Builder) -> Unit,
-    ): String = getWithAppId(appId, path, authed, params)
+    ): String {
+        try {
+            return getWithAppId(appId, path, authed, params)
+        } catch (_: StaleAppId) {
+            // app_id протух — ОДИН раз добываем свежий из bundle.js и повторяем
+            // (ровно как fileUrl() делает для подписи). Раньше поиск просто падал
+            // с «обнови app_id вручную», хотя добыть новый мы умеем сами.
+            val fresh = mutex.withLock {
+                if (refreshedFromBundle) null else {
+                    refreshedFromBundle = true
+                    runCatching {
+                        QobuzBundle.resolve(null, null, bundleCache, forceFresh = true)
+                    }.getOrNull()
+                }
+            }
+            if (fresh != null && fresh.appId.isNotBlank()) {
+                mutex.withLock {
+                    appId = fresh.appId
+                    secrets = (fresh.secrets + secrets).distinct()
+                }
+                return getWithAppId(appId, path, authed, params)
+            }
+            throw IOException("__qobuz_stale_appid__")
+        }
+    }
 
     private suspend fun getWithAppId(
         aid: String,
@@ -193,12 +221,11 @@ class QobuzApi(
             .build()
         return withContext(Dispatchers.IO) {
             RipsterHttp.client.newCall(req).execute().use { r ->
-                if (r.code == 401 && authed) throw IOException("Qobuz: токен авторизации недействителен — обнови его в Настройках")
+                if (r.code == 401 && authed) throw IOException("__qobuz_bad_token__")
                 // 400 у Qobuz на /catalog/search почти всегда = «Invalid or missing
                 // app_id» (протух/пустой app_id), а не проблема самого запроса.
-                if (r.code == 400) throw IOException(
-                    "Qobuz: сервис отклонил запрос (обычно — устарел app_id). " +
-                        "Обнови app_id/app_secret в Настройках → Учётные записи.")
+                // get() ловит это и один раз пере-скрейпит bundle.js.
+                if (r.code == 400) throw StaleAppId()
                 if (!r.isSuccessful) throw IOException("Qobuz: ошибка ${r.code} на ${url.encodedPath.substringAfterLast('/')}")
                 r.body?.string() ?: throw IOException("Qobuz: пустой ответ")
             }
