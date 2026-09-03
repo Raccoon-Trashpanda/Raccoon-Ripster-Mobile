@@ -277,11 +277,31 @@ fun ArtistScreen(
                         dateText = r.year.ifBlank { r.date.take(4) },
                     )
                     var buffering by remember { mutableStateOf(false) }
+                    // У релиза-участия часто нет id/ссылки (сервис не дал album-id)
+                    // — тогда открываем/играем весь релиз поиском по «куратор
+                    // название», а не молчим и не показываем один трек.
+                    val fallbackQuery = listOf(
+                        r.albumArtist.takeIf { it.isNotBlank() && !it.equals("various artists", true) }
+                            ?: p.name.ifBlank { name }.takeIf { !isAppears }.orEmpty(),
+                        r.title,
+                    ).filter { it.isNotBlank() }.joinToString(" ").trim()
+                    fun playRelease() {
+                        scope.launch {
+                            buffering = true
+                            val q = app.settings.state.value.qualityFor(onWifi = true)
+                            val ok = withTimeoutOrNull(25_000) {
+                                if (r.url.isNotBlank()) ReleasePlayback.play(app.player, r.url, q, r.coverUrl)
+                                else ReleasePlayback.playSearch(app.player, fallbackQuery, q, r.coverUrl)
+                            } ?: false
+                            buffering = false
+                            if (!ok && r.url.isNotBlank()) onOpenAlbum(cd)
+                        }
+                    }
                     ReleaseCard(
                         data = cd,
                         queued = queued[r.url] == true,
                         buffering = buffering,
-                        onOpen = { if (r.url.isNotBlank()) onOpenAlbum(cd) },
+                        onOpen = { if (r.url.isNotBlank()) onOpenAlbum(cd) else playRelease() },
                         onDownload = {
                             if (r.url.isNotBlank()) {
                                 queued[r.url] = true
@@ -293,18 +313,8 @@ fun ArtistScreen(
                                 }
                             }
                         },
-                        onPlay = if (r.url.isBlank()) null else {
-                            {
-                                scope.launch {
-                                    buffering = true
-                                    val q = app.settings.state.value.qualityFor(onWifi = true)
-                                    val ok = withTimeoutOrNull(25_000) {
-                                        ReleasePlayback.play(app.player, r.url, q)
-                                    } ?: false
-                                    buffering = false
-                                    if (!ok) onOpenAlbum(cd)
-                                }
-                            }
+                        onPlay = if (r.url.isBlank() && fallbackQuery.isBlank()) null else {
+                            { playRelease() }
                         },
                     )
                 }
@@ -460,6 +470,8 @@ private fun albumUrl(serviceId: String, id: String): String {
         "deezer" -> "https://www.deezer.com/album/$id"
         "qobuz" -> "https://open.qobuz.com/album/$id"
         "tidal" -> "https://listen.tidal.com/album/$id"
+        "yandex" -> "https://music.yandex.ru/album/$id"
+        "soundcloud" -> id.takeIf { it.startsWith("http") }.orEmpty()
         else -> ""
     }
 }

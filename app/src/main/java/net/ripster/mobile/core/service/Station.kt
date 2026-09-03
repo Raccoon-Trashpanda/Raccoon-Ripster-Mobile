@@ -71,6 +71,19 @@ object StationBuilder {
  * потоком: первые треки резолвятся сразу (чтобы заиграло без задержки),
  * остальное дорезолвится и дописывается в очередь фоном.
  */
+/** Ссылка релиза из сервиса + id — для `resolve()` / [ReleasePlayback]. Пусто →
+ *  плеер по этому релизу не собрать (Apple/SoundCloud на мобиле не стримятся). */
+fun releaseUrl(service: Service, id: String): String {
+    if (id.isBlank() || id == "0") return id.takeIf { it.startsWith("http") }.orEmpty()
+    return when (service) {
+        Service.DEEZER -> "https://www.deezer.com/album/$id"
+        Service.QOBUZ -> "https://open.qobuz.com/album/$id"
+        Service.TIDAL -> "https://listen.tidal.com/album/$id"
+        Service.YANDEX -> "https://music.yandex.ru/album/$id"
+        else -> id.takeIf { it.startsWith("http") }.orEmpty()
+    }
+}
+
 object ReleasePlayback {
 
     /** Сервисы, которые реально отдают поток (для конверсии Spotify/Apple). */
@@ -113,9 +126,41 @@ object ReleasePlayback {
             !sel?.containerTitle.isNullOrBlank() -> sel!!.containerTitle!!
             else -> return false
         }
+        return playSearch(player, query, quality, fallbackArtwork)
+    }
+
+    /**
+     * Заиграть релиз, известный только по строке «артист альбом» — без ссылки.
+     * Нужно там, где у релиза нет id (участие артиста в сборнике/миксе, у сервиса
+     * в выдаче не было album-id): тап по такой карточке должен открывать ВЕСЬ
+     * релиз, а не молчать.
+     */
+    suspend fun playSearch(
+        player: PlayerController,
+        query: String,
+        quality: List<String>,
+        fallbackArtwork: String? = null,
+    ): Boolean {
+        if (query.isBlank()) return false
+
+        // 1) пробуем найти САМ релиз (поиск теперь отдаёт и альбомы) и заиграть
+        //    его целиком — это и есть «открыть весь сборник», а не трек из него.
+        val albums = coroutineScope {
+            STREAMABLE.mapNotNull { ServiceRegistry.get(it) }.map { c ->
+                async { runCatching { c.search(query).albums }.getOrDefault(emptyList()) }
+            }.awaitAll()
+        }.flatten()
+        val album = albums.firstOrNull { it.title.length >= 4 && query.contains(it.title, true) }
+            ?: albums.firstOrNull()
+        if (album != null) {
+            val u = releaseUrl(album.service, album.id)
+            if (u.isNotBlank() && play(player, u, quality, fallbackArtwork)) return true
+        }
+
+        // 2) альбома нет — играем найденные треки списком
         val fromSearch: List<Track> = coroutineScope {
             STREAMABLE.mapNotNull { ServiceRegistry.get(it) }.map { c ->
-                async { runCatching { c.search(query).tracks.take(12) }.getOrDefault(emptyList()) }
+                async { runCatching { c.search(query).tracks.take(20) }.getOrDefault(emptyList()) }
             }.awaitAll()
         }.firstOrNull { it.isNotEmpty() } ?: return false
 

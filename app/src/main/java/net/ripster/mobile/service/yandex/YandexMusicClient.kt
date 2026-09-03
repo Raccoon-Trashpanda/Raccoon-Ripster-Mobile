@@ -420,6 +420,9 @@ class YandexMusicClient(
                 raw = mapOf(
                     "ymId" to (realId.ifBlank { id }),
                     "artId" to (artists.firstOrNull()?.id?.toString().orEmpty()),
+                    // id альбома нужен, чтобы тап по треку из сборника открывал
+                    // весь релиз (экран артиста, «участие»), и для каста на Станцию.
+                    "albId" to (alb?.id?.takeIf { it > 0 }?.toString().orEmpty()),
                 ),
             )
         }
