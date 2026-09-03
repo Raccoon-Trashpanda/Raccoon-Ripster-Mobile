@@ -28,26 +28,36 @@ class RipsterDataSourceFactory(
 }
 
 private const val DZBF = "dzbf="
+private const val YAX = "yaxctr="
 
 /** Помечает URL как зашифрованный Deezer-поток для [RipsterDataSourceFactory]. */
 fun tagDeezerBlowfish(url: String, trackId: String): String =
     if (url.contains("#")) "$url&$DZBF$trackId" else "$url#$DZBF$trackId"
 
+/** Помечает URL как Яндекс lossless AES-128-CTR поток (ключ — hex, 32 символа). */
+fun tagYandexAesCtr(url: String, keyHex: String): String =
+    if (url.contains("#")) "$url&$YAX$keyHex" else "$url#$YAX$keyHex"
+
 private class DispatchDataSource(private val http: DataSource) : DataSource {
     private var active: DataSource = http
 
     override fun open(dataSpec: DataSpec): Long {
-        val frag = dataSpec.uri.fragment
-        val id = frag?.split('&', ';')
-            ?.firstOrNull { it.startsWith(DZBF) }
-            ?.removePrefix(DZBF)
-        return if (id.isNullOrBlank()) {
-            active = http
-            active.open(dataSpec)
-        } else {
-            active = DeezerBlowfishDataSource(http, DeezerCrypto.blowfishKey(id))
-            val clean = dataSpec.withUri(dataSpec.uri.buildUpon().fragment(null).build())
-            active.open(clean)
+        val parts = dataSpec.uri.fragment?.split('&', ';').orEmpty()
+        val dzId = parts.firstOrNull { it.startsWith(DZBF) }?.removePrefix(DZBF)
+        val yaxKey = parts.firstOrNull { it.startsWith(YAX) }?.removePrefix(YAX)
+        return when {
+            !dzId.isNullOrBlank() -> {
+                active = DeezerBlowfishDataSource(http, DeezerCrypto.blowfishKey(dzId))
+                active.open(dataSpec.withUri(dataSpec.uri.buildUpon().fragment(null).build()))
+            }
+            !yaxKey.isNullOrBlank() && yaxKey.length == 32 -> {
+                active = YandexAesCtrDataSource(http, hexToBytes(yaxKey))
+                active.open(dataSpec.withUri(dataSpec.uri.buildUpon().fragment(null).build()))
+            }
+            else -> {
+                active = http
+                active.open(dataSpec)
+            }
         }
     }
 
@@ -124,6 +134,62 @@ private class DeezerBlowfishDataSource(
         plainPos = 0
         blockIndex++
         return true
+    }
+
+    override fun addTransferListener(transferListener: TransferListener) = up.addTransferListener(transferListener)
+    override fun getUri(): Uri? = up.uri
+    override fun close() = up.close()
+}
+
+private fun hexToBytes(h: String): ByteArray =
+    ByteArray(h.length / 2) { ((h[it * 2].digitToInt(16) shl 4) + h[it * 2 + 1].digitToInt(16)).toByte() }
+
+/**
+ * Яндекс lossless (`transport: encraw`) — весь поток AES-128-CTR, начальный
+ * счётчик = 16 нулей, инкремент 128-битным big-endian на каждые 16 Б.
+ * Seek: счётчик для позиции `p` = `p / 16`, затем отбрасываем `p % 16` Б
+ * первого расшифрованного блока (upstream открываем с 16-байтной границы).
+ */
+private class YandexAesCtrDataSource(
+    private val up: DataSource,
+    private val key: ByteArray,        // 16 байт
+) : DataSource {
+    private var cipher: Cipher? = null
+    private val scratch = ByteArray(8192)
+
+    override fun open(dataSpec: DataSpec): Long {
+        val start = dataSpec.position
+        val block = start / 16
+        val within = (start % 16).toInt()
+        val iv = ByteArray(16)
+        var b = block
+        for (i in 15 downTo 0) { iv[i] = (b and 0xFF).toByte(); b = b ushr 8 }
+        cipher = Cipher.getInstance("AES/CTR/NoPadding").apply {
+            init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(iv))
+        }
+        val reqLen = if (dataSpec.length == C.LENGTH_UNSET.toLong()) C.LENGTH_UNSET.toLong()
+            else dataSpec.length + within
+        val upLen = up.open(
+            dataSpec.buildUpon().setPosition(start - within).setLength(reqLen).build()
+        )
+        var skip = within
+        while (skip > 0) {
+            val n = read(scratch, 0, min(skip, scratch.size))
+            if (n <= 0) break
+            skip -= n
+        }
+        return if (upLen == C.LENGTH_UNSET.toLong()) upLen else (upLen - within).coerceAtLeast(0)
+    }
+
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+        if (length == 0) return 0
+        val tmp = if (length <= scratch.size) scratch else ByteArray(length)
+        val n = up.read(tmp, 0, length)
+        if (n == C.RESULT_END_OF_INPUT) return C.RESULT_END_OF_INPUT
+        if (n <= 0) return n
+        val dec = cipher!!.update(tmp, 0, n) ?: return 0   // CTR: update отдаёт n Б
+        System.arraycopy(dec, 0, buffer, offset, dec.size)
+        return dec.size
     }
 
     override fun addTransferListener(transferListener: TransferListener) = up.addTransferListener(transferListener)

@@ -150,6 +150,8 @@ object StreamResolver {
                         url = when (val d = info.decryption) {
                             is net.ripster.mobile.core.model.Decryption.DeezerBlowfish ->
                                 net.ripster.mobile.player.tagDeezerBlowfish(info.url, d.trackId)
+                            is net.ripster.mobile.core.model.Decryption.YandexAesCtr ->
+                                net.ripster.mobile.player.tagYandexAesCtr(info.url, d.keyHex)
                             else -> info.url
                         },
                         title = tr.title,

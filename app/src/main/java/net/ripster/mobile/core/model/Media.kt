@@ -122,4 +122,7 @@ data class StreamInfo(
 sealed interface Decryption {
     /** Deezer: Blowfish-CBC блоками по 2048 Б, дешифруется каждый третий блок; ключ выводится из id трека. */
     data class DeezerBlowfish(val trackId: String) : Decryption
+
+    /** Яндекс lossless (`transport: encraw`): весь поток — AES-128-CTR, IV = 16 нулей. */
+    data class YandexAesCtr(val keyHex: String) : Decryption
 }

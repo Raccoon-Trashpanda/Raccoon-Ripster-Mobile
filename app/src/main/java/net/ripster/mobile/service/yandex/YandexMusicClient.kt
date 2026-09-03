@@ -118,6 +118,21 @@ class YandexMusicClient(
 
     override suspend fun streamInfo(track: Track, preference: List<String>): StreamInfo {
         val id = track.raw["ymId"] ?: throw IOException("Yandex: no track id")
+        // Воспроизведение из карточек/поиска тоже в lossless, если аккаунт даёт:
+        // `get-file-info?quality=lossless` → AES-128-CTR-поток, плеерный
+        // DataSource расшифровывает на лету (как Deezer Blowfish). Не вышло —
+        // старый mp3-путь.
+        val wantFlac = preference.any { it.startsWith("flac") || it.contains("hires") }
+        if (wantFlac) {
+            val ll = runCatching { losslessInfo(id) }.getOrNull()
+            if (ll != null && ll.keyHex != null) {
+                return StreamInfo(
+                    url = ll.url,
+                    quality = flacMp4,
+                    decryption = net.ripster.mobile.core.model.Decryption.YandexAesCtr(ll.keyHex),
+                )
+            }
+        }
         val (tier, url) = signedUrl(id, preference)
         return StreamInfo(url = url, quality = tier)
     }
