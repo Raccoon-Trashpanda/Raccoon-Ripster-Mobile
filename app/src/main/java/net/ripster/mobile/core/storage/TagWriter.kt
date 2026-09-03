@@ -42,6 +42,23 @@ object TagWriter {
             track.year?.let { tag.setField(FieldKey.YEAR, it.toString()) }
             track.isrc?.let { runCatching { tag.setField(FieldKey.ISRC, it) } }
 
+            // Полный набор тегов. Жалоба тестера 03.09.2026: в скачанном из
+            // Qobuz не было ни жанра, ни композитора, ни номера трека — сервис
+            // всё это отдаёт, просто до файла не доезжало. Каждое поле в своём
+            // runCatching: не все контейнеры знают все ключи (напр. у сырого
+            // ADTS/OGG нет части полей), и падать на этом загрузка не должна.
+            track.genre?.let { runCatching { tag.setField(FieldKey.GENRE, it) } }
+            track.composer?.let { runCatching { tag.setField(FieldKey.COMPOSER, it) } }
+            track.label?.let { runCatching { tag.setField(FieldKey.RECORD_LABEL, it) } }
+            track.trackTotal?.let { runCatching { tag.setField(FieldKey.TRACK_TOTAL, it.toString()) } }
+            track.discTotal?.let { runCatching { tag.setField(FieldKey.DISC_TOTAL, it.toString()) } }
+            track.upc?.let { runCatching { tag.setField(FieldKey.BARCODE, it) } }
+            // Полная дата важнее одного года: плееры сортируют по ней.
+            track.releaseDate?.let { runCatching { tag.setField(FieldKey.ORIGINAL_YEAR, it) } }
+            track.copyright?.let {
+                runCatching { tag.setField(FieldKey.COMMENT, it) }
+            }
+
             if (artwork != null && artwork.isNotEmpty()) {
                 runCatching {
                     val art = ArtworkFactory.getNew().apply {

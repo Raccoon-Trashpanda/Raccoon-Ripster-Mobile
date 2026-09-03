@@ -25,7 +25,17 @@ data class QbAlbum(
     val upc: String? = null,
     @SerialName("maximum_bit_depth") val maxBitDepth: Int? = null,
     @SerialName("maximum_sampling_rate") val maxSampleRate: Double? = null,
+    // Полные метаданные для тегов файла: Qobuz отдаёт их прямо в ответе.
+    val genre: QbNamed? = null,
+    val label: QbNamed? = null,
+    val copyright: String? = null,
+    @SerialName("media_count") val mediaCount: Int? = null,
+    @SerialName("release_date_original") val releaseDateOriginal: String? = null,
 )
+
+/** Вложенный объект вида `{"id":…,"name":"Dance"}` — жанр, лейбл. */
+@Serializable
+data class QbNamed(val id: Long? = null, val name: String = "")
 
 @Serializable
 data class QbTrack(
@@ -37,6 +47,8 @@ data class QbTrack(
     @SerialName("media_number") val mediaNumber: Int? = null,
     val performer: QbArtist = QbArtist(),
     val album: QbAlbum? = null,
+    val composer: QbNamed? = null,
+    val copyright: String? = null,
     @SerialName("maximum_bit_depth") val maxBitDepth: Int? = null,
     @SerialName("maximum_sampling_rate") val maxSampleRate: Double? = null,
     val streamable: Boolean = true,
@@ -57,6 +69,11 @@ data class QbAlbumFull(
     val upc: String? = null,
     @SerialName("tracks_count") val tracksCount: Int? = null,
     @SerialName("released_at") val releasedAt: Long? = null,
+    val genre: QbNamed? = null,
+    val label: QbNamed? = null,
+    val copyright: String? = null,
+    @SerialName("media_count") val mediaCount: Int? = null,
+    @SerialName("release_date_original") val releaseDateOriginal: String? = null,
     val tracks: QbTrackItems = QbTrackItems(),
 )
 

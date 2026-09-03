@@ -246,6 +246,17 @@ class QobuzClient(
             year = year,
             isrc = isrc,
             artworkUrl = img,
+            // Полные теги: Qobuz отдаёт жанр/лейбл/копирайт на альбоме,
+            // композитора — на треке. Берём с трека, иначе с альбома.
+            genre = (album?.genre ?: albumFull?.genre)?.name?.takeIf { it.isNotBlank() },
+            composer = composer?.name?.takeIf { it.isNotBlank() },
+            label = (album?.label ?: albumFull?.label)?.name?.takeIf { it.isNotBlank() },
+            copyright = (copyright ?: album?.copyright ?: albumFull?.copyright)?.takeIf { it.isNotBlank() },
+            upc = (album?.upc ?: albumFull?.upc)?.takeIf { it.isNotBlank() },
+            trackTotal = album?.tracksCount ?: albumFull?.tracksCount,
+            discTotal = album?.mediaCount ?: albumFull?.mediaCount,
+            releaseDate = (album?.releaseDateOriginal ?: albumFull?.releaseDateOriginal)
+                ?.takeIf { it.isNotBlank() },
             raw = mapOf("qbId" to id.toString(), "albId" to (album?.id?.toString() ?: ""), "artId" to (album?.artist?.id?.toString() ?: performer?.id?.toString() ?: "")),
         )
     }

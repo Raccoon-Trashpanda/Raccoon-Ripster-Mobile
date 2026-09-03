@@ -94,7 +94,13 @@ class DownloadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
                         // файл уже скачан. Apple-файл пришёл с ПК уже
                         // протегированный движком — не перезаписываем.
                         if (track.service != net.ripster.mobile.core.model.Service.APPLE) {
-                            runCatching { TagWriter.write(cacheFile, track, fetchArtwork(track)) }
+                            // Сначала добираем недостающее (жанр, номер, дата,
+                            // лейбл, обложка) по ISRC — автономно, на телефоне.
+                            // То, что сервис уже дал, не трогается.
+                            val full = runCatching {
+                                net.ripster.mobile.core.tagger.TrackEnricher.enrich(track)
+                            }.getOrDefault(track)
+                            runCatching { TagWriter.write(cacheFile, full, fetchArtwork(full)) }
                         }
 
                         // Настоящие параметры из заголовка файла (не то, что обещал сервис).

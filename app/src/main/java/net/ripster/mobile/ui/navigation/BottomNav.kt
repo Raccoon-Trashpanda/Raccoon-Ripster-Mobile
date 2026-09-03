@@ -142,8 +142,15 @@ fun BottomNav(
                         spec.icon(this, tint)
                     }
 
+                    // Подпись — СТРОГО в одну строку. На узких экранах (Galaxy
+                    // A31: 1080px при density 540 = всего 320dp) «Библиотека»
+                    // переносилась на вторую строку — «Библиотек» / «а», и таб
+                    // разъезжался по высоте (замечено 03.09.2026).
                     BasicText(
                         text = tr(spec.labelKey, lang),
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        softWrap = false,
                         style = TextStyle(color = tint, fontWeight = weight, fontSize = type.caption),
                         modifier = Modifier
                             .wrapContentHeight()

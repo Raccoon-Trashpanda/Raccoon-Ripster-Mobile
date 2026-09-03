@@ -432,16 +432,38 @@ class TidalClient(
         }
     }
 
+    /**
+     * Запрос к API. На 401 — ОДИН раз переавторизуемся и повторяем.
+     *
+     * Раньше 401 просто обнулял `accessToken` и бросал «токен истёк»: сам
+     * `ensureToken()` на первой строке выходит, если токен уже в памяти, и
+     * протухший так и уезжал в заголовок. Первый запрос гарантированно падал,
+     * а человек видел «токен истёк» на заведомо живом refresh-токене
+     * (проверено на Galaxy A31 03.09.2026). Теперь повтор делается сам.
+     */
     private suspend fun api(base: String, params: (okhttp3.HttpUrl.Builder) -> Unit): String {
-        val url = base.toHttpUrl().newBuilder().apply(params).addQueryParameter("countryCode", cc).build()
-        val req = Request.Builder().url(url).header("Authorization", "Bearer $accessToken").build()
-        return withContext(Dispatchers.IO) {
-            RipsterHttp.client.newCall(req).execute().use { r ->
-                if (r.code == 401) { accessToken = ""; throw IOException("Tidal: 401 (token expired)") }
-                if (!r.isSuccessful) throw IOException("Tidal ${url.encodedPath} -> HTTP ${r.code}")
-                r.body?.string() ?: throw IOException("Tidal ${url.encodedPath} -> empty")
+        suspend fun once(): Pair<Int, String?> {
+            val url = base.toHttpUrl().newBuilder().apply(params)
+                .addQueryParameter("countryCode", cc).build()
+            val req = Request.Builder().url(url).header("Authorization", "Bearer $accessToken").build()
+            return withContext(Dispatchers.IO) {
+                RipsterHttp.client.newCall(req).execute().use { r ->
+                    r.code to if (r.isSuccessful) (r.body?.string() ?: "") else null
+                }
             }
         }
+        var (code, body) = once()
+        if (code == 401) {
+            // Сбрасываем и авторизуемся заново (refresh → свежий access), повтор.
+            mutex.withLock { accessToken = "" }
+            if (runCatching { ensureToken() }.getOrDefault(false)) {
+                val second = once(); code = second.first; body = second.second
+            }
+        }
+        val path = base.toHttpUrl().encodedPath
+        if (code == 401) throw IOException("Tidal: 401 — вход не принят, обнови токен в Настройках → Учётные записи")
+        if (body == null) throw IOException("Tidal $path -> HTTP $code")
+        return body!!
     }
 
     private fun coverUrl(cover: String?): String? =

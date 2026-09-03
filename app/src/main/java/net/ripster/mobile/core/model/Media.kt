@@ -68,6 +68,20 @@ data class Track(
     val year: Int? = null,
     val isrc: String? = null,
     val artworkUrl: String? = null,
+    // ── Полные метаданные для тегов файла ────────────────────────────────
+    // Жалоба тестера 03.09.2026: «в скачанных из Qobuz файлах нет обложки,
+    // жанра, номера трека, композитора». Писать было НЕЧЕГО — модель этих
+    // полей просто не имела, хотя сервисы их отдают. Всё опционально: чего
+    // сервис не дал, то в тег и не уедет.
+    val genre: String? = null,
+    val composer: String? = null,
+    val label: String? = null,
+    val copyright: String? = null,
+    val upc: String? = null,
+    val trackTotal: Int? = null,
+    val discTotal: Int? = null,
+    /** Полная дата релиза, ISO `YYYY-MM-DD` (год отдельно лежит в [year]). */
+    val releaseDate: String? = null,
     /** Сырые поля сервиса, которые понадобятся его же загрузчику (id стрима, ключ, регион…). */
     val raw: Map<String, String> = emptyMap(),
 )
