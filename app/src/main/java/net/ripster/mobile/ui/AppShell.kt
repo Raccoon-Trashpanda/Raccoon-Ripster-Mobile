@@ -438,7 +438,7 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                         onOpenAlbum = { albumTarget = it },
                         onOpenArtist = openArtist,
                     )
-                    RipsterDestination.Search -> Box(Modifier.fillMaxSize()) { SearchScreen(onOpenArtist = openArtist, onOpenPlayer = { userNavigated = true; dest = RipsterDestination.Player }) }
+                    RipsterDestination.Search -> Box(Modifier.fillMaxSize()) { SearchScreen(onOpenArtist = openArtist, onOpenAlbum = { albumTarget = it }, onOpenPlayer = { userNavigated = true; dest = RipsterDestination.Player }) }
                     RipsterDestination.Radar -> net.ripster.mobile.ui.screens.RadarScreen(
                         onOpenAlbum = { albumTarget = it },
                         onOpenArtist = openArtist,

@@ -76,6 +76,7 @@ private val LINK_ONLY = setOf(Service.SPOTIFY, Service.BBC)
 fun SearchScreen(
     modifier: Modifier = Modifier,
     onOpenArtist: (String, String, String) -> Unit = { _, _, _ -> },
+    onOpenAlbum: (net.ripster.mobile.ui.components.ReleaseCardData) -> Unit = {},
     onOpenPlayer: () -> Unit = {},
 ) {
     val lang = LocalAppLang.current
@@ -495,6 +496,20 @@ fun SearchScreen(
                             album = a,
                             queued = queued[akey] == true,
                             onArtist = { onOpenArtist(a.artist, a.service.id, "") },
+                            onOpen = {
+                                val u = streamableAlbumUrl(a.service.id, a.id)
+                                if (u.isNotBlank()) onOpenAlbum(
+                                    net.ripster.mobile.ui.components.ReleaseCardData(
+                                        title = a.title, artist = a.artist, service = a.service.id,
+                                        url = u, coverUrl = a.artworkUrl, trackCount = a.trackCount,
+                                        type = when {
+                                            (a.trackCount ?: 99) <= 3 -> "single"
+                                            (a.trackCount ?: 0) in 4..6 -> "ep"
+                                            else -> "album"
+                                        },
+                                    ),
+                                ) else error = tr("search.cant_play", lang)
+                            },
                             onPlay = {
                                 if (!playPending) scope.launch {
                                     playPending = true
@@ -622,14 +637,18 @@ private fun AlbumRow(
     album: Album,
     queued: Boolean,
     onArtist: () -> Unit,
+    onOpen: () -> Unit,
     onPlay: () -> Unit,
     onDownload: () -> Unit,
 ) {
     val c = RipsterTheme.colors
     val lang = LocalAppLang.current
     Row(
+        // Тап по карточке — ОТКРЫТЬ альбом (любой: сингл/EP/компил), как везде
+        // в приложении. ▶ рядом — «слушать потоком». Раньше вся строка играла,
+        // и открыть релиз было нельзя (жалоба 03.09.2026).
         Modifier.fillMaxWidth()
-            .pressable(pressedBg = c.surface_raised) { onPlay() }
+            .pressable(pressedBg = c.surface_raised) { onOpen() }
             .padding(horizontal = 4.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
