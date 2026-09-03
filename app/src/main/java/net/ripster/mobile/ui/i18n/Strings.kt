@@ -316,6 +316,7 @@ private val STRINGS: Map<String, Row> = mapOf(
     "search.checking" to row("Проверяю сервисы…", "Checking services…", "सेवाएँ जाँच रहा है…", "サービスを確認中…", "正在检查服务…"),
     "search.nothing" to row("Ничего не найдено", "Nothing found", "कुछ नहीं मिला", "見つかりません", "未找到"),
     "search.cant_play" to row("Не удалось начать воспроизведение — трек недоступен для стрима", "Couldn't start playback — this track isn't streamable", "प्लेबैक शुरू नहीं हो सका — यह ट्रैक स्ट्रीम नहीं होता", "再生を開始できません — このトラックはストリーミング不可", "无法开始播放 — 该曲目不可流式播放"),
+    "search.starting" to row("Включаю…", "Starting…", "शुरू हो रहा है…", "再生を開始中…", "正在开始…"),
     "search.filter_empty" to row("Под этот фильтр ничего нет — смени тип или год", "Nothing matches this filter — change type or year", "इस फ़िल्टर में कुछ नहीं — प्रकार या वर्ष बदलें", "この絞り込みに該当なし — 種別か年を変更", "此筛选无结果 — 更改类型或年份"),
     "search.link_only" to row("Spotify и BBC ищутся только по ссылке — вставь ссылку или выбери другой сервис", "Spotify and BBC only work by link — paste a link or pick another service", "Spotify और BBC केवल लिंक से — लिंक चिपकाएँ या दूसरी सेवा चुनें", "SpotifyとBBCはリンクのみ — リンクを貼るか別のサービスを選択", "Spotify 和 BBC 仅支持链接 — 粘贴链接或选择其他服务"),
     "search.by_link" to row("по ссылке", "by link", "लिंक से", "リンクのみ", "仅链接"),

@@ -115,6 +115,11 @@ fun SearchScreen(
     var typeFilter by remember { mutableStateOf(settings.searchType) }   // 0 всё · 1 альбомы · 2 синглы/EP · 3 треки
     var sortNew by remember { mutableStateOf(settings.searchSortNew) }
     var yearText by remember { mutableStateOf(settings.searchYear) }
+    // Один резолв воспроизведения за раз. Жалоба 03.09.2026: юзер жал ▶ на
+    // карточке поиска несколько раз — каждый тап пускал свою корутину, все
+    // молча висели на 20-с таймауте `ReleasePlayback.play`, ответом была тишина.
+    // Плюс и строка, и кружок ▶ дёргают onPlay — даже один тап мог сдвоиться.
+    var playPending by remember { mutableStateOf(false) }
     LaunchedEffect(typeFilter, sortNew, yearText) {
         app.settings.update { it.copy(searchType = typeFilter, searchSortNew = sortNew, searchYear = yearText) }
     }
@@ -473,22 +478,32 @@ fun SearchScreen(
                             queued = queued[akey] == true,
                             onArtist = { onOpenArtist(a.artist, a.service.id, "") },
                             onPlay = {
-                                scope.launch {
-                                    // Треков этого альбома в выдаче обычно НЕТ
-                                    // (поиск отдал либо альбомы, либо треки).
-                                    // Раньше это давало «тишину». Резолвим сам
-                                    // альбом по URL — как карточки релизов везде.
-                                    var ok = false
-                                    val items = net.ripster.mobile.core.service.StreamResolver
-                                        .toStreamItems(albTracks, quality, limit = 40, fallbackArtwork = a.artworkUrl)
-                                    if (items.isNotEmpty()) { app.player.playStream(items); ok = true }
-                                    if (!ok) {
-                                        val u = dzTidalQobuzAlbumUrl(a.service.id, a.id)
-                                        if (u.isNotBlank()) ok = kotlinx.coroutines.withTimeoutOrNull(20_000) {
-                                            net.ripster.mobile.core.service.ReleasePlayback.play(app.player, u, quality, fallbackArtwork = a.artworkUrl)
-                                        } == true
+                                if (!playPending) scope.launch {
+                                    playPending = true
+                                    error = tr("search.starting", lang)   // мгновенный отклик, не тишина
+                                    try {
+                                        // Треков этого альбома в выдаче обычно НЕТ
+                                        // (поиск отдал либо альбомы, либо треки).
+                                        // Резолвим сам альбом по URL — как карточки релизов везде.
+                                        var ok = false
+                                        val items = net.ripster.mobile.core.service.StreamResolver
+                                            .toStreamItems(albTracks, quality, limit = 40, fallbackArtwork = a.artworkUrl)
+                                        if (items.isNotEmpty()) { app.player.playStream(items); ok = true }
+                                        if (!ok) {
+                                            val u = streamableAlbumUrl(a.service.id, a.id)
+                                            if (u.isNotBlank()) ok = kotlinx.coroutines.withTimeoutOrNull(20_000) {
+                                                net.ripster.mobile.core.service.ReleasePlayback.play(app.player, u, quality, fallbackArtwork = a.artworkUrl)
+                                            } == true
+                                        }
+                                        if (ok) { error = null; onOpenPlayer() }
+                                        else error = tr(
+                                            if (a.service.id == "apple" || a.service.id == "soundcloud")
+                                                "search.cant_play" else "search.album_open_tracks", lang)
+                                    } catch (t: Throwable) {
+                                        error = humanNetError(t, lang)
+                                    } finally {
+                                        playPending = false
                                     }
-                                    if (ok) onOpenPlayer() else error = tr("search.album_open_tracks", lang)
                                 }
                             },
                             onDownload = {
@@ -512,18 +527,27 @@ fun SearchScreen(
                             queued = queued["${t.service.id}:${t.id}"] == true,
                             onArtist = { onOpenArtist(t.artist, t.service.id, t.raw["artId"].orEmpty()) },
                             onPlay = {
-                                scope.launch {
-                                    val ordered = tracks.drop(idx)
-                                    val head = net.ripster.mobile.core.service.StreamResolver
-                                        .toStreamItems(ordered.take(4), quality, limit = 4)
-                                    if (head.isEmpty()) { error = tr("search.cant_play", lang); return@launch }
-                                    app.player.playStream(head)
-                                    onOpenPlayer()
-                                    if (ordered.size > 4) {
-                                        app.player.appendStream(
-                                            net.ripster.mobile.core.service.StreamResolver
-                                                .toStreamItems(ordered.drop(4), quality, limit = 40),
-                                        )
+                                if (!playPending) scope.launch {
+                                    playPending = true
+                                    error = tr("search.starting", lang)
+                                    try {
+                                        val ordered = tracks.drop(idx)
+                                        val head = net.ripster.mobile.core.service.StreamResolver
+                                            .toStreamItems(ordered.take(4), quality, limit = 4)
+                                        if (head.isEmpty()) { error = tr("search.cant_play", lang); return@launch }
+                                        app.player.playStream(head)
+                                        error = null
+                                        onOpenPlayer()
+                                        if (ordered.size > 4) {
+                                            app.player.appendStream(
+                                                net.ripster.mobile.core.service.StreamResolver
+                                                    .toStreamItems(ordered.drop(4), quality, limit = 40),
+                                            )
+                                        }
+                                    } catch (t: Throwable) {
+                                        error = humanNetError(t, lang)
+                                    } finally {
+                                        playPending = false
                                     }
                                 }
                             },
@@ -721,13 +745,16 @@ private fun humanNetError(e: Throwable, lang: AppLang): String {
 }
 
 /** URL альбома из id+сервиса — для resolve()/ReleasePlayback, когда в выдаче
- *  поиска нет треков этого альбома. */
-private fun dzTidalQobuzAlbumUrl(serviceId: String, id: String): String {
+ *  поиска нет треков этого альбома. Пусто → плеер по этому альбому не собрать
+ *  (Apple/SoundCloud на мобиле не стримятся, Spotify — только конверсия). */
+private fun streamableAlbumUrl(serviceId: String, id: String): String {
     if (id.isBlank() || id == "0") return ""
     return when (serviceId) {
         "deezer" -> "https://www.deezer.com/album/$id"
         "qobuz" -> "https://open.qobuz.com/album/$id"
         "tidal" -> "https://listen.tidal.com/album/$id"
+        "yandex" -> "https://music.yandex.ru/album/$id"
+        "beatport" -> "https://www.beatport.com/release/_/$id"
         else -> ""
     }
 }
