@@ -404,6 +404,13 @@ private val STRINGS: Map<String, Row> = mapOf(
     ),
     "radar.loading" to row("Загружаю радар…", "Loading radar…", "रडार लोड हो रहा है…", "レーダーを読み込み中…", "正在加载雷达…"),
     "radar.err" to row("Не удалось загрузить радар", "Failed to load radar", "रडार लोड नहीं हुआ", "レーダーを読み込めません", "无法加载雷达"),
+    "radar.empty_local" to row(
+        "Пока ни за кем не следишь. Открой артиста и нажми «Следить» — Радар сам будет проверять новые релизы, без ПК.",
+        "You aren't following anyone yet. Open an artist and tap Follow — Radar will check for new releases on its own, no PC needed.",
+        "अभी आप किसी को फ़ॉलो नहीं कर रहे। किसी आर्टिस्ट को खोलकर Follow दबाएँ — रडार खुद नई रिलीज़ देखेगा।",
+        "まだ誰もフォローしていません。アーティストを開いて「フォロー」を押すと、レーダーが新着を自動で確認します。",
+        "你还没有关注任何人。打开一位艺人并点击「关注」，雷达会自动检查新发行。",
+    ),
     "radar.empty" to row("Список отслеживания на ПК пуст", "The PC watch list is empty", "PC वॉच सूची खाली है", "PCの監視リストは空です", "电脑关注列表为空"),
     "radar.following" to row("Отслеживается", "Watching", "ट्रैक किए जा रहे", "監視中", "关注中"),
     "radar.checked" to row("проверено", "checked", "जाँचा", "確認", "已检查"),

@@ -135,7 +135,19 @@ class DownloadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
                                 )
                             }.getOrNull() ?: ev.filePath
                         } else {
-                            ev.filePath
+                            // Папку не выбрали — кладём в постоянную папку
+                            // приложения, а не оставляем в кэше: кэш ОС чистит
+                            // сама, и «Очистить кэш» стирает всю фонотеку.
+                            runCatching {
+                                app.storage.moveIntoAppMusic(
+                                    cacheFile = cacheFile,
+                                    template = app.settings.state.value.nameTemplate,
+                                    track = if (tags != null)
+                                        track.copy(title = realTitle, artist = realArtist, albumTitle = realAlbum)
+                                    else track,
+                                    quality = ev.quality,
+                                )
+                            }.getOrNull() ?: ev.filePath
                         }
 
                         dao.markDone(id, finalPath, ev.quality.id, ev.bytes, now())

@@ -23,6 +23,40 @@ class SafStorage(private val context: Context) {
             DocumentFile.fromTreeUri(context, Uri.parse(treeUri))?.canWrite() == true
         }.getOrDefault(false)
 
+    /**
+     * Куда класть скачанное, если папка пользователем НЕ выбрана.
+     *
+     * Раньше файл в этом случае просто оставался в `cache/`. Путь честный, но
+     * кэш — расходная память: Android чистит его сам под нехватку места, и
+     * системное «Очистить кэш» стирает всю фонотеку. Человек, который папку не
+     * выбрал (а в онбординге это необязательный шаг), однажды просто теряет
+     * скачанное.
+     *
+     * Поэтому по умолчанию переносим в собственную папку приложения на внешней
+     * памяти: `Android/data/<pkg>/files/Music`. Её ОС не чистит, она видна
+     * файловым менеджером, и разрешений на неё не требуется.
+     */
+    fun moveIntoAppMusic(
+        cacheFile: File,
+        template: String,
+        track: Track,
+        quality: QualityTier,
+    ): String? {
+        if (!cacheFile.exists()) return null
+        val root = context.getExternalFilesDir("Music") ?: return null
+        val rel = NameTemplate.render(template, track, quality)
+        val out = File(root, rel)
+        return runCatching {
+            out.parentFile?.mkdirs()
+            if (out.exists()) out.delete()
+            cacheFile.inputStream().use { input ->
+                out.outputStream().use { input.copyTo(it) }
+            }
+            cacheFile.delete()
+            out.absolutePath
+        }.getOrNull()
+    }
+
     /** Зафиксировать разрешение на дерево (вызывать из колбэка пикера). */
     fun persist(treeUri: Uri) {
         val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION

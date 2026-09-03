@@ -187,7 +187,13 @@ fun RadarScreen(
                     style = TextStyle(color = c.text_tertiary, fontSize = 11.sp),
                 )
                 if (releases.isEmpty()) {
-                    Centered(tr("radar.empty", lang), c)
+                    // Без ПК пустота — это НЕ «список на ПК пуст»: телефон
+                    // следит сам. Раньше текст валил на ПК даже там, где ПК
+                    // вообще нет, и человек не понимал, что делать.
+                    Centered(
+                        tr(if (bridge.paired) "radar.empty" else "radar.empty_local", lang),
+                        c,
+                    )
                 } else {
                     // Лента сгруппирована по дате (для Spotify-записей last_check —
                     // это дата релиза): заголовок даты «липнет» сверху, пока идут
