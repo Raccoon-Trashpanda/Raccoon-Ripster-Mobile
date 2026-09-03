@@ -26,7 +26,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
@@ -378,40 +380,52 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                                     onDownloadAlbum = {},
                                 )
                             }
-                            // свернуть (⌄) + закрыть (×) — одна аккуратная капсула
-                            // в правом верхнем углу поверх плеера, приглушённо
-                            Row(
+                            // «Свернуть» больше не кнопка, а горизонтальная метка-хват
+                            // по центру сверху — как у Apple: очевидно «потяни вниз».
+                            // Тап по ней тоже сворачивает (для тех, кто не свайпает),
+                            // а сам свайп вниз ловит detectDragGestures выше (accY>160).
+                            Box(
+                                Modifier.align(Alignment.TopCenter)
+                                    .windowInsetsPadding(WindowInsets.systemBars)
+                                    .padding(top = 6.dp)
+                                    .size(width = 72.dp, height = 22.dp)   // зона касания шире полоски
+                                    .clickable { minimize() },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                // Тонкая тёмная подложка под полоской — иначе на
+                                // светлой обложке белая метка (alpha .32) не видна.
+                                Box(
+                                    Modifier.width(46.dp).height(12.dp)
+                                        .clip(RoundedCornerShape(50))
+                                        .background(Color.Black.copy(alpha = 0.18f)),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Box(
+                                        Modifier.width(34.dp).height(4.dp)
+                                            .clip(RoundedCornerShape(50))
+                                            .background(Color.White.copy(alpha = 0.55f)),
+                                    )
+                                }
+                            }
+                            // Закрыть (×) — остаётся отдельной аккуратной кнопкой
+                            // в правом верхнем углу, приглушённо.
+                            Box(
                                 Modifier.align(Alignment.TopEnd)
                                     .windowInsetsPadding(WindowInsets.systemBars)
                                     .padding(top = 8.dp, end = 8.dp)
                                     .clip(RoundedCornerShape(50))
                                     .background(Color.Black.copy(alpha = 0.26f))
-                                    .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(50)),
-                                verticalAlignment = Alignment.CenterVertically,
+                                    .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(50))
+                                    .size(width = 40.dp, height = 34.dp)
+                                    .clickable { close() },
+                                contentAlignment = Alignment.Center,
                             ) {
                                 val glyph = Color.White.copy(alpha = 0.60f)
-                                Box(
-                                    Modifier.size(width = 40.dp, height = 34.dp).clickable { minimize() },
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Canvas(Modifier.size(16.dp)) {
-                                        drawLine(glyph, Offset(size.width * 0.22f, size.height * 0.40f),
-                                            Offset(size.width * 0.5f, size.height * 0.64f), 5f, androidx.compose.ui.graphics.StrokeCap.Round)
-                                        drawLine(glyph, Offset(size.width * 0.5f, size.height * 0.64f),
-                                            Offset(size.width * 0.78f, size.height * 0.40f), 5f, androidx.compose.ui.graphics.StrokeCap.Round)
-                                    }
-                                }
-                                Box(Modifier.size(width = 1.dp, height = 16.dp).background(Color.White.copy(alpha = 0.14f)))
-                                Box(
-                                    Modifier.size(width = 40.dp, height = 34.dp).clickable { close() },
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Canvas(Modifier.size(14.dp)) {
-                                        drawLine(glyph, Offset(size.width * 0.2f, size.height * 0.2f),
-                                            Offset(size.width * 0.8f, size.height * 0.8f), 5f, androidx.compose.ui.graphics.StrokeCap.Round)
-                                        drawLine(glyph, Offset(size.width * 0.8f, size.height * 0.2f),
-                                            Offset(size.width * 0.2f, size.height * 0.8f), 5f, androidx.compose.ui.graphics.StrokeCap.Round)
-                                    }
+                                Canvas(Modifier.size(14.dp)) {
+                                    drawLine(glyph, Offset(size.width * 0.2f, size.height * 0.2f),
+                                        Offset(size.width * 0.8f, size.height * 0.8f), 5f, androidx.compose.ui.graphics.StrokeCap.Round)
+                                    drawLine(glyph, Offset(size.width * 0.8f, size.height * 0.2f),
+                                        Offset(size.width * 0.2f, size.height * 0.8f), 5f, androidx.compose.ui.graphics.StrokeCap.Round)
                                 }
                             }
                         }

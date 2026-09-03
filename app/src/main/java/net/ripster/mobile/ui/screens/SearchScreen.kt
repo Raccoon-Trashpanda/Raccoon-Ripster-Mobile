@@ -34,7 +34,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import kotlinx.coroutines.flow.first
 import androidx.compose.ui.text.font.FontWeight
@@ -105,6 +109,12 @@ fun SearchScreen(
     }
     val selectedServices = ready.map { it.service }.filter { picked[it] == true }
 
+    // Клавиатура закрывается при запуске поиска. Без этого она оставалась
+    // поверх выдачи и при 1–2 результатах экран выглядел ПУСТЫМ — результаты
+    // были, но за клавиатурой (жалоба 03.09.2026 «пустой экран поиска»).
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+
     var query by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
     var running by remember { mutableStateOf(false) }
     var result by remember { mutableStateOf<MediaSelection?>(null) }
@@ -127,6 +137,7 @@ fun SearchScreen(
     fun go() {
         val q = query.trim()
         if (q.isEmpty() || running) return
+        keyboard?.hide(); focusManager.clearFocus()
         running = true; error = null; result = null
         // IO-диспетчер: не полагаемся на то, что КАЖДЫЙ клиент сам ушёл с Main
         // (Яндекс, напр., этого не делал → NetworkOnMainThreadException).
@@ -331,6 +342,13 @@ fun SearchScreen(
                     onValueChange = { query = it },
                     singleLine = true,
                     textStyle = TextStyle(color = c.text_primary, fontSize = 15.sp),
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(c.accent_text),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        imeAction = androidx.compose.ui.text.input.ImeAction.Search,
+                    ),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                        onSearch = { pickerOpen = false; go() },
+                    ),
                     modifier = Modifier.fillMaxWidth(),
                 )
             }

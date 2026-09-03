@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
@@ -244,10 +245,14 @@ fun AlbumScreen(
                         )
                     }
                 }
-                items(list, key = { "tr-" + it.id }) { t ->
+                itemsIndexed(list, key = { _, it -> "tr-" + it.id }) { idx, t ->
                     // Тап по строке — слушать потоком с этого трека; ↓ — скачать.
+                    // Каждый трек — плоская плашка, отделённая тонкой линией от
+                    // соседней (пожелание 03.09.2026): линия сверху у всех, кроме
+                    // первого, — так список читается как набор строк-кнопок.
+                    if (idx > 0) net.ripster.mobile.ui.components.RipsterHairline(inset = 24.dp)
                     TrackLine(
-                        t = t, queued = queued[t.id] == true, c = c,
+                        t = t, pos = idx + 1, queued = queued[t.id] == true, c = c,
                         onPlay = { playFrom(t) },
                         onDownload = { scope.launch { app.downloads.enqueue(t); queued[t.id] = true } },
                     )
@@ -259,14 +264,16 @@ fun AlbumScreen(
 }
 
 @Composable
-private fun TrackLine(t: Track, queued: Boolean, c: net.ripster.mobile.ui.theme.RipsterColors, onPlay: () -> Unit, onDownload: () -> Unit) {
+private fun TrackLine(t: Track, pos: Int, queued: Boolean, c: net.ripster.mobile.ui.theme.RipsterColors, onPlay: () -> Unit, onDownload: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().pressable { onPlay() }.padding(horizontal = 24.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         BasicText(
-            (t.trackNumber ?: 0).takeIf { it > 0 }?.toString() ?: "•",
+            // Настоящий номер трека, а если сервис его не отдал — порядковый в
+            // списке (раньше был «•», и номера у трека не было вовсе).
+            (t.trackNumber ?: 0).takeIf { it > 0 }?.toString() ?: pos.toString(),
             Modifier.width(20.dp),
             style = TextStyle(color = c.text_disabled, fontSize = 13.sp, textAlign = TextAlign.Center),
         )

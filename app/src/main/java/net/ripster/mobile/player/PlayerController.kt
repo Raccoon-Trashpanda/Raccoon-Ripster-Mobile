@@ -483,6 +483,13 @@ class PlayerController(context: Context) {
         if (index in 0 until c.mediaItemCount) { c.seekTo(index, 0L); c.play() }
     }
 
+    /** Живая позиция прямо из движка — для видов, которым 1-секундный тик
+     *  push-state слишком груб. Синхронный текст по нему «догонял» песню
+     *  (жалоба 03.09.2026). Дёшево, читать можно хоть каждый кадр. */
+    fun livePositionMs(): Long =
+        if (nativeActive) NativeAudioEngine.positionMs().coerceAtLeast(0)
+        else controller?.currentPosition?.coerceAtLeast(0) ?: 0L
+
     /** Убрать трек из очереди по позиции. Текущий убрать нельзя — молча игнор. */
     fun removeFromQueue(index: Int) {
         val c = controller ?: return
@@ -558,7 +565,7 @@ class PlayerController(context: Context) {
             shuffle = c.shuffleModeEnabled,
             repeat = c.repeatMode != Player.REPEAT_MODE_OFF,
             qualityMismatch = e?.let { isQualityMismatch(it) } ?: false,
-            queue = queueEntities.map {
+            queue = if (queueEntities.isNotEmpty()) queueEntities.map {
                 QueueEntry(
                     id = it.id,
                     title = it.title,
@@ -568,6 +575,18 @@ class PlayerController(context: Context) {
                     label = it.label,
                     spec = formatLine(it),
                     lossless = it.lossless,
+                )
+            } else (0 until c.mediaItemCount).map { i ->
+                // Потоковая очередь (поиск / радар / плейлист) живёт в ExoPlayer,
+                // а не в queueEntities — трек-лист был пустым при живом
+                // воспроизведении (жалоба 03.09.2026). Метаданные берём из
+                // самого MediaItem; тех-строки/длительности для стрима нет.
+                val m = c.getMediaItemAt(i).mediaMetadata
+                QueueEntry(
+                    id = "s$i",
+                    title = m.title?.toString().orEmpty(),
+                    artist = m.artist?.toString().orEmpty(),
+                    artworkUrl = m.artworkUri?.toString(),
                 )
             },
             queueIndex = c.currentMediaItemIndex,

@@ -102,3 +102,16 @@ data class PlayEntity(
     val artworkUrl: String? = null,
     val playedAt: Long,
 )
+
+/** Лайкнутый трек. Ключ — стабильный `<serviceId>:<trackId>` (для стрима из
+ *  поиска/радара id трека, для скачанного — id библиотеки). Хранится ровно
+ *  столько, чтобы ♥ в плеере переживал смену трека и перезапуск. */
+@Entity(tableName = "favorites")
+data class FavoriteEntity(
+    @PrimaryKey val key: String,
+    val title: String,
+    val artist: String,
+    val artworkUrl: String? = null,
+    val serviceId: String = "",
+    val addedAt: Long,
+)

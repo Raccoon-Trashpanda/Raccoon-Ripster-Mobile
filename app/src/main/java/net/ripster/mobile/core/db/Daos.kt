@@ -149,3 +149,22 @@ interface PlayDao {
 }
 
 data class GenreCount(val genre: String, val c: Int)
+
+@Dao
+interface FavoriteDao {
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun add(row: FavoriteEntity)
+
+    @Query("DELETE FROM favorites WHERE key = :key")
+    suspend fun remove(key: String)
+
+    @Query("SELECT key FROM favorites")
+    fun keys(): Flow<List<String>>
+
+    @Query("SELECT * FROM favorites ORDER BY addedAt DESC")
+    fun observeAll(): Flow<List<FavoriteEntity>>
+
+    @Query("SELECT EXISTS(SELECT 1 FROM favorites WHERE key = :key)")
+    suspend fun isFav(key: String): Boolean
+}
