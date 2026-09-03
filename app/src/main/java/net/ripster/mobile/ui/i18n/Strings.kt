@@ -161,6 +161,11 @@ private val STRINGS: Map<String, Row> = mapOf(
         "你已收藏 {n} 张 — 再听听 {artist}",
     ),
     "home.digs" to row("Раскопки — копаем дальше вашей коллекции", "Digs — we dig past your collection", "Digs — हम आपके संग्रह से आगे खोदते हैं", "Digs — コレクションのその先を掘る", "Digs — 挖掘你收藏之外的音乐"),
+    "home.sc_feed" to row(
+        "Новое у подписок · SoundCloud", "New from who you follow · SoundCloud",
+        "आपकी फ़ॉलो सूची से नया · SoundCloud", "フォロー中の新着 · SoundCloud", "关注中的新内容 · SoundCloud",
+    ),
+    "home.bbc" to row("Миксы BBC", "BBC mixes", "BBC मिक्स", "BBCミックス", "BBC 混音"),
     "home.new_releases" to row("Новые релизы", "New releases", "नई रिलीज़", "新着リリース", "新发行"),
     "home.badge_downloaded" to row("Скачано", "Downloaded", "डाउनलोड किया", "保存済み", "已下载"),
     "home.wave" to row("Жанры и настроения", "Genres & moods", "शैलियाँ और मूड", "ジャンルと気分", "流派与心情"),

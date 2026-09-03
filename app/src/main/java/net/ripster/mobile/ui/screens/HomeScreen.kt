@@ -83,6 +83,32 @@ fun HomeScreen(
     // рекомендации, станции), но не порядок недавнего/загрузок (там смысл в
     // хронологии). meue меняется при возврате на Home, не при каждом кадре.
     val visitSeed = remember { System.nanoTime() }
+    // Подписки локального радара нужны выше по коду, чем объявлен localWatches.
+    val localWatchesForSc by app.localRadar.feed().collectAsState(initial = emptyList())
+
+    // Свежие миксы BBC — автономный модуль, грузится один раз за заход.
+    // Сеть недоступна → список пуст → секции просто нет.
+    val bbcMixes by androidx.compose.runtime.produceState(
+        initialValue = emptyList<net.ripster.mobile.core.bbc.BbcShows.Mix>(),
+    ) {
+        value = runCatching { net.ripster.mobile.core.bbc.BbcShows.latest() }.getOrDefault(emptyList())
+    }
+
+    // SoundCloud: новое у аккаунтов, на которые подписан ПРЯМО В ТЕЛЕФОНЕ.
+    // Подписки лежат в том же локальном радаре, что и артисты других сервисов,
+    // поэтому ПК для этой секции не нужен.
+    val scFollowIds = remember(localWatchesForSc) {
+        localWatchesForSc.filter { it.serviceId == "soundcloud" && it.artistId.isNotBlank() }
+            .map { it.artistId }
+    }
+    val scFeed by androidx.compose.runtime.produceState(
+        initialValue = emptyList<net.ripster.mobile.core.model.Track>(),
+        scFollowIds,
+    ) {
+        value = runCatching {
+            net.ripster.mobile.core.soundcloud.ScFeed.latest(scFollowIds)
+        }.getOrDefault(emptyList())
+    }
 
     // Активные и упавшие загрузки — то, что делает Главную «живой»: пока что-то
     // качается, экран меняется сам.
@@ -465,6 +491,99 @@ fun HomeScreen(
             }
         }
 
+        // ── Миксы BBC ────────────────────────────────────────────────────
+        //    Автономно: RMS-API BBC по тем же брендам, что в ПК-версии. Ни
+        //    аккаунта, ни сопряжения — секция появляется сама, если сеть есть.
+        if (bbcMixes.isNotEmpty()) {
+            item("bbc") {
+                Section(tr("home.bbc", lang), c, null)
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 22.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    bbcMixes.forEach { m ->
+                        val cd = net.ripster.mobile.ui.components.ReleaseCardData(
+                            title = m.subtitle.ifBlank { m.title },
+                            artist = m.show,
+                            service = "bbc",
+                            url = m.url,
+                            coverUrl = m.imageUrl.ifBlank { null },
+                            isNew = true,
+                            dateText = m.date.take(10),
+                        )
+                        var buffering by remember { mutableStateOf(false) }
+                        net.ripster.mobile.ui.components.ReleaseCard(
+                            data = cd, modifier = Modifier.width(150.dp),
+                            buffering = buffering,
+                            onOpen = { onOpenAlbum(cd) },
+                            onDownload = { scope.launch { grabBbc(app, m.url) } },
+                            onPlay = {
+                                scope.launch {
+                                    buffering = true
+                                    val q = app.settings.state.value.qualityFor(onWifi = true)
+                                    val ok = kotlinx.coroutines.withTimeoutOrNull(30_000) {
+                                        net.ripster.mobile.core.service.ReleasePlayback
+                                            .play(app.player, m.url, q, fallbackArtwork = m.imageUrl)
+                                    } ?: false
+                                    buffering = false
+                                    if (ok) onOpen(RipsterDestination.Player)
+                                }
+                            },
+                        )
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+            }
+        }
+
+        // ── SoundCloud: новое у подписок ─────────────────────────────────
+        //    Аккаунты берутся из локального радара — на кого подписался прямо
+        //    в телефоне. Пусто = ни на кого не подписан, секции просто нет.
+        if (scFeed.isNotEmpty()) {
+            item("sc_feed") {
+                Section(tr("home.sc_feed", lang), c, null)
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 22.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    scFeed.forEach { t ->
+                        val permalink = t.raw["permalink"].orEmpty()
+                        val cd = net.ripster.mobile.ui.components.ReleaseCardData(
+                            title = t.title,
+                            artist = t.artist,
+                            service = "soundcloud",
+                            url = permalink,
+                            coverUrl = t.artworkUrl,
+                            isNew = true,
+                            dateText = t.year?.toString(),
+                        )
+                        var buffering by remember { mutableStateOf(false) }
+                        net.ripster.mobile.ui.components.ReleaseCard(
+                            data = cd, modifier = Modifier.width(150.dp),
+                            buffering = buffering,
+                            onArtist = { onOpenArtist(t.artist, "soundcloud", t.raw["artId"].orEmpty()) },
+                            onOpen = { onOpenAlbum(cd) },
+                            onDownload = { scope.launch { app.downloads.enqueue(t) } },
+                            onPlay = {
+                                scope.launch {
+                                    buffering = true
+                                    val q = app.settings.state.value.qualityFor(onWifi = true)
+                                    val items = net.ripster.mobile.core.service.StreamResolver
+                                        .toStreamItems(listOf(t), q, limit = 1, fallbackArtwork = t.artworkUrl)
+                                    buffering = false
+                                    if (items.isNotEmpty()) {
+                                        app.player.playStream(items)
+                                        onOpen(RipsterDestination.Player)
+                                    }
+                                }
+                            },
+                        )
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+            }
+        }
+
         // «Источники»-плашка убрана: на карточках релизов сервис и так подписан,
         // а кружки были некликабельны — дублирование без действия.
 
@@ -623,5 +742,15 @@ private fun WaveTile(name: String, seed: String, c: RipsterColors, loading: Bool
             name, maxLines = 2, overflow = TextOverflow.Ellipsis,
             style = TextStyle(color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold),
         )
+    }
+}
+
+
+/** Поставить эпизод BBC в очередь: резолвим ссылку и кладём треки. */
+private suspend fun grabBbc(app: net.ripster.mobile.RipsterApp, url: String) {
+    runCatching {
+        val sel = net.ripster.mobile.core.service.ServiceRegistry.all()
+            .firstNotNullOfOrNull { it.resolve(url) }
+        sel?.tracks?.forEach { app.downloads.enqueue(it) }
     }
 }
