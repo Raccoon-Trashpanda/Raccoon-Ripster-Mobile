@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import net.ripster.mobile.core.net.RipsterHttp
 import okhttp3.Request
+import java.io.File
 import java.io.IOException
 
 /**
@@ -36,9 +37,30 @@ object QobuzBundle {
     private val APPID = Regex("""production:\{api:\{appId:"(\d{9})",appSecret:"(\w{32})""")
     private val SEED_TZ = Regex("""[a-z]\.initialSeed\("([\w=]+)",window\.utimezone\.([a-z]+)\)""")
 
-    suspend fun resolve(overrideId: String?, overrideSecret: String?): Creds = withContext(Dispatchers.IO) {
+    /** Скрейп bundle.js многомегабайтный — держим результат на диске [TTL_MS],
+     *  иначе КАЖДЫЙ холодный старт платит за него в таймауте первого поиска
+     *  (жалоба тестера 03.09.2026: «Qobuz didn't respond in time»). */
+    private const val TTL_MS = 7L * 24 * 3600 * 1000
+
+    suspend fun resolve(
+        overrideId: String?,
+        overrideSecret: String?,
+        cacheFile: File? = null,
+        forceFresh: Boolean = false,
+    ): Creds = withContext(Dispatchers.IO) {
         if (!overrideId.isNullOrBlank() && !overrideSecret.isNullOrBlank()) {
             return@withContext Creds(overrideId.trim(), listOf(overrideSecret.trim()))
+        }
+
+        if (!forceFresh && cacheFile != null && cacheFile.isFile &&
+            (System.currentTimeMillis() - cacheFile.lastModified()) < TTL_MS
+        ) {
+            runCatching {
+                val lines = cacheFile.readText().split('\n').filter { it.isNotBlank() }
+                val id = lines.firstOrNull()?.trim().orEmpty()
+                val secs = lines.drop(1).map { it.trim() }.filter { it.length == 32 }
+                if (id.length == 9 && secs.isNotEmpty()) return@withContext Creds(id, secs)
+            }
         }
 
         val loginHtml = body("https://play.qobuz.com/login")
@@ -81,6 +103,10 @@ object QobuzBundle {
         val merged = (secrets + listOfNotNull(overrideSecret?.trim()?.ifBlank { null })
             + listOfNotNull(appIdM?.groupValues?.get(2))).distinct()
         if (merged.isEmpty()) throw IOException("Qobuz: could not reconstruct any app secret")
+        if (cacheFile != null) runCatching {
+            cacheFile.parentFile?.mkdirs()
+            cacheFile.writeText((listOf(appId) + merged.filter { it.length == 32 }).joinToString("\n"))
+        }
         Creds(appId, merged)
     }
 

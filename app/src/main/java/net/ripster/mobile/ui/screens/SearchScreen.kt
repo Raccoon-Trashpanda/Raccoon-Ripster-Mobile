@@ -169,7 +169,10 @@ fun SearchScreen(
                             // ensureSession раньше держал весь поиск в «Ищу…»
                             // навсегда (awaitAll ждал самого медленного).
                             val r = runCatching {
-                                kotlinx.coroutines.withTimeoutOrNull(15_000) {
+                                // 22 с, а не 15: холодный Qobuz внутри одного
+                                // поиска ещё может доскрейпить bundle.js (после
+                                // первого раза он на диске — см. QobuzBundle).
+                                kotlinx.coroutines.withTimeoutOrNull(22_000) {
                                     ServiceRegistry.get(svc)?.search(q)
                                 } ?: throw java.io.IOException("__timeout__")
                             }

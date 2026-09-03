@@ -30,7 +30,10 @@ class QobuzApi(
     private val presetToken: String?,
     private val overrideAppId: String?,
     private val overrideSecret: String?,
+    private val cacheDir: java.io.File? = null,
 ) {
+    private val bundleCache: java.io.File? get() = cacheDir?.let { java.io.File(it, "qobuz_bundle.txt") }
+
     private val json = Json { ignoreUnknownKeys = true; coerceInputValues = true }
     private val mutex = Mutex()
 
@@ -48,7 +51,7 @@ class QobuzApi(
 
     suspend fun ensureAuth(force: Boolean = false): Boolean = mutex.withLock {
         if (!force && authToken.isNotBlank() && appId.isNotBlank()) return true
-        val creds = QobuzBundle.resolve(overrideAppId, overrideSecret)
+        val creds = QobuzBundle.resolve(overrideAppId, overrideSecret, bundleCache)
         appId = creds.appId
         secrets = creds.secrets
 
@@ -120,7 +123,7 @@ class QobuzApi(
         // НЕ затираем синхронизированный, а пробуем свежие секреты под ОБА id.
         if (!refreshedFromBundle) {
             refreshedFromBundle = true
-            runCatching { QobuzBundle.resolve(null, null) }.getOrNull()?.let { fresh ->
+            runCatching { QobuzBundle.resolve(null, null, bundleCache, forceFresh = true) }.getOrNull()?.let { fresh ->
                 val pool = (fresh.secrets + secrets).distinct()
                 for (aid in listOf(appId, fresh.appId).filter { it.isNotBlank() }.distinct()) {
                     tryFileUrl(trackId, formatId, aid, pool)?.let {
