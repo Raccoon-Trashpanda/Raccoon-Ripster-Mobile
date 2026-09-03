@@ -21,6 +21,14 @@ interface DownloadDao {
     @Query("SELECT * FROM downloads WHERE id = :id")
     suspend fun get(id: String): DownloadEntity?
 
+    /** Активная (в очереди или качается) задача по тому же треку — для дедупа
+     *  повторного тапа «Скачать». */
+    @Query(
+        "SELECT * FROM downloads WHERE serviceId = :serviceId AND title = :title " +
+            "AND artist = :artist AND state IN ('QUEUED', 'RUNNING') LIMIT 1",
+    )
+    suspend fun findActive(serviceId: String, title: String, artist: String): DownloadEntity?
+
     @Query("UPDATE downloads SET state = :state, updatedAt = :ts WHERE id = :id")
     suspend fun setState(id: String, state: String, ts: Long)
 

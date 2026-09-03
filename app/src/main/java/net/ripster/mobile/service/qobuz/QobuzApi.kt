@@ -71,6 +71,9 @@ class QobuzApi(
 
     suspend fun search(query: String): QbSearch {
         ensureAuth()
+        if (appId.isBlank()) throw IOException(
+            "Qobuz: приложение не настроено — не удалось получить app_id (сеть/формат сайта). " +
+                "Задай app_id и app_secret вручную в Настройках → Учётные записи.")
         val raw = get("catalog/search") {
             it.addQueryParameter("query", query)
             it.addQueryParameter("type", "tracks")
@@ -175,6 +178,9 @@ class QobuzApi(
         authed: Boolean = true,
         params: (okhttp3.HttpUrl.Builder) -> Unit,
     ): String {
+        if (aid.isBlank()) throw IOException(
+            "Qobuz: нет app_id — вставь app_id и app_secret в Настройках → Учётные записи " +
+                "или войди по email/паролю.")
         val url = "https://www.qobuz.com/api.json/0.2/$path".toHttpUrl().newBuilder().apply(params).build()
         val req = Request.Builder()
             .url(url)
@@ -184,9 +190,14 @@ class QobuzApi(
             .build()
         return withContext(Dispatchers.IO) {
             RipsterHttp.client.newCall(req).execute().use { r ->
-                if (r.code == 401 && authed) throw IOException("Qobuz: 401 (auth token invalid)")
-                if (!r.isSuccessful) throw IOException("Qobuz ${url.encodedPath} -> HTTP ${r.code}")
-                r.body?.string() ?: throw IOException("Qobuz ${url.encodedPath} -> empty")
+                if (r.code == 401 && authed) throw IOException("Qobuz: токен авторизации недействителен — обнови его в Настройках")
+                // 400 у Qobuz на /catalog/search почти всегда = «Invalid or missing
+                // app_id» (протух/пустой app_id), а не проблема самого запроса.
+                if (r.code == 400) throw IOException(
+                    "Qobuz: сервис отклонил запрос (обычно — устарел app_id). " +
+                        "Обнови app_id/app_secret в Настройках → Учётные записи.")
+                if (!r.isSuccessful) throw IOException("Qobuz: ошибка ${r.code} на ${url.encodedPath.substringAfterLast('/')}")
+                r.body?.string() ?: throw IOException("Qobuz: пустой ответ")
             }
         }
     }

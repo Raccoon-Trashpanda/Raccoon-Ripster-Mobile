@@ -505,7 +505,7 @@ fun SearchScreen(
                                     val ordered = tracks.drop(idx)
                                     val head = net.ripster.mobile.core.service.StreamResolver
                                         .toStreamItems(ordered.take(4), quality, limit = 4)
-                                    if (head.isEmpty()) { error = tr("search.nothing", lang); return@launch }
+                                    if (head.isEmpty()) { error = tr("search.cant_play", lang); return@launch }
                                     app.player.playStream(head)
                                     onOpenPlayer()
                                     if (ordered.size > 4) {
@@ -702,7 +702,10 @@ private fun humanNetError(e: Throwable, lang: AppLang): String {
             e is java.net.SocketException || "connection abort" in m ||
             "connection reset" in m || "unreachable" in m || "failed to connect" in m ->
             tr("search.svc_neterr", lang)
-        else -> e.message ?: e.javaClass.simpleName
+        // Вызывающий уже добавит «<Сервис>: » перед строкой — снимаем дубль
+        // такого же префикса из текста самого движка.
+        else -> (e.message ?: e.javaClass.simpleName)
+            .replace(Regex("^(Qobuz|Tidal|Deezer|Yandex|Beatport|SoundCloud|Spotify|Apple|BBC):\\s*"), "")
     }
 }
 

@@ -35,6 +35,9 @@ class DownloadQueue(
     private val json = Json { encodeDefaults = true }
 
     suspend fun enqueue(track: Track, forcedQualityId: String? = null): String {
+        // Дедуп: повторный тап «Скачать» по тому же треку (или трек альбома,
+        // уже стоящий в очереди) не должен плодить вторую строку.
+        dao.findActive(track.service.id, track.title, track.artist)?.let { return it.id }
         val id = UUID.randomUUID().toString()
         val nowTs = System.currentTimeMillis()
         dao.upsert(
