@@ -23,15 +23,25 @@ object QobuzBundle {
 
     data class Creds(val appId: String, val secrets: List<String>)
 
-    /** app_id для ПОИСКА. Свежескрейпленный app_id веб-плеера (`798273057`)
-     *  сейчас отвечает 401 даже на публичный поиск; рабочая связка (как в
-     *  ПК-Ripster `discovery._QOBUZ_DEFAULT_APP_ID`) — `312369995` в query +
-     *  `X-User-Auth-Token` в заголовке. Проверено 03.09.2026: `track/search`
-     *  с этим id и токеном подписчика отдаёт total=1000; без токена — 0. */
+    /** Встроенная пара app_id ↔ app_secret. Это НЕ запасной вариант, а основной:
+     *  скрейп bundle.js больше не нужен ни для поиска, ни для скачивания.
+     *
+     *  Почему не скрейп: app_id веб-плеера (`798273057`) отвечает 401 даже на
+     *  публичный поиск, а секреты, восстановленные из seed+timezone, не
+     *  подписывают `getFileUrl` (у streamrip его спуфер сейчас вообще падает на
+     *  `vals.remove("")`). Эта пара приходит вместе с самими токенами подписки.
+     *
+     *  Проверено 03.09.2026 на трёх независимых токенах (NZ/US/PT):
+     *   · `track/search` → total=1000;
+     *   · `track/getFileUrl` format_id 27/6/5 → живые ссылки, FLAC 24bit/96kHz.
+     *
+     *  Своя пара из Настроек → Учётные записи (`qobuz.app_id`+`qobuz.secret`)
+     *  ПЕРЕКРЫВАЕТ встроенную — но только целиком, парой (чужой секрет к
+     *  чужому id не подойдёт). */
     const val SEARCH_APP_ID = "312369995"
+    const val DEFAULT_SECRET = "e79f8b9be485692b0e5f9dd895826368"
 
-    /** Запасной на случай, когда скрейп bundle.js не прошёл (медленный канал). */
-    val FALLBACK = Creds(SEARCH_APP_ID, emptyList())
+    val FALLBACK = Creds(SEARCH_APP_ID, listOf(DEFAULT_SECRET))
 
     // Qobuz периодически меняет путь бандла — держим набор шаблонов от узкого к
     // широкому, чтобы скрейп не «рот" на смене формата HTML веб-плеера.

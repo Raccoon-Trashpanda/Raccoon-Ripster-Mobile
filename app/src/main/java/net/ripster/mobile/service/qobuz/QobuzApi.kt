@@ -54,17 +54,22 @@ class QobuzApi(
     @Volatile private var appIdIsFallback = false
 
     suspend fun ensureAuth(force: Boolean = false): Boolean = mutex.withLock {
-        if (!force && authToken.isNotBlank() && appId.isNotBlank() && !appIdIsFallback) return true
-        // Скрейп bundle.js — многомегабайтный; на медленном канале не влезал в
-        // таймаут поиска (жалоба тестера, каждый Qobuz-поиск → «didn't respond
-        // in time»). Ограничиваем его 12 с и падаем на зашитый запасной app_id —
-        // для catalog/search достаточно валидного X-App-Id, подпись не нужна.
-        val creds = runCatching {
-            kotlinx.coroutines.withTimeoutOrNull(12_000) {
-                QobuzBundle.resolve(overrideAppId, overrideSecret, bundleCache)
-            }
-        }.getOrNull() ?: QobuzBundle.FALLBACK
-        appIdIsFallback = creds === QobuzBundle.FALLBACK
+        if (!force && authToken.isNotBlank() && appId.isNotBlank()) return true
+        // Ни поиску, ни скачиванию скрейп bundle.js больше НЕ нужен: встроенная
+        // пара app_id↔secret ([QobuzBundle.FALLBACK]) подписывает getFileUrl и
+        // отдаёт FLAC 24/96. Скрейп остался только как аварийный путь в
+        // fileUrl(), если встроенная пара когда-нибудь протухнет. Это же убирает
+        // «Qobuz didn't respond in time» — многомегабайтной загрузки на старте
+        // просто нет.
+        val custom = overrideAppId?.trim()?.takeIf { it.isNotBlank() }
+        val customSec = overrideSecret?.trim()?.takeIf { it.isNotBlank() }
+        val creds = when {
+            // Своя пара перекрывает встроенную ТОЛЬКО целиком: чужой секрет к
+            // чужому id не подойдёт, а половинка молча ломает подпись.
+            custom != null && customSec != null -> QobuzBundle.Creds(custom, listOf(customSec))
+            else -> QobuzBundle.FALLBACK
+        }
+        appIdIsFallback = customSec == null
         appId = creds.appId
         secrets = creds.secrets
 
