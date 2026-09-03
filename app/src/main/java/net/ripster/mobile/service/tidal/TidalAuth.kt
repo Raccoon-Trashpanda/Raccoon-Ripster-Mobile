@@ -122,12 +122,22 @@ object TidalAuth {
         }
     }
 
+    /**
+     * Обновить access-токен по refresh.
+     *
+     * `scope` НЕ передаём. [SCOPE] нужен только на старте device-flow, где мы
+     * сами просим права; при refresh OAuth возвращает те права, что уже есть у
+     * токена. А запрашивать полный набор здесь прямо вредно: у раздаваемых
+     * токенов часто нет `w_sub`, и Tidal отвечает
+     * `400 invalid_scope: Requested scopes: [WRITE_SUBSCRIPTION, …]` — то есть
+     * заведомо живой токен не обновлялся, а наружу шло «токен истёк»
+     * (поймано на Galaxy A31 03.09.2026).
+     */
     suspend fun refresh(refreshToken: String): Tokens = withContext(Dispatchers.IO) {
         val body = FormBody.Builder()
             .add("client_id", CLIENT_ID)
             .add("refresh_token", refreshToken)
             .add("grant_type", "refresh_token")
-            .add("scope", SCOPE)
             .build()
         json.decodeFromString(Tokens.serializer(), post("https://auth.tidal.com/v1/oauth2/token", body))
     }
