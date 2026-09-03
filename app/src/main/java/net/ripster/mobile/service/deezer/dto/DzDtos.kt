@@ -19,8 +19,17 @@ data class DzApiAlbum(
     @SerialName("cover_big") val coverBig: String? = null,
     @SerialName("release_date") val releaseDate: String? = null,
     @SerialName("nb_tracks") val nbTracks: Int? = null,
+    @SerialName("record_type") val recordType: String? = null,   // "album" | "single" | "ep" | "compile"
+    val artist: DzApiArtist = DzApiArtist(),
     val upc: String? = null,
 )
+
+/** api.deezer.com/search/album — {data:[<album>]}. Раньше поиск на мобиле
+ *  спрашивал ТОЛЬКО /search/track, поэтому фильтры «Альбомы»/«Синглы/EP» всегда
+ *  показывали «ничего нет» (жалоба 03.09.2026 — «bicep по фильтру альбомов
+ *  вообще не нашёл ничего»). */
+@Serializable
+data class DzApiAlbumSearch(val data: List<DzApiAlbum> = emptyList(), val total: Int = 0)
 
 @Serializable
 data class DzApiTrack(

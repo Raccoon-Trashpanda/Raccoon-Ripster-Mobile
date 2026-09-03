@@ -25,6 +25,7 @@ import net.ripster.mobile.core.model.Track
 import net.ripster.mobile.core.net.RipsterHttp
 import net.ripster.mobile.core.service.ServiceClient
 import net.ripster.mobile.service.deezer.dto.DzApiAlbumFull
+import net.ripster.mobile.service.deezer.dto.DzApiAlbumSearch
 import net.ripster.mobile.service.deezer.dto.DzApiSearch
 import net.ripster.mobile.service.deezer.dto.DzApiTrack
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -77,7 +78,32 @@ class DeezerClient(
         val byId = LinkedHashMap<String, Track>()
         for (t in pub) byId[t.id] = t
         for (t in merged) byId.putIfAbsent(t.id, t)
-        return MediaSelection(kind = MediaKind.TRACK, tracks = byId.values.toList())
+
+        // Альбомы — отдельным вызовом: /search/track их не возвращает, поэтому
+        // фильтры «Альбомы»/«Синглы/EP» в поиске были всегда пустыми.
+        val albums = runCatching {
+            val ar = apiGet("https://api.deezer.com/search/album") {
+                it.addQueryParameter("q", query); it.addQueryParameter("limit", "25")
+            }
+            json.decodeFromString(DzApiAlbumSearch.serializer(), ar).data.map { a ->
+                Album(
+                    id = a.id.toString(),
+                    title = a.title,
+                    artist = a.artist.name,
+                    service = Service.DEEZER,
+                    year = a.releaseDate?.take(4)?.toIntOrNull(),
+                    trackCount = a.nbTracks,
+                    artworkUrl = a.coverXl ?: a.coverBig,
+                    upc = a.upc,
+                )
+            }
+        }.getOrDefault(emptyList())
+
+        return MediaSelection(
+            kind = MediaKind.TRACK,
+            tracks = byId.values.toList(),
+            albums = albums,
+        )
     }
 
     /** `deezer.pageSearch` → results.TRACK.data[] (UPPER_SNAKE-поля). */

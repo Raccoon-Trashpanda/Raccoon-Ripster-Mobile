@@ -69,10 +69,24 @@ class YandexMusicClient(
 
     override suspend fun search(query: String): MediaSelection {
         val raw = api("search") {
-            it.addQueryParameter("text", query); it.addQueryParameter("type", "track"); it.addQueryParameter("page", "0")
+            it.addQueryParameter("text", query); it.addQueryParameter("type", "all"); it.addQueryParameter("page", "0")
         }
         val res = json.decodeFromString(YmEnvelope.serializer(YmSearchResult.serializer()), raw).result
-        return MediaSelection(kind = MediaKind.TRACK, tracks = res.tracks.results.map { it.toTrack() })
+        return MediaSelection(
+            kind = MediaKind.TRACK,
+            tracks = res.tracks.results.map { it.toTrack() },
+            albums = res.albums.results.map { a ->
+                Album(
+                    id = a.id.toString(),
+                    title = a.title,
+                    artist = a.artists.firstOrNull()?.name ?: "",
+                    service = Service.YANDEX,
+                    year = a.year,
+                    trackCount = a.trackCount,
+                    artworkUrl = a.coverUri?.let { "https://" + it.removeSuffix("%%") + "400x400" },
+                )
+            },
+        )
     }
 
     /**
@@ -411,7 +425,19 @@ class YandexMusicClient(
         }
     }
     @Serializable private data class YmSearchTracks(val results: List<YmTrack> = emptyList())
-    @Serializable private data class YmSearchResult(val tracks: YmSearchTracks = YmSearchTracks())
+    @Serializable private data class YmSearchAlbums(val results: List<YmAlbumShort> = emptyList())
+    @Serializable private data class YmAlbumShort(
+        val id: Long = 0, val title: String = "", val year: Int? = null,
+        @SerialName("trackCount") val trackCount: Int? = null,
+        @SerialName("coverUri") val coverUri: String? = null,
+        val artists: List<YmArtist> = emptyList(),
+    )
+    // type=all возвращает и tracks, и albums одним ответом — раньше поиск просил
+    // type=track, поэтому фильтр «Альбомы» в поиске был всегда пуст.
+    @Serializable private data class YmSearchResult(
+        val tracks: YmSearchTracks = YmSearchTracks(),
+        val albums: YmSearchAlbums = YmSearchAlbums(),
+    )
     @Serializable private data class YmRotorSeq(val sequence: List<YmRotorItem> = emptyList())
     @Serializable private data class YmRotorItem(val track: YmTrack? = null)
     @Serializable
