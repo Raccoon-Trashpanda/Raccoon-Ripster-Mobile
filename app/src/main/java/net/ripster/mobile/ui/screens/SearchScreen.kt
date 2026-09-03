@@ -387,7 +387,18 @@ fun SearchScreen(
             }
         }
 
-        error?.let {
+        // «Ничего не найдено» / «сервис вернул пусто» НИКОГДА не должно висеть над
+        // непустым списком результатов (жалоба 03.09.2026, видео: «Nothing found»
+        // и прямо под ним полная выдача). go() такое не ставит, но гонка снапшотов
+        // между `result = merged` и присвоением `error` на IO-потоке, либо
+        // устаревший error от прошлого поиска — могут. Гейтим по факту наличия
+        // выдачи: ошибки уровня сервиса (в них есть подпись сервиса) остаются,
+        // «пусто»-сообщения при живой выдаче — гасятся.
+        val hasResults = result?.let { it.tracks.isNotEmpty() || it.albums.isNotEmpty() } == true
+        val emptyNotes = remember(lang) {
+            setOf(tr("search.nothing", lang), tr("search.filter_empty", lang))
+        }
+        error?.takeUnless { hasResults && it in emptyNotes }?.let {
             Box(Modifier.height(12.dp))
             BasicText(it, style = TextStyle(color = c.text_secondary, fontSize = 13.sp))
         }

@@ -39,6 +39,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
 import net.ripster.mobile.RipsterApp
 import net.ripster.mobile.core.service.ServiceRegistry
 import net.ripster.mobile.ui.components.Cover
@@ -90,6 +91,18 @@ fun HomeScreen(
     }
     val dlFailed = remember(downloads) {
         downloads.filter { it.state == "FAILED" }.take(3)
+    }
+    // Обложка карточки загрузки: у DownloadEntity своего поля обложки нет, но в
+    // trackJson лежит весь сериализованный Track с artworkUrl. Раньше сюда
+    // жёстко шёл art=null → в секции FAILED DOWNLOADS всегда пустые серые
+    // плитки (жалоба 03.09.2026, видео). id → url, разобрано один раз на выборку.
+    val dlArt = remember(dlActive, dlFailed) {
+        val j = Json { ignoreUnknownKeys = true }
+        (dlActive + dlFailed).associate { d ->
+            d.id to runCatching {
+                j.decodeFromString(net.ripster.mobile.core.model.Track.serializer(), d.trackJson).artworkUrl
+            }.getOrNull()
+        }
     }
 
     // Недавно добавленное в библиотеку — по времени добавления, не по алфавиту.
@@ -219,7 +232,7 @@ fun HomeScreen(
                             subtitle = d.artist.ifBlank {
                                 if (d.state == "QUEUED") tr("home.dl_queued", lang) else ""
                             },
-                            art = null,
+                            art = dlArt[d.id],
                             progress = (d.fraction ?: 0f).coerceIn(0f, 1f),
                             c = c, onClick = { onOpen(RipsterDestination.Downloads) },
                         )
@@ -228,7 +241,7 @@ fun HomeScreen(
                         WideCard(
                             title = d.title.ifBlank { tr("home.dl_track", lang) },
                             subtitle = (d.errorReason ?: tr("home.dl_failed", lang)).take(60),
-                            art = null, progress = 0f,
+                            art = dlArt[d.id], progress = 0f,
                             c = c, onClick = { onOpen(RipsterDestination.Downloads) },
                         )
                     }

@@ -11,6 +11,8 @@ import androidx.work.WorkManager
 import androidx.work.workDataOf
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import net.ripster.mobile.core.db.DownloadDao
 import net.ripster.mobile.core.db.DownloadEntity
@@ -34,10 +36,17 @@ class DownloadQueue(
     private val wm get() = WorkManager.getInstance(context)
     private val json = Json { encodeDefaults = true }
 
-    suspend fun enqueue(track: Track, forcedQualityId: String? = null): String {
+    // Дедуп «проверить-и-вставить» — критическая секция. Без сериализации два
+    // быстрых тапа по одной кнопке (или тап по треку + тот же трек внутри
+    // альбома) уходят в две корутины, обе делают findActive ДО того, как любая
+    // из них закоммитила upsert, обе видят «активных нет» и обе вставляют строку.
+    // Ровно это на видео 03.09.2026: «Jacob and the Stone» дважды в очереди.
+    private val enqueueLock = Mutex()
+
+    suspend fun enqueue(track: Track, forcedQualityId: String? = null): String = enqueueLock.withLock {
         // Дедуп: повторный тап «Скачать» по тому же треку (или трек альбома,
         // уже стоящий в очереди) не должен плодить вторую строку.
-        dao.findActive(track.service.id, track.title, track.artist)?.let { return it.id }
+        dao.findActive(track.service.id, track.title, track.artist)?.let { return@withLock it.id }
         val id = UUID.randomUUID().toString()
         val nowTs = System.currentTimeMillis()
         dao.upsert(
@@ -73,7 +82,7 @@ class DownloadQueue(
             .build()
 
         wm.enqueueUniqueWork("dl_$id", ExistingWorkPolicy.KEEP, req)
-        return id
+        id
     }
 
     fun cancel(id: String) {

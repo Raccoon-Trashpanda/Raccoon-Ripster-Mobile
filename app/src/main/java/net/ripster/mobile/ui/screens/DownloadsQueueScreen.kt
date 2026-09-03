@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -164,6 +165,17 @@ private fun DownloadTaskRow(
     val type = RipsterTheme.type
     val lang = LocalAppLang.current
 
+    // Действие (Retry / Cancel) вынесено на СВОЮ строку под заголовком, а не в хвост
+    // общей строки. Причина — жалоба 03.09.2026 (видео, экран 370dp): «Cancel»/«Retry»
+    // не помещались справа от статус-пилюли и уезжали за край экрана. В Compose Row
+    // невзвешенный хвост (пилюля + текст кнопки) при нехватке ширины НЕ ужимается —
+    // взвешенная колонка слева схлопывается в 0, а хвост всё равно переполняет строку
+    // и клипается по краю. Отдельная нижняя строка выравнивается вправо и физически
+    // не может обрезаться.
+    val hasAction = task.status == DownloadTaskStatus.Failed ||
+        task.status == DownloadTaskStatus.Queued ||
+        task.status == DownloadTaskStatus.Downloading
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -205,25 +217,35 @@ private fun DownloadTaskRow(
             Spacer(Modifier.width(spacing.sm))
 
             DownloadStatusIndicator(status = task.status, progress = task.progress)
+        }
 
-            if (task.status == DownloadTaskStatus.Failed) {
-                Spacer(Modifier.width(spacing.sm))
-                BasicText(
-                    text = tr("dl.retry", lang),
-                    modifier = Modifier.clickable(onClick = onRetry),
-                    style = TextStyle(color = colors.accent_text, fontSize = type.label, fontWeight = FontWeight.W600),
-                )
-            }
-
-            // Отменить доступно, пока задача ещё не завершена (Queued/Downloading) —
-            // отменять готовую или уже упавшую загрузку нечего.
-            if (task.status == DownloadTaskStatus.Queued || task.status == DownloadTaskStatus.Downloading) {
-                Spacer(Modifier.width(spacing.sm))
-                BasicText(
-                    text = tr("dl.cancel", lang),
-                    modifier = Modifier.clickable(onClick = onCancel),
-                    style = TextStyle(color = colors.text_tertiary, fontSize = type.label, fontWeight = FontWeight.W500),
-                )
+        if (hasAction) {
+            Spacer(Modifier.height(spacing.xs))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (task.status == DownloadTaskStatus.Failed) {
+                    BasicText(
+                        text = tr("dl.retry", lang),
+                        modifier = Modifier
+                            .clickable(onClick = onRetry)
+                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                        style = TextStyle(color = colors.accent_text, fontSize = type.label, fontWeight = FontWeight.W600),
+                    )
+                }
+                // Отменить доступно, пока задача ещё не завершена (Queued/Downloading) —
+                // отменять готовую или уже упавшую загрузку нечего.
+                if (task.status == DownloadTaskStatus.Queued || task.status == DownloadTaskStatus.Downloading) {
+                    BasicText(
+                        text = tr("dl.cancel", lang),
+                        modifier = Modifier
+                            .clickable(onClick = onCancel)
+                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                        style = TextStyle(color = colors.text_tertiary, fontSize = type.label, fontWeight = FontWeight.W500),
+                    )
+                }
             }
         }
     }
