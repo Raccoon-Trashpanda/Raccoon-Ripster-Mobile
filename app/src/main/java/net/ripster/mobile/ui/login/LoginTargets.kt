@@ -17,7 +17,7 @@ data class LoginTarget(
     val credKey: CredentialStore.Key,
     val cookieName: String? = null,
     val urlTokenParam: String? = null,
-    val hint: String,
+    val hintKey: String,
 )
 
 object LoginTargets {
@@ -30,7 +30,7 @@ object LoginTargets {
             domain = "soundcloud.com",
             credKey = CredentialStore.Key.SOUNDCLOUD_OAUTH,
             cookieName = "oauth_token",
-            hint = "Войди в SoundCloud — токен подхватится сам.",
+            hintKey = "login.hint_soundcloud",
         ),
         LoginTarget(
             service = "deezer",
@@ -39,7 +39,7 @@ object LoginTargets {
             domain = "deezer.com",
             credKey = CredentialStore.Key.DEEZER_ARL,
             cookieName = "arl",
-            hint = "Войди в Deezer — ARL подхватится сам.",
+            hintKey = "login.hint_deezer",
         ),
         LoginTarget(
             service = "spotify",
@@ -48,7 +48,7 @@ object LoginTargets {
             domain = "spotify.com",
             credKey = CredentialStore.Key.SPOTIFY_SP_DC,
             cookieName = "sp_dc",
-            hint = "Войди в Spotify — cookie sp_dc подхватится сам.",
+            hintKey = "login.hint_spotify",
         ),
         LoginTarget(
             service = "yandex",
@@ -58,7 +58,7 @@ object LoginTargets {
             domain = "yandex.ru",
             credKey = CredentialStore.Key.YANDEX_OAUTH,
             urlTokenParam = "access_token",
-            hint = "Войди в Яндекс и разреши доступ — токен подхватится сам.",
+            hintKey = "login.hint_yandex",
         ),
     )
 

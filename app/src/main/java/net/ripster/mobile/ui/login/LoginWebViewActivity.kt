@@ -12,6 +12,8 @@ import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import net.ripster.mobile.ui.i18n.AppLang
+import net.ripster.mobile.ui.i18n.tr
 
 /**
  * Окно входа в сервис прямо в приложении — без DevTools и копипаста заголовков.
@@ -25,6 +27,8 @@ import android.widget.TextView
 class LoginWebViewActivity : Activity() {
 
     private lateinit var web: WebView
+    private var status: TextView? = null
+    private var lang: AppLang = AppLang.EN
     private var target: LoginTarget? = null
     private var done = false
 
@@ -36,6 +40,13 @@ class LoginWebViewActivity : Activity() {
         if (t == null) { finish(); return }
         target = t
 
+        // Activity вне Compose — язык берём напрямую из тех же префов, что и
+        // остальное приложение (никакого хардкода RU в окне входа).
+        val lang = AppLang.byTag(
+            getSharedPreferences("ripster_settings", MODE_PRIVATE)
+                .getString("language", "ru") ?: "ru",
+        )
+
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor("#0E0E12"))
@@ -46,13 +57,13 @@ class LoginWebViewActivity : Activity() {
             setPadding(dp(14), dp(12), dp(14), dp(12))
         }
         bar.addView(TextView(this).apply {
-            text = "Вход · ${t.title}"
+            text = "${tr("login.prefix", lang)} · ${t.title}"
             setTextColor(Color.WHITE)
             textSize = 15f
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         })
         bar.addView(TextView(this).apply {
-            text = "Отмена"
+            text = tr("login.cancel", lang)
             setTextColor(Color.parseColor("#FF4D8D"))
             textSize = 14f
             setPadding(dp(10), dp(6), dp(4), dp(6))
@@ -61,21 +72,35 @@ class LoginWebViewActivity : Activity() {
         root.addView(bar)
 
         val hint = TextView(this).apply {
-            text = t.hint
+            text = tr(t.hintKey, lang)
             setTextColor(Color.parseColor("#9A9AA6"))
             textSize = 11f
             setPadding(dp(14), 0, dp(14), dp(8))
         }
         root.addView(hint)
 
+        // Пустая страница входа = чёрный прямоугольник без единого признака,
+        // грузится / упало / нет сети. Держим строчку статуса поверх WebView,
+        // пока onPageFinished не скажет «готово».
+        val webBox = FrameLayout(this)
+        status = TextView(this).apply {
+            text = tr("login.loading", lang)
+            setTextColor(Color.parseColor("#9A9AA6"))
+            textSize = 13f
+            gravity = Gravity.CENTER
+        }
         web = WebView(this)
-        web.layoutParams = FrameLayout.LayoutParams(
+        webBox.addView(web, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
-        )
-        root.addView(web, LinearLayout.LayoutParams(
+        ))
+        webBox.addView(status, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER,
+        ))
+        root.addView(webBox, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f,
         ))
         setContentView(root)
+        this.lang = lang
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true)
@@ -90,8 +115,21 @@ class LoginWebViewActivity : Activity() {
                 checkUrl(url)
             }
             override fun onPageFinished(view: WebView?, url: String?) {
+                status?.visibility = android.view.View.GONE
                 checkUrl(url)
                 checkCookies()
+            }
+            override fun onReceivedError(
+                view: WebView?,
+                request: android.webkit.WebResourceRequest?,
+                error: android.webkit.WebResourceError?,
+            ) {
+                // Только для основного документа — на подресурсах (аналитика,
+                // шрифты) страница входа всё равно рабочая.
+                if (request?.isForMainFrame == true) status?.apply {
+                    visibility = android.view.View.VISIBLE
+                    text = tr("login.load_failed", lang)
+                }
             }
         }
         web.loadUrl(t.url)

@@ -570,7 +570,20 @@ fun SearchScreen(
                                         val ordered = tracks.drop(idx)
                                         val head = net.ripster.mobile.core.service.StreamResolver
                                             .toStreamItems(ordered.take(4), quality, limit = 4)
-                                        if (head.isEmpty()) { error = tr("search.cant_play", lang); return@launch }
+                                        if (head.isEmpty()) {
+                                            // Spotify/BBC-трек играет через Deezer/Qobuz/Tidal.
+                                            // Пусто = либо ни одного стрим-сервиса не
+                                            // подключено, либо у всех мёртвый токен —
+                                            // говорим об этом, а не «трек не стримится».
+                                            val haveStream = net.ripster.mobile.core.service.ServiceRegistry.all()
+                                                .any { it.service in setOf(Service.DEEZER, Service.QOBUZ, Service.TIDAL, Service.SOUNDCLOUD) }
+                                            error = tr(
+                                                if (t.service in LINK_ONLY || !haveStream)
+                                                    "search.need_stream_svc" else "search.cant_play",
+                                                lang,
+                                            )
+                                            return@launch
+                                        }
                                         app.player.playStream(head)
                                         error = null
                                         onOpenPlayer()
