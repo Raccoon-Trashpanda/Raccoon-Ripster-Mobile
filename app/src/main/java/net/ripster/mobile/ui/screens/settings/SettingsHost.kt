@@ -51,6 +51,7 @@ import net.ripster.mobile.RipsterApp
 import net.ripster.mobile.core.model.Service
 import net.ripster.mobile.core.service.ServiceRegistry
 import net.ripster.mobile.core.settings.CredentialStore
+import net.ripster.mobile.service.qobuz.QobuzBundle
 import net.ripster.mobile.ui.i18n.AppLang
 import net.ripster.mobile.ui.i18n.LocalAppLang
 import net.ripster.mobile.ui.i18n.tr
@@ -273,8 +274,7 @@ private fun AccountScreen(svc: Service, lang: AppLang, c: RipsterColors) {
                 Box(Modifier.height(6.dp))
                 var qt by remember { mutableStateOf(cred(CredentialStore.Key.QOBUZ_TOKEN)) }
                 Field("qobuz.token", qt, c, { qt = it }) { save(CredentialStore.Key.QOBUZ_TOKEN, qt) }
-                var qa by remember { mutableStateOf(cred(CredentialStore.Key.QOBUZ_APP_ID)) }
-                Field("qobuz.app_id", qa, c, { qa = it }) { save(CredentialStore.Key.QOBUZ_APP_ID, qa) }
+                QobuzKeyPair(lang, c, ::cred, ::save)
             }
             Service.TIDAL -> {
                 TidalLoginBlock()
@@ -1048,6 +1048,75 @@ private fun SubRow(title: String, value: String, c: RipsterColors, onClick: () -
         BasicText(title, style = TextStyle(color = c.text_secondary, fontSize = 12.sp, fontWeight = FontWeight.Bold))
         Box(Modifier.height(2.dp))
         BasicText(value, style = TextStyle(color = c.text_tertiary, fontSize = 11.sp))
+    }
+}
+
+/**
+ * Ключ приложения Qobuz — app_id и app_secret ВСЕГДА парой.
+ *
+ * Раньше здесь стояло одинокое поле `qobuz.app_id` без секрета. Человек вбивал
+ * туда id (в т.ч. по совету старого текста ошибки) — подписи взяться было
+ * неоткуда, и Qobuz отвечал 400 на каждый запрос (жалоба тестера 03.09.2026).
+ * Поэтому: оба поля рядом, одна кнопка на пару, отказ сохранить половинку и
+ * явный сброс на встроенную пару, которая и так работает.
+ */
+@Composable
+private fun QobuzKeyPair(
+    lang: net.ripster.mobile.ui.i18n.AppLang,
+    c: RipsterColors,
+    cred: (CredentialStore.Key) -> String,
+    save: (CredentialStore.Key, String) -> Unit,
+) {
+    var id by remember { mutableStateOf(cred(CredentialStore.Key.QOBUZ_APP_ID)) }
+    var sec by remember { mutableStateOf(cred(CredentialStore.Key.QOBUZ_SECRET)) }
+    var msg by remember { mutableStateOf<String?>(null) }
+    var msgOk by remember { mutableStateOf(false) }
+    val custom = cred(CredentialStore.Key.QOBUZ_APP_ID).isNotBlank() &&
+        cred(CredentialStore.Key.QOBUZ_SECRET).isNotBlank()
+
+    Box(Modifier.height(14.dp))
+    BasicText(
+        tr("qb.pair_title", lang),
+        style = TextStyle(color = c.text_secondary, fontSize = 12.sp, fontWeight = FontWeight.Bold),
+    )
+    Box(Modifier.height(4.dp))
+    BasicText(
+        if (custom) tr("qb.pair_custom", lang)
+        else tr("qb.pair_builtin", lang).replace("{id}", QobuzBundle.SEARCH_APP_ID),
+        style = TextStyle(color = c.text_tertiary, fontSize = 11.sp, lineHeight = 15.sp),
+    )
+    LabeledField("app_id", id, c, { id = it })
+    LabeledField("app_secret", sec, c, { sec = it })
+    Box(Modifier.height(6.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Btn(tr("svc.save", lang), c) {
+            val i = id.trim(); val s = sec.trim()
+            when {
+                i.isEmpty() && s.isEmpty() -> {
+                    save(CredentialStore.Key.QOBUZ_APP_ID, ""); save(CredentialStore.Key.QOBUZ_SECRET, "")
+                    msgOk = true; msg = tr("qb.pair_reset_done", lang)
+                }
+                // Половинка молча ломает подпись — не даём её сохранить.
+                i.isEmpty() || s.isEmpty() -> { msgOk = false; msg = tr("qb.pair_need_both", lang) }
+                !i.matches(Regex("""\d{9}""")) -> { msgOk = false; msg = tr("qb.pair_bad_id", lang) }
+                !s.matches(Regex("""[0-9a-f]{32}""")) -> { msgOk = false; msg = tr("qb.pair_bad_secret", lang) }
+                else -> {
+                    save(CredentialStore.Key.QOBUZ_APP_ID, i); save(CredentialStore.Key.QOBUZ_SECRET, s)
+                    msgOk = true; msg = tr("qb.pair_saved", lang)
+                }
+            }
+        }
+        if (custom) {
+            Btn(tr("qb.pair_reset", lang), c) {
+                id = ""; sec = ""
+                save(CredentialStore.Key.QOBUZ_APP_ID, ""); save(CredentialStore.Key.QOBUZ_SECRET, "")
+                msgOk = true; msg = tr("qb.pair_reset_done", lang)
+            }
+        }
+    }
+    msg?.let {
+        Box(Modifier.height(6.dp))
+        BasicText(it, style = TextStyle(color = if (msgOk) c.success_text else c.danger_text, fontSize = 11.sp))
     }
 }
 

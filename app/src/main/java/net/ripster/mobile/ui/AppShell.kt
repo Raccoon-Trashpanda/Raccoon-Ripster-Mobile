@@ -69,6 +69,8 @@ import net.ripster.mobile.ui.components.QualityBadgeState
 import net.ripster.mobile.ui.i18n.LocalAppLang
 import net.ripster.mobile.ui.i18n.tr
 import net.ripster.mobile.ui.navigation.BottomNav
+import net.ripster.mobile.ui.components.DepthStrip
+import net.ripster.mobile.ui.components.Crumb
 import net.ripster.mobile.ui.navigation.RipsterDestination
 import net.ripster.mobile.ui.screens.DownloadTask
 import net.ripster.mobile.ui.screens.DownloadTaskStatus
@@ -569,24 +571,56 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                 )
             }
         }
-        albumTarget?.let { at ->
-            Box(Modifier.fillMaxSize().background(c.surface_canvas).windowInsetsPadding(WindowInsets.safeDrawing)) {
-                net.ripster.mobile.ui.screens.AlbumScreen(
-                    url = at.url, service = at.service,
-                    fallbackTitle = at.title, fallbackArtist = at.artist, fallbackCover = at.coverUrl,
-                    onBack = { albumTarget = null },
-                    onOpenPlayer = openPlayer,
-                    onOpenArtist = { n, s, id -> albumTarget = null; openArtist(n, s, id) },
-                )
-            }
-        }
+        // Путь до текущего экрана: вкладка › артист › релиз. Отсюда же берётся
+        // «полоска погружения» — навигация плоская (вкладка + оверлеи), и без
+        // неё на третьем уровне человек видел только стрелку «назад».
+        val tabCrumb = Crumb(
+            tr(
+                when (lastTab) {
+                    RipsterDestination.Home -> "nav.home"
+                    RipsterDestination.Search -> "nav.search"
+                    RipsterDestination.Library -> "nav.library"
+                    RipsterDestination.Downloads -> "nav.downloads"
+                    RipsterDestination.Radar -> "nav.radar"
+                    else -> "nav.home"
+                },
+                lang,
+            ),
+        ) { albumTarget = null; artistTarget = null }
+
+        // ВАЖЕН ПОРЯДОК: артист рисуется ПЕРВЫМ, релиз — поверх. Раньше было
+        // наоборот, и открытый со страницы артиста релиз оказывался ПОД ней —
+        // тап «не работал», хотя albumTarget выставлялся.
         artistTarget?.let { at ->
             Box(Modifier.fillMaxSize().background(c.surface_canvas).windowInsetsPadding(WindowInsets.safeDrawing)) {
-                net.ripster.mobile.ui.screens.ArtistScreen(
-                    name = at.name, service = at.service, artistId = at.id, isLabel = at.isLabel,
-                    onBack = { artistTarget = null },
-                    onOpenAlbum = { albumTarget = it },
-                )
+                Column(Modifier.fillMaxSize()) {
+                    DepthStrip(listOf(tabCrumb, Crumb(at.name)))
+                    net.ripster.mobile.ui.screens.ArtistScreen(
+                        name = at.name, service = at.service, artistId = at.id, isLabel = at.isLabel,
+                        onBack = { artistTarget = null },
+                        onOpenAlbum = { albumTarget = it },
+                    )
+                }
+            }
+        }
+        albumTarget?.let { at ->
+            Box(Modifier.fillMaxSize().background(c.surface_canvas).windowInsetsPadding(WindowInsets.safeDrawing)) {
+                Column(Modifier.fillMaxSize()) {
+                    DepthStrip(
+                        listOfNotNull(
+                            tabCrumb,
+                            artistTarget?.let { a -> Crumb(a.name) { albumTarget = null } },
+                            Crumb(at.title),
+                        ),
+                    )
+                    net.ripster.mobile.ui.screens.AlbumScreen(
+                        url = at.url, service = at.service,
+                        fallbackTitle = at.title, fallbackArtist = at.artist, fallbackCover = at.coverUrl,
+                        onBack = { albumTarget = null },
+                        onOpenPlayer = openPlayer,
+                        onOpenArtist = { n, s, id -> albumTarget = null; openArtist(n, s, id) },
+                    )
+                }
             }
         }
     }

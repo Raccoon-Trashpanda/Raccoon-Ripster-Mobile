@@ -200,8 +200,15 @@ class QobuzClient(
             if (isEmpty()) { add(6 to flac16); add(5 to mp3_320) }
         }.distinctBy { it.first }
 
+        // Причину ПЕРВОГО реального отказа держим: раньше каждый бросок глотался
+        // в `getOrNull()`, и человек всегда получал «нет файла для твоего
+        // аккаунта/региона» — даже когда на деле не сошлась подпись запроса
+        // (не тот app_secret). Диагноз врал и уводил чинить не то.
+        var lastErr: Throwable? = null
         for ((fmt, tier) in fmtOrder) {
-            val fu = runCatching { api.fileUrl(id, fmt) }.getOrNull() ?: continue
+            val fu = runCatching { api.fileUrl(id, fmt) }
+                .onFailure { if (lastErr == null) lastErr = it }
+                .getOrNull() ?: continue
             if (fu.url.isNotBlank() && !fu.sample) {
                 val realTier = when (fu.formatId) {
                     5 -> mp3_320
@@ -214,6 +221,10 @@ class QobuzClient(
                 return realTier to fu.url
             }
         }
+        // Ни один формат не дал ссылку. Если падало с ошибкой — отдаём ЕЁ
+        // (протухший ключ/подпись/токен), и только если Qobuz честно отвечал
+        // «нет файла» на все форматы — говорим про аккаунт и регион.
+        lastErr?.let { throw it }
         throw IOException("Qobuz: no streamable file for this account/region")
     }
 
