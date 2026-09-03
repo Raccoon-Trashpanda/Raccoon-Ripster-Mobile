@@ -266,7 +266,9 @@ fun AlbumScreen(
 @Composable
 private fun TrackLine(t: Track, pos: Int, queued: Boolean, c: net.ripster.mobile.ui.theme.RipsterColors, onPlay: () -> Unit, onDownload: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().pressable { onPlay() }.padding(horizontal = 24.dp, vertical = 9.dp),
+        Modifier.fillMaxWidth()
+            .pressable(pressedBg = c.surface_raised) { onPlay() }
+            .padding(horizontal = 24.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {

@@ -628,7 +628,9 @@ private fun AlbumRow(
     val c = RipsterTheme.colors
     val lang = LocalAppLang.current
     Row(
-        Modifier.fillMaxWidth().clickable { onPlay() }.padding(vertical = 8.dp),
+        Modifier.fillMaxWidth()
+            .pressable(pressedBg = c.surface_raised) { onPlay() }
+            .padding(horizontal = 4.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -676,8 +678,8 @@ private fun TrackRow(
     Row(
         Modifier
             .fillMaxWidth()
-            .clickable { onPlay() }
-            .padding(vertical = 8.dp),
+            .pressable(pressedBg = c.surface_raised) { onPlay() }
+            .padding(horizontal = 4.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
