@@ -60,17 +60,43 @@ object TagWriter {
             }
 
             if (artwork != null && artwork.isNotEmpty()) {
+                // Обложка кладётся ОТДЕЛЬНО от текстовых тегов и раньше падала
+                // молча в своём runCatching: текст в файл попадал, картинка —
+                // нет, и снаружи это выглядело как «теги есть, обложки нет»
+                // (проверено вскрытием FLAC 03.09.2026). Теперь: у Artwork
+                // заполняются ОБЯЗАТЕЛЬНЫЕ поля (mime, тип, описание) — без них
+                // FLAC-тег отвергает картинку, — а провал пишется в лог.
+                val mime = if (isPng(artwork)) "image/png" else "image/jpeg"
                 runCatching {
+                    tag.deleteArtworkField()
                     val art = ArtworkFactory.getNew().apply {
                         binaryData = artwork
-                        mimeType = if (isPng(artwork)) "image/png" else "image/jpeg"
+                        this.mimeType = mime
+                        description = ""
+                        pictureType = 3          // Cover (front)
                     }
-                    tag.deleteArtworkField()
                     tag.setField(art)
+                }.recoverCatching {
+                    // У FLAC собственный конструктор поля картинки: generic-путь
+                    // на части версий библиотеки бросает, а этот проходит.
+                    val flac = tag as? org.jaudiotagger.tag.flac.FlacTag
+                        ?: throw it
+                    flac.setField(
+                        flac.createArtworkField(
+                            artwork, 3, mime, "", 0, 0, 0, 0,
+                        ),
+                    )
+                }.onFailure {
+                    android.util.Log.w("RipsterTag", "обложка не записалась в ${file.name}: $it")
                 }
             }
             af.commit()
             true
+        }.onFailure {
+            // НЕ глотаем: молчаливый провал давал файл вообще без тегов, и
+            // понять это можно было только вскрыв файл (03.09.2026 — так и
+            // вышло). Пишем причину в лог.
+            android.util.Log.w("RipsterTag", "теги не записались в ${file.name}: $it")
         }.getOrDefault(false)
     }
 

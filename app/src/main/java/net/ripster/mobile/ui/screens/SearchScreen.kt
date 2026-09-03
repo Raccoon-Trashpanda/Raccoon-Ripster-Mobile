@@ -544,9 +544,28 @@ fun SearchScreen(
                             },
                             onDownload = {
                                 scope.launch {
-                                    if (albTracks.isNotEmpty()) {
-                                        albTracks.forEach { app.downloads.enqueue(it) }
+                                    // Треков этого альбома в выдаче обычно НЕТ:
+                                    // поиск отдаёт либо альбомы, либо треки. Раньше
+                                    // кнопка в этом случае просто говорила «открой
+                                    // вкладку Треки» и НЕ качала ничего — на живом
+                                    // телефоне очередь оставалась пустой. Резолвим
+                                    // релиз по ссылке, как это делает ▶.
+                                    var list = albTracks
+                                    if (list.isEmpty()) {
+                                        val u = streamableAlbumUrl(a.service.id, a.id)
+                                        if (u.isNotBlank()) {
+                                            error = tr("search.starting", lang)
+                                            list = kotlinx.coroutines.withTimeoutOrNull(25_000) {
+                                                net.ripster.mobile.core.service.ServiceRegistry.all()
+                                                    .firstNotNullOfOrNull { runCatching { it.resolve(u) }.getOrNull() }
+                                                    ?.tracks.orEmpty()
+                                            }.orEmpty()
+                                        }
+                                    }
+                                    if (list.isNotEmpty()) {
+                                        list.forEach { app.downloads.enqueue(it) }
                                         queued[akey] = true
+                                        error = null
                                     } else {
                                         error = tr("search.album_open_tracks", lang)
                                     }
