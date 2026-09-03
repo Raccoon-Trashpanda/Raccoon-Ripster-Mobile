@@ -81,12 +81,20 @@ fun AlbumScreen(
 
     BackHandler { onBack() }
 
+    // `resolve()` ходит в сеть и может залипнуть (протухший вход, стоящий
+    // сокет). Без потолка экран оставался в «Анализирую…» НАВСЕГДА — владелец
+    // ловил это по 5 минут (03.09.2026). 25 с и честная пустая карточка.
+    var resolveFailed by remember(url) { mutableStateOf(false) }
     val sel by produceState<MediaSelection?>(initialValue = null, url) {
         val svc = Service.entries.firstOrNull { it.id == service || it.label.equals(service, true) }
-        value = if (svc == null) null
-        else kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            runCatching { ServiceRegistry.get(svc)?.resolve(url) }.getOrNull()
+        if (svc == null) { resolveFailed = true; value = null; return@produceState }
+        val got = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            kotlinx.coroutines.withTimeoutOrNull(25_000) {
+                runCatching { ServiceRegistry.get(svc)?.resolve(url) }.getOrNull()
+            }
         }
+        resolveFailed = got == null
+        value = got
     }
 
     val album = sel?.albums?.firstOrNull()
@@ -228,7 +236,12 @@ fun AlbumScreen(
             if (sel == null) {
                 item("load") {
                     Box(Modifier.fillMaxWidth().padding(30.dp), contentAlignment = Alignment.Center) {
-                        BasicText(tr("tools.analyzing", lang), style = TextStyle(color = c.text_tertiary, fontSize = 12.sp))
+                        // Пока идёт резолв — «Анализирую…»; когда он не удался
+                        // (таймаут/ошибка) — говорим об этом, а не крутим вечно.
+                        BasicText(
+                            tr(if (resolveFailed) "album.resolve_failed" else "tools.analyzing", lang),
+                            style = TextStyle(color = c.text_tertiary, fontSize = 12.sp, textAlign = TextAlign.Center),
+                        )
                     }
                 }
             }

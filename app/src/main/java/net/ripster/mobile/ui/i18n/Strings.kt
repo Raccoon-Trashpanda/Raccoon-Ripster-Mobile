@@ -801,6 +801,13 @@ private val STRINGS: Map<String, Row> = mapOf(
     "qb.pair_saved" to row("Пара сохранена.", "Pair saved.", "जोड़ी सहेजी गई।", "ペアを保存しました。", "已保存密钥对。"),
     "qb.pair_reset" to row("Сбросить на встроенную", "Reset to built-in", "अंतर्निहित पर रीसेट", "内蔵に戻す", "重置为内置"),
     "qb.pair_reset_done" to row("Вернул встроенную пару.", "Back to the built-in pair.", "अंतर्निहित जोड़ी वापस।", "内蔵ペアに戻しました。", "已恢复内置密钥对。"),
+    "album.resolve_failed" to row(
+        "Не удалось получить треклист — сервис не ответил. Проверь вход в Настройках → Учётные записи и попробуй ещё раз.",
+        "Couldn't load the tracklist — the service didn't answer. Check your sign-in in Settings → Accounts and try again.",
+        "ट्रैकलिस्ट नहीं मिली — सेवा ने जवाब नहीं दिया। Settings → Accounts में साइन-इन जाँचें।",
+        "トラックリストを取得できませんでした — サービスが応答しません。設定→アカウントでログインを確認してください。",
+        "无法获取曲目列表 — 服务未响应。请在设置 → 账户中检查登录状态后重试。",
+    ),
     "svc.d_tidal" to row(
         "Вход через устройство: код и ссылка ниже.",
         "Device sign-in: code and link below.",

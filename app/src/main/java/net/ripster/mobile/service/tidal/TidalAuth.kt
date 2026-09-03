@@ -62,18 +62,35 @@ object TidalAuth {
     fun encodeStored(t: Tokens): String =
         json.encodeToString(Stored.serializer(), Stored(t.refreshToken, t.user.countryCode))
 
-    /** Обернуть вставленный ВРУЧНУЮ access-токен в хранимый вид. Регион берём из
-     *  самого JWT (claim `cc`), иначе US — `ensureToken()` всё равно уточнит. */
-    fun encodeAccessToken(accessToken: String): String {
-        val cc = runCatching {
-            val payload = accessToken.split('.').getOrNull(1) ?: return@runCatching null
-            val pad = payload.padEnd((payload.length + 3) / 4 * 4, '=')
-            val body = String(android.util.Base64.decode(pad, android.util.Base64.URL_SAFE), Charsets.UTF_8)
-            Regex(""""cc"\s*:\s*"([A-Z]{2})"""").find(body)?.groupValues?.get(1)
-        }.getOrNull() ?: "US"
+    /** Разобранный payload JWT Tidal (claims `type` и `cc`), или null. */
+    private fun jwtClaims(token: String): String? = runCatching {
+        val payload = token.split('.').getOrNull(1) ?: return@runCatching null
+        val pad = payload.padEnd((payload.length + 3) / 4 * 4, '=')
+        String(android.util.Base64.decode(pad, android.util.Base64.URL_SAFE), Charsets.UTF_8)
+    }.getOrNull()
+
+    /**
+     * Обернуть вставленный ВРУЧНУЮ токен в хранимый вид.
+     *
+     * Раздают ОБА вида, и на глаз они неотличимы — оба длинные JWT. Тип лежит
+     * в самом токене (claim `type`): `o2_refresh` — долгоживущий refresh, его
+     * надо класть в refreshToken и менять на access при каждом запуске;
+     * `o2_access` — короткий (4 часа) access. Раньше вставленное всегда падало
+     * в accessToken, и refresh-токен уходил в заголовок как Bearer → 401 при
+     * заведомо рабочем токене (жалоба 03.09.2026).
+     *
+     * Регион — из claim `cc`, если он есть (у refresh-токена его нет); иначе US,
+     * `ensureToken()` всё равно уточнит по обновлённому access-токену.
+     */
+    fun encodeAccessToken(token: String): String {
+        val t = token.trim()
+        val claims = jwtClaims(t)
+        val cc = claims?.let { Regex(""""cc"\s*:\s*"([A-Z]{2})"""").find(it)?.groupValues?.get(1) } ?: "US"
+        val isRefresh = claims?.contains("\"o2_refresh\"") == true
         return json.encodeToString(
             Stored.serializer(),
-            Stored(refreshToken = "", countryCode = cc, accessToken = accessToken.trim()),
+            if (isRefresh) Stored(refreshToken = t, countryCode = cc, accessToken = "")
+            else Stored(refreshToken = "", countryCode = cc, accessToken = t),
         )
     }
 
