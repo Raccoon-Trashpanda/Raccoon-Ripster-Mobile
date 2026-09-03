@@ -787,6 +787,27 @@ private val STRINGS: Map<String, Row> = mapOf(
     "acc.tidal_manual_ph" to row("Токен Tidal", "Tidal token", "Tidal टोकन", "Tidalトークン", "Tidal 令牌"),
     "acc.tidal_manual_save" to row("Сохранить токен", "Save token", "टोकन सहेजें", "トークンを保存", "保存令牌"),
     "acc.tidal_manual_short" to row("Слишком короткий — это не похоже на токен.", "Too short — that doesn't look like a token.", "बहुत छोटा — यह टोकन जैसा नहीं लगता।", "短すぎます — トークンではないようです。", "太短了 — 这看起来不像令牌。"),
+    "cred.bad_arl" to row(
+        "Похоже, ARL вставился не целиком. Настоящий — 192 символа 0-9a-f, без пробелов. Скопируй ещё раз полностью.",
+        "The ARL looks incomplete. A real one is 192 characters of 0-9a-f with no spaces — copy it again in full.",
+        "ARL अधूरा लगता है। असली 192 वर्ण (0-9a-f) का होता है — पूरा दोबारा कॉपी करें।",
+        "ARLが途中で切れているようです。正しいARLは0-9a-fの192文字です。もう一度すべてコピーしてください。",
+        "ARL 似乎不完整。正确的 ARL 是 192 位 0-9a-f 字符，请重新完整复制。",
+    ),
+    "cred.bad_tidal" to row(
+        "Это не похоже на токен Tidal. Нужен JWT (три части через точку) или JSON с ПК. Возможно, вставилось не целиком.",
+        "That doesn't look like a Tidal token. It should be a JWT (three dot-separated parts) or the JSON from the PC — it may have been cut off.",
+        "यह Tidal टोकन जैसा नहीं है। JWT (बिंदु से अलग तीन भाग) चाहिए — शायद पूरा पेस्ट नहीं हुआ।",
+        "Tidalのトークンに見えません。JWT（ドット区切りの3部分）が必要です。途中で切れた可能性があります。",
+        "这看起来不是 Tidal 令牌。需要 JWT（用点分隔的三段），可能粘贴不完整。",
+    ),
+    "cred.too_short" to row(
+        "Слишком короткое — похоже, вставилось не целиком. Скопируй значение полностью.",
+        "Too short — it looks like it was cut off. Copy the whole value again.",
+        "बहुत छोटा — लगता है पूरा पेस्ट नहीं हुआ। पूरा मान दोबारा कॉपी करें।",
+        "短すぎます — 途中で切れたようです。値をすべてコピーしてください。",
+        "太短了 — 似乎被截断。请完整复制该值。",
+    ),
     "qb.pair_title" to row("Свой ключ приложения (необязательно)", "Your own app key (optional)", "अपनी ऐप कुंजी (वैकल्पिक)", "独自のアプリキー（任意）", "自定义应用密钥（可选）"),
     "qb.pair_builtin" to row(
         "Сейчас используется встроенная пара (app_id {id}) — она работает, менять не нужно. Задавай свою, только если твой токен выдан под другой app_id: тогда нужны ОБА поля, id и secret вместе.",

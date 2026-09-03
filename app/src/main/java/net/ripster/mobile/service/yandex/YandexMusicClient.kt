@@ -63,7 +63,18 @@ class YandexMusicClient(
     // капризная сеть телефона) и его провал не значит «токен не задан» —
     // иначе спаренный телефон показывает «подключите Яндекс», хотя токен
     // синхронизирован с ПК. Реальные ошибки всплывут на самом поиске/потоке.
-    override suspend fun isConfigured(): Boolean = oauthToken.isNotBlank()
+    /**
+     * Готовность = токен похож на OAuth-токен Яндекса, а не «поле не пустое».
+     * Иначе «Подключён» загорается на опечатке или обрезке при вставке, и
+     * человек ищет причину не там. Токены Яндекса — длинная строка без
+     * пробелов (обычно с префиксом `y0_`), заметно длиннее полусотни символов.
+     */
+    override suspend fun isConfigured(): Boolean = looksLikeYandexToken(oauthToken)
+
+    private fun looksLikeYandexToken(v: String): Boolean {
+        val t = v.trim()
+        return t.length >= 30 && t.none { it.isWhitespace() }
+    }
 
     override suspend fun qualities(): List<QualityTier> = listOf(flac, mp3)
 

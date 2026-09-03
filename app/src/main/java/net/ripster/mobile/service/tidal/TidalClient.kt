@@ -74,7 +74,23 @@ class TidalClient(
 
     // Есть сохранённая сессия — считаем готовым; ensureToken() (сеть) уедет в
     // первый search()/resolve(), а не в пробу готовности.
-    override suspend fun isConfigured(): Boolean = stored != null
+    /**
+     * Готовность = в сторе есть токен, ПОХОЖИЙ на настоящий, а не просто
+     * распарсившийся JSON. Обрезанный при вставке токен разбирался как валидный
+     * блоб, и в «Учётных записях» горело «Подключён», хотя каждый запрос падал
+     * 401 «Token has invalid payload» (поймано на Galaxy A31 03.09.2026).
+     * Токены Tidal — JWT: три части через точку.
+     */
+    override suspend fun isConfigured(): Boolean {
+        val s = stored ?: return false
+        return looksLikeJwt(s.refreshToken) || looksLikeJwt(s.accessToken)
+    }
+
+    private fun looksLikeJwt(v: String): Boolean {
+        val t = v.trim()
+        return t.length >= 100 && t.count { it == '.' } == 2 &&
+            t.split('.').all { it.isNotBlank() }
+    }
 
     override suspend fun qualities(): List<QualityTier> = listOf(flac, aac, low)
 

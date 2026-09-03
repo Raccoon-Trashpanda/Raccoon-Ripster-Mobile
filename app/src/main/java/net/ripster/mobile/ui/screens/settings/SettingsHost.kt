@@ -50,6 +50,7 @@ import kotlinx.coroutines.withContext
 import net.ripster.mobile.RipsterApp
 import net.ripster.mobile.core.model.Service
 import net.ripster.mobile.core.service.ServiceRegistry
+import net.ripster.mobile.core.settings.CredentialInput
 import net.ripster.mobile.core.settings.CredentialStore
 import net.ripster.mobile.service.qobuz.QobuzBundle
 import net.ripster.mobile.ui.i18n.AppLang
@@ -230,8 +231,31 @@ private fun AccountScreen(svc: Service, lang: AppLang, c: RipsterColors) {
     val scope = rememberCoroutineScope()
 
     fun cred(k: CredentialStore.Key) = app.credentials.get(k) ?: ""
+
+    // Что не так с последним сохранением (показываем под полем).
+    var saveProblem by remember { mutableStateOf<String?>(null) }
+
     fun save(k: CredentialStore.Key, v: String) {
-        app.credentials.set(k, v.ifBlank { null }, CredentialStore.Source.MANUAL)
+        // Чистим вставленное: подпись «Token ➠», кавычки, переносы. Заведомо
+        // битое (обрезанный ARL/JWT) НЕ сохраняем — иначе загорится «Подключён»
+        // на сломанном значении, и причину будут искать в токене.
+        val clean = CredentialInput.clean(v)
+        val problem = CredentialInput.problem(k, clean)
+        if (problem != null) {
+            saveProblem = tr(
+                when (problem) {
+                    CredentialInput.Problem.ARL -> "cred.bad_arl"
+                    CredentialInput.Problem.TIDAL -> "cred.bad_tidal"
+                    CredentialInput.Problem.APP_ID -> "qb.pair_bad_id"
+                    CredentialInput.Problem.SECRET -> "qb.pair_bad_secret"
+                    CredentialInput.Problem.SHORT -> "cred.too_short"
+                },
+                lang,
+            )
+            return
+        }
+        saveProblem = null
+        app.credentials.set(k, clean.ifBlank { null }, CredentialStore.Source.MANUAL)
         app.registerClients()
     }
 
@@ -330,6 +354,13 @@ private fun AccountScreen(svc: Service, lang: AppLang, c: RipsterColors) {
                     style = TextStyle(color = c.text_tertiary, fontSize = 11.sp),
                 )
             }
+        }
+
+        // Почему сохранение не прошло (обрезанная вставка и т.п.). Молчаливый
+        // отказ был бы хуже прежнего поведения — человек должен видеть причину.
+        saveProblem?.let {
+            Box(Modifier.height(10.dp))
+            BasicText(it, style = TextStyle(color = c.danger_text, fontSize = 12.sp, lineHeight = 16.sp))
         }
     }
 }

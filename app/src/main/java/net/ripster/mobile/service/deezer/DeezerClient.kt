@@ -55,7 +55,23 @@ class DeezerClient(
     // Дешёвая проверка: есть ли ARL. Живой вход (gw.ensureSession) НЕ здесь —
     // раньше он держал экран поиска в «Проверяю сервисы…» на сетевом вызове,
     // а протухший ARL и так всплывёт понятной ошибкой при самом search().
-    override suspend fun isConfigured(): Boolean = arl.isNotBlank()
+    /**
+     * Готовность = ARL ПОХОЖ на ARL, а не просто «поле не пустое».
+     *
+     * Раньше сюда проходила любая строка, и в «Учётных записях» горело
+     * «Подключён» на мусоре и на обрезанном при вставке токене — человек видел
+     * зелёный статус и не понимал, почему всё падает. Настоящий ARL — ровно 192
+     * шестнадцатеричных символа; такой проверки хватает, чтобы отсечь опечатки
+     * и обрезки, и она не требует сети (метод зовут при отрисовке экрана).
+     * Живость самого ARL всё равно выясняется на первом запросе — и ошибка
+     * оттуда честная («ARL invalid or expired»).
+     */
+    override suspend fun isConfigured(): Boolean = looksLikeArl(arl)
+
+    private fun looksLikeArl(v: String): Boolean {
+        val s = v.trim()
+        return s.length >= 128 && s.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }
+    }
 
     override suspend fun qualities(): List<QualityTier> = listOf(flac, mp3_320, mp3_128)
 

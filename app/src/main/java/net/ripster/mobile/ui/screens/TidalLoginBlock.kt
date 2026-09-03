@@ -159,8 +159,15 @@ fun TidalLoginBlock() {
         }
         Box(Modifier.height(8.dp))
         Btn(tr("acc.tidal_manual_save", lang), c) {
-            val v = manual.trim()
-            if (v.length < 20) {
+            // Та же чистка, что и в остальных полях: снимаем «Token ➠», кавычки
+            // и любые пробелы/переносы, иначе вставленное из мессенджера не
+            // распознаётся и уходит в стор битым.
+            val v = net.ripster.mobile.core.settings.CredentialInput.clean(manual)
+            val bad = net.ripster.mobile.core.settings.CredentialInput
+                .problem(CredentialStore.Key.TIDAL_OAUTH, v)
+            if (bad != null) {
+                manualMsg = tr("cred.bad_tidal", lang)
+            } else if (v.length < 20) {
                 manualMsg = tr("acc.tidal_manual_short", lang)
             } else {
                 // Уже блоб — кладём как есть; иначе это access-токен.
