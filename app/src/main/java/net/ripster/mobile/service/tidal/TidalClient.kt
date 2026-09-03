@@ -52,6 +52,10 @@ class TidalClient(
     private val stored = TidalAuth.decodeStored(storedJson)
     private val mutex = Mutex()
     @Volatile private var accessToken: String = ""
+    /** Последняя причина отказа обновления токена — для честного текста наружу. */
+    @Volatile private var lastAuthError: String? = null
+    /** Тело последнего неуспешного ответа API — для честного текста. */
+    @Volatile private var lastHttpBody: String? = null
     // Страна аккаунта. Дефолт из синка с ПК, НО может быть протухшим/US —
     // а от неё зависит, какой каталог отдаёт Tidal (жалоба: NZ-аккаунт,
     // релиз уже вышел в NZ, поиск его не находит). ensureToken() обновляет
@@ -206,7 +210,13 @@ class TidalClient(
         //    могла остаться US с момента синка).
         val rt = s.refreshToken.takeIf { it.isNotBlank() }
         if (rt != null) {
-            val fresh = runCatching { TidalAuth.refresh(rt) }.getOrNull()
+            // Причину отказа НЕ глотаем: раньше `getOrNull()` прятал ответ
+            // Tidal, и наружу шло «токен истёк» независимо от того, что
+            // случилось на самом деле (сеть, неверный client_id, отозванный
+            // токен). Диагноз должен называть причину.
+            val attempt = runCatching { TidalAuth.refresh(rt) }
+            attempt.exceptionOrNull()?.let { lastAuthError = it.message?.take(200) }
+            val fresh = attempt.getOrNull()
             accessToken = fresh?.accessToken.orEmpty()
             fresh?.user?.countryCode?.takeIf { it.length == 2 }?.let { cc = it }
             if (accessToken.isNotBlank()) {
@@ -216,7 +226,10 @@ class TidalClient(
         }
         // 3) фолбэк на просроченный access — вдруг ещё пустят; иначе честная ошибка
         if (s.accessToken.isNotBlank()) { accessToken = s.accessToken; return true }
-        throw IOException("Tidal: токен истёк — открой «Забрать учётки с ПК» в сопряжении")
+        throw IOException(
+            lastAuthError?.let { "Tidal: обновление токена не прошло — $it" }
+                ?: "Tidal: токен истёк — вставь свежий в Настройках → Учётные записи",
+        )
     }
 
     /** exp из JWT в прошлом (с запасом 60с)? */
@@ -448,7 +461,11 @@ class TidalClient(
             val req = Request.Builder().url(url).header("Authorization", "Bearer $accessToken").build()
             return withContext(Dispatchers.IO) {
                 RipsterHttp.client.newCall(req).execute().use { r ->
-                    r.code to if (r.isSuccessful) (r.body?.string() ?: "") else null
+                    // На отказе запоминаем ТЕЛО ответа — Tidal там пишет
+                    // настоящую причину (истёк / чужой клиент / нет подписки).
+                    val txt = r.body?.string() ?: ""
+                    if (!r.isSuccessful) lastHttpBody = txt.take(200)
+                    r.code to if (r.isSuccessful) txt else null
                 }
             }
         }
@@ -461,7 +478,11 @@ class TidalClient(
             }
         }
         val path = base.toHttpUrl().encodedPath
-        if (code == 401) throw IOException("Tidal: 401 — вход не принят, обнови токен в Настройках → Учётные записи")
+        if (code == 401) throw IOException(
+            lastAuthError?.let { "Tidal: 401 — $it" }
+                ?: lastHttpBody?.let { "Tidal: 401 — $it" }
+                ?: "Tidal: 401 — вход не принят, обнови токен в Настройках → Учётные записи",
+        )
         if (body == null) throw IOException("Tidal $path -> HTTP $code")
         return body!!
     }
