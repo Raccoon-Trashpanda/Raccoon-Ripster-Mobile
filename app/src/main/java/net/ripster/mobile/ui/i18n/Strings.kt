@@ -834,6 +834,7 @@ private val STRINGS: Map<String, Row> = mapOf(
     "qb.pair_saved" to row("Пара сохранена.", "Pair saved.", "जोड़ी सहेजी गई।", "ペアを保存しました。", "已保存密钥对。"),
     "qb.pair_reset" to row("Сбросить на встроенную", "Reset to built-in", "अंतर्निहित पर रीसेट", "内蔵に戻す", "重置为内置"),
     "qb.pair_reset_done" to row("Вернул встроенную пару.", "Back to the built-in pair.", "अंतर्निहित जोड़ी वापस।", "内蔵ペアに戻しました。", "已恢复内置密钥对。"),
+    "album.mix_tracklist" to row("СОСТАВ МИКСА", "MIX TRACKLIST", "मिक्स ट्रैकलिस्ट", "ミックス収録曲", "混音曲目"),
     "album.resolve_failed" to row(
         "Не удалось получить треклист — сервис не ответил. Проверь вход в Настройках → Учётные записи и попробуй ещё раз.",
         "Couldn't load the tracklist — the service didn't answer. Check your sign-in in Settings → Accounts and try again.",

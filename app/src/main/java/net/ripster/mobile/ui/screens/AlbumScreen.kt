@@ -100,6 +100,19 @@ fun AlbumScreen(
     val album = sel?.albums?.firstOrNull()
     val tracks = sel?.tracks.orEmpty()
 
+    // Треклист микса с таймкодами: у BBC он официальный (segments.json), у
+    // SoundCloud — из описания трека. Автономно, ПК не нужен. Нет источника —
+    // список пуст, секции просто нет; выдумывать состав микса нельзя.
+    val mixTracklist by produceState(
+        initialValue = emptyList<net.ripster.mobile.core.tracklist.Tracklist.Entry>(),
+        url, sel,
+    ) {
+        val desc = sel?.tracks?.firstOrNull()?.raw?.get("description")
+        value = runCatching {
+            net.ripster.mobile.core.tracklist.Tracklist.forUrl(url, desc)
+        }.getOrDefault(emptyList())
+    }
+
     var playMsg by remember { mutableStateOf<String?>(null) }
 
     // Слушать альбом потоком с указанного трека: первые 4 резолвим сразу,
@@ -143,8 +156,15 @@ fun AlbumScreen(
     // трек. `album.title`, совпадающий с именем артиста из радара, бесполезен.
     val singleTrack = tracks.size == 1 && sel?.albums.orEmpty().size <= 1
     val usefulAlbumTitle = album?.title?.takeIf { it.isNotBlank() && !it.equals(fallbackTitle, true) }
+    // У BBC resolve() отдаёт трек, названный служебным PID («BBC m0030xg5») —
+    // он ничего не говорит человеку, а имя эпизода у нас уже есть с карточки.
+    // Поэтому заглушку такого вида не показываем, берём переданный заголовок.
+    fun placeholderTitle(t: String) =
+        Regex("""^BBC\s+[a-z0-9]{6,}$""").matches(t.trim())
     val title = usefulAlbumTitle
-        ?: if (singleTrack) tracks[0].title else (sel?.containerTitle ?: fallbackTitle)
+        ?: if (singleTrack) tracks[0].title.takeUnless { placeholderTitle(it) }
+            ?: fallbackTitle
+        else (sel?.containerTitle ?: fallbackTitle)
     val artist = album?.artist ?: tracks.firstOrNull()?.artist ?: fallbackArtist
     val cover = album?.artworkUrl ?: tracks.firstOrNull()?.artworkUrl ?: fallbackCover
     val totalMs = tracks.mapNotNull { it.durationMs }.sum()
@@ -242,6 +262,56 @@ fun AlbumScreen(
                             tr(if (resolveFailed) "album.resolve_failed" else "tools.analyzing", lang),
                             style = TextStyle(color = c.text_tertiary, fontSize = 12.sp, textAlign = TextAlign.Center),
                         )
+                    }
+                }
+            }
+
+            // ── Состав микса с таймкодами (BBC / описание SoundCloud) ──────
+            //    Это НЕ треклист файлов, а разметка одного длинного эфира:
+            //    тап по строке перематывает на этот момент, если микс играет.
+            if (mixTracklist.isNotEmpty()) {
+                item("mix_tl_head") {
+                    BasicText(
+                        tr("album.mix_tracklist", lang) + "  ·  " + mixTracklist.size,
+                        Modifier.padding(start = 24.dp, top = 18.dp, bottom = 6.dp),
+                        style = TextStyle(
+                            color = c.text_tertiary, fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium, letterSpacing = 1.sp,
+                        ),
+                    )
+                }
+                itemsIndexed(mixTracklist, key = { i, e -> "mtl-$i-${e.offsetSec}" }) { i, e ->
+                    if (i > 0) net.ripster.mobile.ui.components.RipsterHairline(inset = 24.dp)
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .pressable(pressedBg = c.surface_raised) {
+                                // Перемотка работает, только если этот микс сейчас
+                                // и играет — иначе прыгать некуда, и мы молчим.
+                                app.player.seekTo(e.offsetSec * 1000L)
+                            }
+                            .padding(horizontal = 24.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        BasicText(
+                            e.stamp,
+                            Modifier.width(58.dp),
+                            style = TextStyle(
+                                color = c.accent_text, fontSize = 12.sp,
+                                fontFamily = FontFamily.Monospace,
+                            ),
+                        )
+                        Column(Modifier.weight(1f)) {
+                            BasicText(
+                                e.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                style = TextStyle(color = c.text_primary, fontSize = 13.sp),
+                            )
+                            if (e.artist.isNotBlank()) {
+                                BasicText(
+                                    e.artist, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    style = TextStyle(color = c.text_tertiary, fontSize = 11.sp),
+                                )
+                            }
+                        }
                     }
                 }
             }
