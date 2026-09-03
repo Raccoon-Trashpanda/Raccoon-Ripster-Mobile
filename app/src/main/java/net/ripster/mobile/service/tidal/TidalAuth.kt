@@ -62,6 +62,21 @@ object TidalAuth {
     fun encodeStored(t: Tokens): String =
         json.encodeToString(Stored.serializer(), Stored(t.refreshToken, t.user.countryCode))
 
+    /** Обернуть вставленный ВРУЧНУЮ access-токен в хранимый вид. Регион берём из
+     *  самого JWT (claim `cc`), иначе US — `ensureToken()` всё равно уточнит. */
+    fun encodeAccessToken(accessToken: String): String {
+        val cc = runCatching {
+            val payload = accessToken.split('.').getOrNull(1) ?: return@runCatching null
+            val pad = payload.padEnd((payload.length + 3) / 4 * 4, '=')
+            val body = String(android.util.Base64.decode(pad, android.util.Base64.URL_SAFE), Charsets.UTF_8)
+            Regex(""""cc"\s*:\s*"([A-Z]{2})"""").find(body)?.groupValues?.get(1)
+        }.getOrNull() ?: "US"
+        return json.encodeToString(
+            Stored.serializer(),
+            Stored(refreshToken = "", countryCode = cc, accessToken = accessToken.trim()),
+        )
+    }
+
     fun decodeStored(raw: String): Stored? =
         runCatching { json.decodeFromString(Stored.serializer(), raw) }.getOrNull()
 

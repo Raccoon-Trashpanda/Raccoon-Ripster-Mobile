@@ -345,11 +345,11 @@ private val STRINGS: Map<String, Row> = mapOf(
     "search.svc_timeout" to row("не ответил вовремя — попробуй ещё раз", "didn't respond in time — try again", "समय पर जवाब नहीं दिया — फिर कोशिश करें", "応答がありませんでした — もう一度お試しください", "响应超时 — 请重试"),
     "search.svc_neterr" to row("нет связи с сервисом — попробуй ещё раз", "can't reach the service — try again", "सेवा से कनेक्ट नहीं — फिर कोशिश करें", "サービスに接続できません — もう一度お試しください", "无法连接服务 — 请重试"),
     "search.qobuz_stale_appid" to row(
-        "отклонил запрос — не удалось обновить ключ приложения. Попробуй ещё раз через минуту или задай app_id/app_secret вручную в Настройках → Учётные записи.",
-        "rejected the request — couldn't refresh the app key. Try again in a minute, or set app_id/app_secret manually in Settings → Accounts.",
-        "ने अनुरोध अस्वीकार किया — ऐप की रिफ्रेश नहीं हो सकी। एक मिनट बाद फिर कोशिश करें, या Settings → Accounts में app_id/app_secret मैन्युअली डालें।",
-        "がリクエストを拒否しました — アプリキーを更新できませんでした。1分後に再試行するか、設定→アカウントでapp_id/app_secretを手動設定してください。",
-        "拒绝了请求 — 无法刷新应用密钥。请一分钟后重试，或在设置 → 账户中手动填写 app_id/app_secret。",
+        "отклонил запрос. Если в Настройках → Учётные записи задан свой app_id — очисти его, поиску он не нужен.",
+        "rejected the request. If you set a custom app_id in Settings → Accounts, clear it — search doesn't need one.",
+        "ने अनुरोध अस्वीकार किया। यदि Settings → Accounts में कस्टम app_id सेट है — उसे हटाएँ, खोज को उसकी ज़रूरत नहीं।",
+        "がリクエストを拒否しました。設定→アカウントで独自のapp_idを設定している場合は削除してください（検索には不要です）。",
+        "拒绝了请求。如果你在设置 → 账户中设置了自定义 app_id，请清除它 — 搜索不需要。",
     ),
     "search.qobuz_bad_token" to row(
         "токен авторизации недействителен — обнови вход в Настройках → Учётные записи.",
@@ -776,6 +776,10 @@ private val STRINGS: Map<String, Row> = mapOf(
         "Apple MusicはPCが取得します（Dockerラッパーはそこにあります）。まず「PCとのペアリング」で接続してください。",
         "Apple Music 由电脑下载（Docker 封装器在电脑上）。请先在「与电脑配对」中配对。",
     ),
+    "acc.tidal_manual" to row("Или вставь токен вручную (access-токен или JSON из ПК):", "Or paste a token manually (access token, or the JSON from the PC):", "या टोकन मैन्युअली डालें (access token या PC से JSON):", "またはトークンを手動で貼り付け（access token または PC の JSON）:", "或手动粘贴令牌（access token 或来自电脑的 JSON）:"),
+    "acc.tidal_manual_ph" to row("Токен Tidal", "Tidal token", "Tidal टोकन", "Tidalトークン", "Tidal 令牌"),
+    "acc.tidal_manual_save" to row("Сохранить токен", "Save token", "टोकन सहेजें", "トークンを保存", "保存令牌"),
+    "acc.tidal_manual_short" to row("Слишком короткий — это не похоже на токен.", "Too short — that doesn't look like a token.", "बहुत छोटा — यह टोकन जैसा नहीं लगता।", "短すぎます — トークンではないようです。", "太短了 — 这看起来不像令牌。"),
     "svc.d_tidal" to row(
         "Вход через устройство: код и ссылка ниже.",
         "Device sign-in: code and link below.",

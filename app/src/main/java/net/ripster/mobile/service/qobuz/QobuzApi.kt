@@ -89,10 +89,14 @@ class QobuzApi(
         ensureAuth()
         // Поиск: `catalog/search` у рабочих app_id больше не отдаёт результаты, а
         // свежескрейпленный app_id (798273057) сейчас 401. Рабочая связка (как в
-        // ПК-Ripster): `track/search` + `app_id=312369995` в query +
-        // `X-User-Auth-Token` в заголовке (без токена total=0). Скрейп bundle.js
-        // для поиска вообще не нужен — отсюда и уходят «didn't respond in time».
-        val searchAid = overrideAppId?.trim()?.ifBlank { null } ?: QobuzBundle.SEARCH_APP_ID
+        // ПК-Ripster): `track/search` + `app_id=312369995` + `X-User-Auth-Token`
+        // (без токена total=0). Скрейп bundle.js для поиска вообще не нужен.
+        //
+        // ВСЕГДА 312369995: кастомный/синкнутый `overrideAppId` для ПОИСКА не
+        // нужен и часто протухший — Qobuz отвечает 400 «bad app_id» (жалоба
+        // тестера: вбил кривой app_id руками → каждый поиск 400). Свой app_id
+        // имеет смысл только для подписи `getFileUrl` (скачивание).
+        val searchAid = QobuzBundle.SEARCH_APP_ID
         val raw = getWithAppId(searchAid, "track/search", authed = true) {
             it.addQueryParameter("query", query)
             it.addQueryParameter("limit", "25")

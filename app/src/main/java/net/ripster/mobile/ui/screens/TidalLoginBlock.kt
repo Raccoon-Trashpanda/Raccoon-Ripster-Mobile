@@ -123,6 +123,62 @@ fun TidalLoginBlock() {
 
             TState.Done -> BasicText(tr("acc.tidal_ok", lang), style = TextStyle(color = c.text_primary, fontSize = 13.sp, fontWeight = FontWeight.Bold))
         }
+
+        // Ручная вставка токена. Раньше сырое поле `tidal.oauth` ждало JSON-блоб
+        // {refreshToken,countryCode,accessToken}; человек вставлял туда обычный
+        // access-токен, тот не парсился — и приложение всё равно гнало в браузер
+        // («why do I have to open a browser even after pasting a tidal token»).
+        // Здесь принимаем И сырой токен, И блоб: сырой заворачиваем сами.
+        Box(Modifier.height(12.dp))
+        BasicText(
+            tr("acc.tidal_manual", lang),
+            style = TextStyle(color = c.text_tertiary, fontSize = 11.sp),
+        )
+        Box(Modifier.height(6.dp))
+        var manual by remember { mutableStateOf("") }
+        var manualMsg by remember { mutableStateOf<String?>(null) }
+        Box(
+            Modifier.fillMaxWidth()
+                .background(c.surface_canvas, RoundedCornerShape(8.dp))
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+        ) {
+            if (manual.isEmpty()) {
+                BasicText(
+                    tr("acc.tidal_manual_ph", lang),
+                    style = TextStyle(color = c.text_tertiary, fontSize = 12.sp),
+                )
+            }
+            androidx.compose.foundation.text.BasicTextField(
+                value = manual,
+                onValueChange = { manual = it },
+                singleLine = true,
+                textStyle = TextStyle(color = c.text_primary, fontSize = 12.sp),
+                cursorBrush = androidx.compose.ui.graphics.SolidColor(c.accent_text),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        Box(Modifier.height(8.dp))
+        Btn(tr("acc.tidal_manual_save", lang), c) {
+            val v = manual.trim()
+            if (v.length < 20) {
+                manualMsg = tr("acc.tidal_manual_short", lang)
+            } else {
+                // Уже блоб — кладём как есть; иначе это access-токен.
+                val payload = if (TidalAuth.decodeStored(v)?.let {
+                        it.accessToken.isNotBlank() || it.refreshToken.isNotBlank()
+                    } == true
+                ) v else TidalAuth.encodeAccessToken(v)
+                app.credentials.set(CredentialStore.Key.TIDAL_OAUTH, payload, CredentialStore.Source.MANUAL)
+                app.registerClients()
+                manual = ""
+                manualMsg = null
+                state = TState.Done
+            }
+        }
+        manualMsg?.let {
+            Box(Modifier.height(6.dp))
+            BasicText(it, style = TextStyle(color = c.danger_text, fontSize = 11.sp))
+        }
     }
 }
 
