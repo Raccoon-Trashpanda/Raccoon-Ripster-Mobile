@@ -597,7 +597,14 @@ fun SearchScreen(
                                             // говорим об этом, а не «трек не стримится».
                                             val haveStream = net.ripster.mobile.core.service.ServiceRegistry.all()
                                                 .any { it.service in setOf(Service.DEEZER, Service.QOBUZ, Service.TIDAL, Service.SOUNDCLOUD) }
-                                            error = tr(
+                                            // Если движок объяснил отказ — показываем ЕГО
+                                            // причину: «Tidal: прямой поток недоступен —
+                                            // скачай трек» полезнее общего «не удалось
+                                            // включить», за которым не видно, что делать.
+                                            val why = net.ripster.mobile.core.service.StreamResolver
+                                                .lastStreamError
+                                            error = if (why != null) humanNetError(why, lang)
+                                            else tr(
                                                 if (t.service in LINK_ONLY || !haveStream)
                                                     "search.need_stream_svc" else "search.cant_play",
                                                 lang,

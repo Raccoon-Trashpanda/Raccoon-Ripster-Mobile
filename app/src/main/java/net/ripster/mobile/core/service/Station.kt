@@ -187,6 +187,9 @@ object StreamResolver {
         limit: Int = 40,
         fallbackArtwork: String? = null,
     ): List<PlayerController.StreamItem> = withContext(Dispatchers.IO) {
+        // Причина прошлого отказа не должна пережить новый вызов: иначе экран
+        // покажет объяснение к запросу, которого больше нет.
+        lastStreamError = null
         // Dispatchers.IO здесь обязателен, а не «на всякий случай».
         //
         // `coroutineScope` наследует диспетчер вызывающего, а зовут отсюда из
@@ -217,8 +220,25 @@ object StreamResolver {
                         lossless = info.quality.lossless,
                         container = info.quality.container,
                     )
-                }.getOrNull()
+                }.onFailure { lastStreamError = it }.getOrNull()
             }
         }.awaitAll().filterNotNull()
     }
+
+    /**
+     * Почему не удалось собрать ни одного потока.
+     *
+     * `toStreamItems` глушит отказ каждого трека намеренно: один недоступный
+     * трек не должен ронять всю очередь. Но когда список вернулся ПУСТЫМ,
+     * проглоченная причина — единственное, что объясняет происходящее, и без неё
+     * экран показывает общее «не удалось включить». Так у Tidal терялось
+     * «прямой поток недоступен — скачай трек»: человек жал ▶ и не получал
+     * ничего (04.09.2026).
+     *
+     * Поле хуже возвращаемого значения, но менять сигнатуру ради одного экрана
+     * дороже: читают его сразу после пустого результата, в той же корутине.
+     */
+    @Volatile
+    var lastStreamError: Throwable? = null
+        private set
 }
