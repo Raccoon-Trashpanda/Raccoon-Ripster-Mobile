@@ -844,6 +844,7 @@ private fun DownloadItem.toTask() = DownloadTask(
     },
     progress = fraction,
     errorReason = errorReason,
+    serviceLabel = track.service.label,
 )
 
 private fun LibraryEntity.toItem() = LibraryItem(

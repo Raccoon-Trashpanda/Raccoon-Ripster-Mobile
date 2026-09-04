@@ -86,6 +86,14 @@ data class DownloadTask(
     val progress: Float? = null,
     /** Имеет смысл только при status == Failed — короткая реальная причина. */
     val errorReason: String? = null,
+    /**
+     * Чей это отказ. Раньше имя сервиса было вшито в текст ошибки («Deezer: ARL
+     * invalid or expired»), а при переводе на маркеры оно исчезло: в очереди
+     * осталось «токен недействителен» без указания, какую учётку чинить. У
+     * тестера 04.09.2026 в одном списке лежали и удачные, и упавшие треки — и
+     * понять по строке, где именно протух токен, было нельзя.
+     */
+    val serviceLabel: String = "",
 )
 
 @Composable
@@ -194,7 +202,11 @@ private fun DownloadTaskRow(
                     style = TextStyle(color = colors.text_primary, fontSize = type.body),
                 )
                 BasicText(
-                    text = task.artist,
+                    // Сервис пишем у КАЖДОЙ строки, а не только у упавшей: в одной
+                    // очереди лежат задачи с разных сервисов, и по названию трека
+                    // не видно, чей он. Просьба владельца 04.09.2026.
+                    text = if (task.serviceLabel.isBlank()) task.artist
+                    else "${task.artist}  ·  ${task.serviceLabel}",
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     style = TextStyle(color = colors.text_secondary, fontSize = type.caption),
@@ -203,6 +215,8 @@ private fun DownloadTaskRow(
                     BasicText(
                         // Движок отдаёт маркер, а не готовый текст, — переводим
                         // здесь; своё сообщение (от ПК, от сервиса) показываем как есть.
+                        // Сервис уже назван строкой выше — в самой причине его не
+                        // повторяем.
                         text = engineErrorText(task.errorReason, lang) ?: task.errorReason,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
