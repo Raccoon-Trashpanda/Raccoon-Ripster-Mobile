@@ -611,20 +611,21 @@ fun SearchScreen(
                                         val ownWhy = net.ripster.mobile.core.service.StreamResolver
                                             .lastStreamError
                                         val head = first.ifEmpty {
-                                            val viaOther = kotlinx.coroutines.withTimeoutOrNull(25_000) {
-                                                net.ripster.mobile.core.service.ReleasePlayback.playSearch(
-                                                    app.player,
-                                                    "${t.artist} ${t.title}".trim(),
-                                                    quality,
-                                                    fallbackArtwork = t.artworkUrl,
-                                                )
-                                            } ?: false
-                                            if (viaOther) {
-                                                error = null
-                                                onOpenPlayer()
-                                                return@launch
+                                            // Ищем ТОТ ЖЕ трек, а не «похожий по
+                                            // названию»: TrackMatch сверяет ISRC, а
+                                            // без него — название, исполнителя,
+                                            // пометку версии и длительность разом.
+                                            // Обычный текстовый поиск подсунул бы
+                                            // ремикс или кавер, и человек слушал бы
+                                            // не то, что нажал.
+                                            val twin = net.ripster.mobile.core.service.TrackMatch
+                                                .sameTrackElsewhere(t)
+                                            if (twin != null) {
+                                                net.ripster.mobile.core.service.StreamResolver
+                                                    .toStreamItems(listOf(twin), quality, limit = 1)
+                                            } else {
+                                                emptyList()
                                             }
-                                            emptyList()
                                         }
                                         if (head.isEmpty()) {
                                             // Ни свой сервис, ни чужие. Если движок
