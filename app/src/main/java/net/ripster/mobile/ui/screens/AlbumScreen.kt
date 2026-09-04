@@ -1,6 +1,7 @@
 package net.ripster.mobile.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -31,8 +32,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -178,6 +183,54 @@ fun AlbumScreen(
                             .background(c.surface_raised).pressable { onBack() },
                         contentAlignment = Alignment.Center,
                     ) { BasicText("‹", style = TextStyle(color = c.text_secondary, fontSize = 22.sp)) }
+                    Spacer(Modifier.weight(1f))
+                    // Поделиться релизом. В ПК-версии на карточке это
+                    // «Скопировать ссылку»; на телефоне тем же действием
+                    // считается системный выбор приложения — иначе человеку
+                    // пришлось бы вручную вставлять ссылку в мессенджер.
+                    if (url.isNotBlank()) {
+                        Box(
+                            Modifier.size(44.dp).clip(CircleShape)
+                                .border(1.dp, c.border_subtle, CircleShape)
+                                .background(c.surface_raised)
+                                .semantics { contentDescription = tr("rel.share", lang) }
+                                .pressable {
+                                    val text = listOf(title, artist).filter { it.isNotBlank() }
+                                        .joinToString(" — ").ifBlank { url }
+                                    val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(android.content.Intent.EXTRA_SUBJECT, text)
+                                        putExtra(android.content.Intent.EXTRA_TEXT, text + "\n" + url)
+                                    }
+                                    runCatching {
+                                        ctx.startActivity(
+                                            android.content.Intent.createChooser(send, tr("rel.share", lang))
+                                                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                                        )
+                                    }
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            // Стрелка «наружу» — тот же смысл, что у системного
+                            // значка, но нарисованная, как вся дизайн-система.
+                            Canvas(Modifier.size(18.dp)) {
+                                val col = c.text_secondary
+                                val w = size.width; val h = size.height
+                                drawLine(col, Offset(w * 0.5f, h * 0.72f), Offset(w * 0.5f, h * 0.12f),
+                                         strokeWidth = w * 0.11f, cap = StrokeCap.Round)
+                                drawLine(col, Offset(w * 0.28f, h * 0.34f), Offset(w * 0.5f, h * 0.12f),
+                                         strokeWidth = w * 0.11f, cap = StrokeCap.Round)
+                                drawLine(col, Offset(w * 0.72f, h * 0.34f), Offset(w * 0.5f, h * 0.12f),
+                                         strokeWidth = w * 0.11f, cap = StrokeCap.Round)
+                                drawLine(col, Offset(w * 0.16f, h * 0.62f), Offset(w * 0.16f, h * 0.92f),
+                                         strokeWidth = w * 0.11f, cap = StrokeCap.Round)
+                                drawLine(col, Offset(w * 0.84f, h * 0.62f), Offset(w * 0.84f, h * 0.92f),
+                                         strokeWidth = w * 0.11f, cap = StrokeCap.Round)
+                                drawLine(col, Offset(w * 0.16f, h * 0.92f), Offset(w * 0.84f, h * 0.92f),
+                                         strokeWidth = w * 0.11f, cap = StrokeCap.Round)
+                            }
+                        }
+                    }
                 }
             }
 

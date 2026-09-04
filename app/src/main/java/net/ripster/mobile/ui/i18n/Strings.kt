@@ -206,6 +206,7 @@ private val STRINGS: Map<String, Row> = mapOf(
     "rc.type_mix" to row("Микс", "Mix", "मिक्स", "ミックス", "混音"),
     "rc.type_comp" to row("Сборник", "Compilation", "संकलन", "コンピ", "合辑"),
     "album.disc" to row("Диск {n}", "Disc {n}", "डिस्क {n}", "ディスク {n}", "碟 {n}"),
+    "rel.share" to row("Поделиться", "Share", "शेयर करें", "共有", "分享"),
     "album.listen" to row("Слушать", "Listen", "सुनें", "再生", "播放"),
     "album.no_stream" to row("Не нашёл поток ни в одном сервисе — можно скачать кнопкой ↓", "No stream on any service — you can download with ↓", "किसी सेवा में स्ट्रीम नहीं — ↓ से डाउनलोड करें", "どのサービスにもストリームなし — ↓ でダウンロード可", "任何服务都无流 — 可用 ↓ 下载"),
     "album.dl_track" to row("Скачать трек", "Download track", "ट्रैक डाउनलोड करें", "曲をダウンロード", "下载曲目"),

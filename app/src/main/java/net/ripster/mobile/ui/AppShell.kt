@@ -81,6 +81,7 @@ import net.ripster.mobile.ui.screens.NowPlayingScreen
 import net.ripster.mobile.ui.screens.NowPlayingState
 import net.ripster.mobile.ui.screens.SearchScreen
 import net.ripster.mobile.ui.screens.settings.SettingsHost
+import net.ripster.mobile.ui.components.glassBar
 import net.ripster.mobile.ui.theme.RipsterTheme
 import net.ripster.mobile.ui.theme.RipsterThemeName
 
@@ -290,8 +291,14 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
         // внутри системных инсетов, чтобы шапка и нижняя навигация не залезали
         // под статус-бар / вырез / жестовую полосу на любом телефоне.
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)) {
+            // Шапка отдаёт высоту содержимому: было 10.dp сверху и снизу плюс
+            // логотип 30.dp — около 50.dp полосы. Стало 4.dp и 24.dp, и сама
+            // полоса полупрозрачная: подсветка под ней просвечивает, экран не
+            // делится глухой линией.
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                Modifier.fillMaxWidth()
+                    .glassBar(top = true)
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 androidx.compose.foundation.Image(
@@ -299,7 +306,7 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                         net.ripster.mobile.R.drawable.ic_ripster,
                     ),
                     contentDescription = "Ripster",
-                    modifier = Modifier.size(30.dp),
+                    modifier = Modifier.size(24.dp),
                 )
                 Box(Modifier.weight(1f))
                 // Явный вход в Плеер — Player убран из нижней навигации по
@@ -562,7 +569,7 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
             // Полоса рядом с кружком загрузки не пропадает зря: краткий статус
             // очереди (качается / в очереди / готово / ошибки) → тап открывает
             // вкладку «Загрузки».
-            Box(Modifier.fillMaxWidth()) {
+            Box(Modifier.fillMaxWidth().glassBar(top = false)) {
                 DownloadStrip(
                     items = queue,
                     modifier = Modifier.align(Alignment.CenterStart).padding(start = 16.dp, end = 76.dp),
@@ -829,7 +836,9 @@ private fun DownloadStrip(items: List<DownloadItem>, modifier: Modifier, onOpen:
 @Composable
 private fun GlyphButton(onClick: () -> Unit, draw: DrawScope.() -> Unit) {
     Box(
-        Modifier.size(30.dp).clickable { onClick() },
+        // 26.dp вместо 30: шапка сузилась, кнопки не должны её распирать.
+        // Ниже 26 не опускаемся — палец и так на пределе минимальной цели.
+        Modifier.size(26.dp).clickable { onClick() },
         contentAlignment = Alignment.Center,
     ) {
         Canvas(Modifier.size(18.dp)) { draw() }
