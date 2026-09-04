@@ -428,6 +428,8 @@ private val STRINGS: Map<String, Row> = mapOf(
     "lib.by_track" to row("Треки", "Tracks", "ट्रैक", "トラック", "单曲"),
     "a11y.prev" to row("Предыдущий", "Previous", "पिछला", "前へ", "上一首"),
     "a11y.next" to row("Следующий", "Next", "अगला", "次へ", "下一首"),
+    "a11y.play" to row("Воспроизвести", "Play", "चलाएँ", "再生", "播放"),
+    "a11y.pause" to row("Пауза", "Pause", "रोकें", "一時停止", "暂停"),
     "a11y.shuffle" to row("Перемешать", "Shuffle", "शफ़ल", "シャッフル", "随机播放"),
     "a11y.repeat" to row("Повтор", "Repeat", "दोहराएँ", "リピート", "循环"),
     "a11y.close_player" to row("Закрыть плеер", "Close player", "प्लेयर बंद करें", "プレーヤーを閉じる", "关闭播放器"),

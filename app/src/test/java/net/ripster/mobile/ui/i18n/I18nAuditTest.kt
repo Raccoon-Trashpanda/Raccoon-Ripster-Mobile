@@ -95,7 +95,37 @@ class I18nAuditTest {
         assertTrue("пустой перевод — пустое место на экране: $empties", empties.isEmpty())
     }
 
+    /**
+     * Подпись, которую приняли и не применили, выглядит как сделанная работа.
+     *
+     * 04.09.2026: `SideGlyph` в плеере принимал `cd: String` и не использовал его
+     * нигде. Четыре кнопки транспорта — перемотка, шаффл, повтор — были для
+     * озвучки безымянными, хотя переводы к ним заведены и вызовы честно их
+     * передавали. Увидеть это можно было только в дампе экрана.
+     */
+    @Test
+    fun everyAccessibilityLabelParameterIsActuallyApplied() {
+        val offenders = mutableListOf<String>()
+        sourceRoot().walkTopDown().filter { it.isFile && it.extension == "kt" }.forEach { f ->
+            val src = f.readText()
+            if (!Regex("""\bcd:\s*String""").containsMatchIn(src)) return@forEach
+            val used = src.contains("contentDescription = cd") ||
+                src.contains("onClickLabel = cd") ||
+                src.contains("contentDescription(cd)")
+            if (!used) offenders += f.relativeTo(sourceRoot()).invariantPath()
+        }
+        assertTrue(
+            "параметр подписи принят, но не применён — кнопка останется безымянной " +
+                "для скринридера: " + offenders.joinToString(", "),
+            offenders.isEmpty(),
+        )
+    }
+
     // ── вспомогательное ──────────────────────────────────────────────────────
+
+    /** Путь через `/` независимо от разделителя ОС — чтобы сообщение теста
+     *  читалось одинаково на любой машине. */
+    private fun File.invariantPath(): String = path.split(File.separatorChar).joinToString("/")
 
     private fun sourceRoot(): File {
         // Тест запускают и из корня модуля, и из корня проекта — ищем оба.

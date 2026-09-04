@@ -69,6 +69,9 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -788,6 +791,11 @@ private fun Centered(text: String, c: net.ripster.mobile.ui.theme.RipsterColors)
 @Composable
 private fun RefPlayButton(isPlaying: Boolean, onClick: () -> Unit) {
     val c = RipsterTheme.colors
+    // Главная кнопка экрана была для озвучки безымянной. Подпись зависит от
+    // состояния: «пауза» на играющем и «воспроизвести» на остановленном —
+    // иначе человек не знает, что произойдёт по нажатию.
+    val lang = LocalAppLang.current
+    val playCd = tr(if (isPlaying) "a11y.pause" else "a11y.play", lang)
     val brush = Brush.linearGradient(listOf(c.accent_hover, c.accent_fill))
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
@@ -808,7 +816,9 @@ private fun RefPlayButton(isPlaying: Boolean, onClick: () -> Unit) {
             .size(64.dp)
             .clip(CircleShape)
             .background(brush)
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick),
+            .clickable(interactionSource = interaction, indication = null,
+                       onClickLabel = playCd, role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = playCd },
         contentAlignment = Alignment.Center,
       ) {
         Canvas(Modifier.size(26.dp)) {
@@ -846,7 +856,13 @@ private fun SideGlyph(
     val s by animateFloatAsState(if (pressed) 0.82f else 1f, label = "side-press")
     Box(
         Modifier.size(box).scale(s)
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick),
+            .clickable(interactionSource = interaction, indication = null,
+                       onClickLabel = cd, role = Role.Button, onClick = onClick)
+            // Подпись `cd` сюда ПРИНИМАЛАСЬ и никуда не шла: перемотка, шаффл и
+            // повтор были для озвучки безымянными кнопками, хотя переводы для них
+            // заведены. Потерянный параметр выглядит как сделанная работа —
+            // отсюда и «подписи есть», пока не посмотришь дамп экрана.
+            .semantics { contentDescription = cd },
         contentAlignment = Alignment.Center,
     ) { Canvas(Modifier.size(glyph)) { draw(tint ?: c.text_secondary) } }
 }
