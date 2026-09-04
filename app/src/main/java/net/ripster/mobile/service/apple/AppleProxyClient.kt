@@ -15,6 +15,8 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
+import kotlinx.serialization.json.JsonElement
+import net.ripster.mobile.core.model.Album
 import net.ripster.mobile.core.model.DownloadEvent
 import net.ripster.mobile.core.model.DownloadRequest
 import net.ripster.mobile.core.model.MediaKind
@@ -67,8 +69,52 @@ class AppleProxyClient(
             .addQueryParameter("limit", "25")
             .addQueryParameter("country", storefront)
             .build()
+        // Альбомы отдельным запросом: `entity=song` их не возвращает, и до
+        // 04.09.2026 карточек релизов Apple в поиске телефона не было вовсе —
+        // а значит и кнопке ↓ было не за что зацепиться. Скачивание идёт через
+        // сопряжённый ПК, поэтому релиз тут полноценно полезен, хотя играть его
+        // на телефоне нельзя.
+        val albumUrl = "https://itunes.apple.com/search".toHttpUrl().newBuilder()
+            .addQueryParameter("term", q)
+            .addQueryParameter("media", "music")
+            .addQueryParameter("entity", "album")
+            .addQueryParameter("limit", "15")
+            .addQueryParameter("country", storefront)
+            .build()
         val items = itunes(url.toString())
-        MediaSelection(kind = MediaKind.TRACK, tracks = items.mapNotNull { it.toTrack() })
+        val albums = runCatching { itunes(albumUrl.toString()) }.getOrDefault(emptyList())
+            .mapNotNull { it.toAlbum() }
+        MediaSelection(
+            kind = MediaKind.TRACK,
+            tracks = items.mapNotNull { it.toTrack() },
+            albums = albums,
+        )
+    }
+
+    /** Строка-коллекция iTunes → релиз. Ссылку берём ту, что отдал сам iTunes:
+     *  номер релиза у Apple свой в каждой витрине, и собранная из id ссылка
+     *  ведёт в чужой витрине не туда. */
+    private fun JsonElement.toAlbum(): Album? {
+        val o = jsonObject
+        if (o["collectionType"]?.jsonPrimitive?.contentOrNull != "Album") return null
+        val cid = o["collectionId"]?.jsonPrimitive?.contentOrNull ?: return null
+        val title = o["collectionName"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        if (title.isBlank()) return null
+        val date = o["releaseDate"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        return Album(
+            id = cid,
+            title = title,
+            artist = o["artistName"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+            service = Service.APPLE,
+            year = date.take(4).toIntOrNull(),
+            trackCount = o["trackCount"]?.jsonPrimitive?.contentOrNull?.toIntOrNull(),
+            artworkUrl = o["artworkUrl100"]?.jsonPrimitive?.contentOrNull
+                ?.replace("100x100bb", "600x600bb"),
+            releaseDate = date.take(10).ifBlank { null },
+            genre = o["primaryGenreName"]?.jsonPrimitive?.contentOrNull,
+            copyright = o["copyright"]?.jsonPrimitive?.contentOrNull,
+            url = o["collectionViewUrl"]?.jsonPrimitive?.contentOrNull,
+        )
     }
 
     override suspend fun resolve(url: String): MediaSelection? {

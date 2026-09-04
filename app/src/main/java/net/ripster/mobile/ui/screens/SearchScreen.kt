@@ -582,7 +582,12 @@ fun SearchScreen(
                                     // релиз по ссылке, как это делает ▶.
                                     var list = albTracks
                                     if (list.isEmpty()) {
-                                        val u = streamableAlbumUrl(a.service.id, a.id)
+                                        // Ссылку, пришедшую от сервиса, предпочитаем
+                                        // собранной: у Apple номер релиза свой в
+                                        // каждой витрине, и самодельная ссылка в
+                                        // чужой витрине ведёт не туда.
+                                        val u = a.url?.takeIf { it.isNotBlank() }
+                                            ?: downloadableAlbumUrl(a.service.id, a.id, app.pcBridge.appleStorefront)
                                         if (u.isNotBlank()) {
                                             error = tr("search.starting", lang)
                                             list = kotlinx.coroutines.withTimeoutOrNull(25_000) {
@@ -909,6 +914,29 @@ private fun DownloadPill(queued: Boolean, onClick: () -> Unit, c: net.ripster.mo
 /** Осталось для совместимости вызовов внутри экрана: разбор переехал в
  *  [net.ripster.mobile.ui.i18n.errorText], чтобы у всех экранов он был один. */
 private fun humanNetError(e: Throwable, lang: AppLang): String = errorText(e, lang)
+
+/** URL альбома для СКАЧИВАНИЯ. Шире, чем `streamableAlbumUrl`.
+ *
+ *  Эти вопросы долго решала одна функция, и из-за этого кнопка ↓ на карточке
+ *  альбома Apple или Spotify не делала НИЧЕГО: ссылку строить было нечем, хотя
+ *  оба сервиса альбом разворачивают — Apple через сопряжённый ПК,
+ *  Spotify конверсией по ISRC. Играть их на телефоне действительно нельзя, а
+ *  скачивать можно; смешивать эти два ответа в одном значении неправильно.
+ *
+ *  SoundCloud сюда не попадает намеренно: у плейлиста нет id-ссылки, нужен
+ *  постоянный адрес вида `/user/sets/slug`, которого в выдаче поиска нет.
+ *  Выдумывать его — значит отправить резолв в никуда.
+ */
+private fun downloadableAlbumUrl(serviceId: String, id: String, appleStorefront: String): String {
+    if (id.isBlank() || id == "0") return ""
+    return when (serviceId) {
+        // Витрина обязательна: Apple нумерует один и тот же релиз в разных
+        // витринах по-разному, и id из выдачи принадлежит именно этой.
+        "apple" -> "https://music.apple.com/${appleStorefront.ifBlank { "us" }}/album/x/$id"
+        "spotify" -> "https://open.spotify.com/album/$id"
+        else -> streamableAlbumUrl(serviceId, id)
+    }
+}
 
 /** URL альбома из id+сервиса — для resolve()/ReleasePlayback, когда в выдаче
  *  поиска нет треков этого альбома. Пусто → плеер по этому альбому не собрать
