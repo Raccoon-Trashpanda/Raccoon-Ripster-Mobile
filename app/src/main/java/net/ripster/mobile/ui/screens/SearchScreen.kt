@@ -64,6 +64,7 @@ import net.ripster.mobile.ui.i18n.tr
 import net.ripster.mobile.ui.components.pressable
 import net.ripster.mobile.ui.theme.RipsterTheme
 import net.ripster.mobile.ui.i18n.errorText
+import net.ripster.mobile.ui.components.busyHalo
 
 /**
  * Поток «найти и поставить в очередь». Сервисы выбираются галочками в
@@ -133,6 +134,23 @@ fun SearchScreen(
     // молча висели на 20-с таймауте `ReleasePlayback.play`, ответом была тишина.
     // Плюс и строка, и кружок ▶ дёргают onPlay — даже один тап мог сдвоиться.
     var playPending by remember { mutableStateOf(false) }
+    // Какую именно карточку сейчас резолвим — чтобы ореол зажёгся на ней, а не
+    // на всех сразу. Строка «начинаю…» остаётся, но она над списком и при
+    // прокрутке не видна: отклик должен быть там, где палец (жалоба e79).
+    var playingKey by remember { mutableStateOf<String?>(null) }
+    // Исход попытки ▶ — отдельно от `error`. `error` рисуется НАД списком, и
+    // при прокрутке его не видно: жалоба e79 «нет звука, непонятно что
+    // происходит» была именно про это. Исход показываем плашкой у нижнего края,
+    // где палец и где мини-плеер: там его нельзя не заметить.
+    var playNotice by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(playNotice) {
+        // Плашка живёт ограниченно: сообщение об отказе не должно висеть
+        // вечно и притворяться состоянием экрана.
+        if (playNotice != null) {
+            kotlinx.coroutines.delay(6000)
+            playNotice = null
+        }
+    }
     LaunchedEffect(typeFilter, sortNew, yearText) {
         app.settings.update { it.copy(searchType = typeFilter, searchSortNew = sortNew, searchYear = yearText) }
     }
@@ -249,7 +267,8 @@ fun SearchScreen(
         }
     }
 
-    Column(modifier.fillMaxSize().background(c.surface_canvas).padding(16.dp)) {
+    Box(modifier.fillMaxSize().background(c.surface_canvas)) {
+    Column(Modifier.fillMaxSize().padding(16.dp)) {
         if (configured == null) {
             BasicText(tr("search.checking", lang), style = TextStyle(color = c.text_tertiary, fontSize = 13.sp))
             return@Column
@@ -515,9 +534,11 @@ fun SearchScreen(
                                     ),
                                 ) else error = tr("search.cant_play", lang)
                             },
+                            busy = playingKey == akey,
                             onPlay = {
                                 if (!playPending) scope.launch {
                                     playPending = true
+                                    playingKey = akey
                                     error = tr("search.starting", lang)   // мгновенный отклик, не тишина
                                     try {
                                         // Треков этого альбома в выдаче обычно НЕТ
@@ -533,14 +554,21 @@ fun SearchScreen(
                                                 net.ripster.mobile.core.service.ReleasePlayback.play(app.player, u, quality, fallbackArtwork = a.artworkUrl)
                                             } == true
                                         }
-                                        if (ok) { error = null; onOpenPlayer() }
-                                        else error = tr(
-                                            if (a.service.id == "apple" || a.service.id == "soundcloud")
-                                                "search.cant_play" else "search.album_open_tracks", lang)
+                                        if (ok) { error = null; playNotice = null; onOpenPlayer() }
+                                        else {
+                                            val why = tr(
+                                                if (a.service.id == "apple" || a.service.id == "soundcloud")
+                                                    "search.cant_play" else "search.album_open_tracks", lang)
+                                            error = why
+                                            playNotice = why
+                                        }
                                     } catch (t: Throwable) {
-                                        error = humanNetError(t, lang)
+                                        val text = humanNetError(t, lang)
+                                        error = text
+                                        playNotice = text
                                     } finally {
                                         playPending = false
+                                        playingKey = null
                                     }
                                 }
                             },
@@ -583,9 +611,11 @@ fun SearchScreen(
                             track = t,
                             queued = queued["${t.service.id}:${t.id}"] == true,
                             onArtist = { onOpenArtist(t.artist, t.service.id, t.raw["artId"].orEmpty()) },
+                            busy = playingKey == "${t.service.id}:${t.id}",
                             onPlay = {
                                 if (!playPending) scope.launch {
                                     playPending = true
+                                    playingKey = "${t.service.id}:${t.id}"
                                     error = tr("search.starting", lang)
                                     try {
                                         val ordered = tracks.drop(idx)
@@ -636,15 +666,18 @@ fun SearchScreen(
                                             val why = ownWhy
                                             val haveStream = net.ripster.mobile.core.service.ServiceRegistry.all()
                                                 .any { it.service in setOf(Service.DEEZER, Service.QOBUZ, Service.TIDAL, Service.YANDEX) }
-                                            error = when {
+                                            val text = when {
                                                 why != null -> humanNetError(why, lang)
                                                 !haveStream -> tr("search.need_stream_svc", lang)
                                                 else -> tr("search.download_to_listen", lang)
                                             }
+                                            error = text
+                                            playNotice = text
                                             return@launch
                                         }
                                         app.player.playStream(head)
                                         error = null
+                                        playNotice = null
                                         onOpenPlayer()
                                         // Играет нажатый трек — дальше очередь из
                                         // остальных. drop(1), а не drop(4): пачку
@@ -656,9 +689,12 @@ fun SearchScreen(
                                             )
                                         }
                                     } catch (t: Throwable) {
-                                        error = humanNetError(t, lang)
+                                        val text = humanNetError(t, lang)
+                                        error = text
+                                        playNotice = text
                                     } finally {
                                         playPending = false
+                                        playingKey = null
                                     }
                                 }
                             },
@@ -673,6 +709,29 @@ fun SearchScreen(
                 }
             }
         }
+    }
+
+    // Плашка исхода — у нижнего края, поверх списка. Именно сюда смотрит
+    // человек, нажавший ▶: строка над выдачей при прокрутке не видна.
+    playNotice?.let { note ->
+        Box(
+            Modifier.align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 14.dp),
+        ) {
+            Box(
+                Modifier.fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(c.surface_raised)
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+            ) {
+                BasicText(
+                    note,
+                    style = TextStyle(color = c.text_primary, fontSize = 13.sp, lineHeight = 18.sp),
+                )
+            }
+        }
+    }
     }
 }
 
@@ -714,6 +773,7 @@ private fun SectionHeader(text: String) {
 private fun AlbumRow(
     album: Album,
     queued: Boolean,
+    busy: Boolean = false,
     onArtist: () -> Unit,
     onOpen: () -> Unit,
     onPlay: () -> Unit,
@@ -726,6 +786,7 @@ private fun AlbumRow(
         // в приложении. ▶ рядом — «слушать потоком». Раньше вся строка играла,
         // и открыть релиз было нельзя (жалоба 03.09.2026).
         Modifier.fillMaxWidth()
+            .busyHalo(busy, c.accent_text)
             .pressable(pressedBg = c.surface_raised) { onOpen() }
             .padding(horizontal = 4.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -766,6 +827,7 @@ private fun AlbumRow(
 private fun TrackRow(
     track: Track,
     queued: Boolean,
+    busy: Boolean = false,
     onArtist: () -> Unit,
     onPlay: () -> Unit,
     onQueue: () -> Unit,
@@ -775,6 +837,7 @@ private fun TrackRow(
     Row(
         Modifier
             .fillMaxWidth()
+            .busyHalo(busy, c.accent_text)
             .pressable(pressedBg = c.surface_raised) { onPlay() }
             .padding(horizontal = 4.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
