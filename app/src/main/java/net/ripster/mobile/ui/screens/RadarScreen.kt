@@ -470,7 +470,10 @@ private fun RadarReleaseTile(
     val scraped = rememberReleaseCover(if (item.coverUrl != null) "" else item.latestUrl)
     val cover = item.coverUrl ?: scraped
     val cd = net.ripster.mobile.ui.components.ReleaseCardData(
-        title = item.name, artist = item.name,
+        // Название релиза, если ПК его знает; иначе остаётся имя артиста —
+        // но не потому, что «так задумано», а потому что другого нет.
+        title = item.latestTitle.ifBlank { item.name },
+        artist = item.name,
         service = item.service.ifBlank { "radar" },
         url = item.latestUrl, coverUrl = cover, isNew = true, dateText = null,
     )
@@ -490,13 +493,27 @@ private fun RadarReleaseTile(
                 scope.launch { grabUrl(app, item.latestUrl) }
             }
         },
-        onPlay = if (item.latestUrl.isBlank()) null else {
+        // Играть можно и без ссылки: у части записей ПК знает только НАЗВАНИЕ
+        // релиза. Тогда ищем его по «артист + название», обязательно сверяя
+        // исполнителя, — иначе кнопка просто исчезала бы у половины карточек.
+        onPlay = if (item.latestUrl.isBlank() && item.latestTitle.isBlank()) null else {
             {
                 scope.launch {
                     buffering = true
                     val q = app.settings.state.value.qualityFor(onWifi = true)
                     val ok = kotlinx.coroutines.withTimeoutOrNull(25_000) {
-                        net.ripster.mobile.core.service.ReleasePlayback.play(app.player, item.latestUrl, q, fallbackArtwork = cover)
+                        if (item.latestUrl.isNotBlank()) {
+                            net.ripster.mobile.core.service.ReleasePlayback
+                                .play(app.player, item.latestUrl, q, fallbackArtwork = cover)
+                        } else {
+                            net.ripster.mobile.core.service.ReleasePlayback.playSearch(
+                                app.player,
+                                "${item.name} ${item.latestTitle}".trim(),
+                                q,
+                                fallbackArtwork = cover,
+                                expectArtist = item.name,
+                            )
+                        }
                     } ?: false
                     buffering = false
                     if (ok) onOpenPlayer()

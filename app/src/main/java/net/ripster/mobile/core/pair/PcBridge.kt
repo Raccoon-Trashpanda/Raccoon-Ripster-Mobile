@@ -417,6 +417,14 @@ class PcBridge(context: Context) {
         val coverUrl: String? = null,  // готовая обложка релиза с ПК (Spotify отдаёт сразу)
         val artistId: String = "",     // id артиста в сервисе — для перехода в дискографию
         val date: String = "",         // дата релиза (ISO). Будущая → поток ещё не существует
+        /**
+         * Название последнего релиза. Пустое — ПК его не знает.
+         *
+         * Раньше карточка радара печатала имя артиста дважды (и в заголовке, и
+         * в подписи), потому что названия в модели просто не было: жалоба
+         * владельца 04.09.2026 «у всех карточек название совпадает с артистом».
+         */
+        val latestTitle: String = "",
     )
 
     // ── страница артиста (дискография) ──
@@ -458,6 +466,7 @@ class PcBridge(context: Context) {
                             coverUrl = o["cover_url"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
                             artistId = o["artist_id"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                             date = o["date"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                            latestTitle = o["latest_title"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                         )
                     }
                 }
