@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -208,6 +209,14 @@ fun HomeScreen(
             )
         },
     ) {
+    // Почему не удалось включить. Раньше отказ выглядел как «ничего не
+    // произошло»: индикатор буферизации гас, и всё — человек жал ▶ ещё раз.
+    // Жалоба владельца 04.09.2026 про BBC.
+    var playError by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(playError) {
+        if (playError != null) { kotlinx.coroutines.delay(6000); playError = null }
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         // запас снизу, чтобы последние секции можно было пролистать выше
@@ -219,6 +228,10 @@ fun HomeScreen(
                 BasicText(tr("home.greeting", lang), style = TextStyle(color = c.text_primary, fontSize = 22.sp, fontWeight = FontWeight.Bold))
                 Spacer(Modifier.height(6.dp))
                 BasicText(tr("home.greeting_sub", lang), style = TextStyle(color = c.text_tertiary, fontSize = 13.sp))
+                playError?.let { msg ->
+                    Spacer(Modifier.height(8.dp))
+                    BasicText(msg, style = TextStyle(color = c.danger_text, fontSize = 13.sp))
+                }
             }
         }
 
@@ -528,6 +541,7 @@ fun HomeScreen(
                                     } ?: false
                                     buffering = false
                                     if (ok) onOpen(RipsterDestination.Player)
+                                    else playError = tr("home.play_failed", lang)
                                 }
                             },
                         )

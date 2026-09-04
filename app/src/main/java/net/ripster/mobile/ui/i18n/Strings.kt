@@ -365,6 +365,13 @@ private val STRINGS: Map<String, Row> = mapOf(
     ),
     // Ошибки движков: ключи ровно те, что в core/errors/EngineErrors.kt.
     // Сервис в текст не пишем — его подставляет вызывающий экран.
+    "home.play_failed" to row(
+        "Не удалось включить — сервис не отдал поток. Попробуй скачать.",
+        "Couldn’t start playback — the service returned no stream. Try downloading instead.",
+        "चलाया नहीं जा सका — सेवा ने स्ट्रीम नहीं दी। डाउनलोड करके देखें।",
+        "再生できませんでした — ストリームが取得できません。ダウンロードをお試しください。",
+        "无法播放 — 服务未返回音频流。可以尝试下载。",
+    ),
     "err.geo_uk" to row(
         "доступно только из Великобритании — нужен UK-прокси или VPN.",
         "available only from the UK — a UK proxy or VPN is required.",

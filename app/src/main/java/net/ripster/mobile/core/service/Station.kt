@@ -1,5 +1,7 @@
 package net.ripster.mobile.core.service
 
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -101,8 +103,10 @@ object ReleasePlayback {
         quality: List<String>,
         fallbackArtwork: String? = null,
     ): Boolean {
-        val sel = ServiceRegistry.all()
-            .firstNotNullOfOrNull { runCatching { it.resolve(url) }.getOrNull() }
+        val sel = withContext(Dispatchers.IO) {
+            ServiceRegistry.all()
+                .firstNotNullOfOrNull { runCatching { it.resolve(url) }.getOrNull() }
+        }
 
         // 1) есть треклист от resolve() — резолвим потоки как есть
         val tracks = sel?.tracks.orEmpty()
@@ -145,7 +149,7 @@ object ReleasePlayback {
 
         // 1) пробуем найти САМ релиз (поиск теперь отдаёт и альбомы) и заиграть
         //    его целиком — это и есть «открыть весь сборник», а не трек из него.
-        val albums = coroutineScope {
+        val albums = withContext(Dispatchers.IO) {
             STREAMABLE.mapNotNull { ServiceRegistry.get(it) }.map { c ->
                 async { runCatching { c.search(query).albums }.getOrDefault(emptyList()) }
             }.awaitAll()
@@ -182,7 +186,15 @@ object StreamResolver {
         quality: List<String>,
         limit: Int = 40,
         fallbackArtwork: String? = null,
-    ): List<PlayerController.StreamItem> = coroutineScope {
+    ): List<PlayerController.StreamItem> = withContext(Dispatchers.IO) {
+        // Dispatchers.IO здесь обязателен, а не «на всякий случай».
+        //
+        // `coroutineScope` наследует диспетчер вызывающего, а зовут отсюда из
+        // `rememberCoroutineScope().launch` — то есть с ГЛАВНОГО потока. Внутри
+        // идёт `streamInfo()`, и ни один из девяти сервисов не уходит на IO сам
+        // (проверено 04.09.2026). Итог: сеть выполнялась на UI-потоке, и Android
+        // показывал «Ripster isn't responding» при нажатии ▶ — жалоба тестера с
+        // ANR-диалогом на треке Tidal. То же касается resolve() и search() ниже.
         tracks.take(limit).map { tr ->
             async {
                 runCatching {

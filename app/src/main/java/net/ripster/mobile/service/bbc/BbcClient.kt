@@ -52,17 +52,18 @@ class BbcClient(private val cacheDir: java.io.File) : ServiceClient {
 
     override suspend fun resolve(url: String): MediaSelection? {
         val pid = PID.find(url)?.groupValues?.get(1) ?: return null
-        val (title, vpid, durationMs) = playlist(pid)
+        val pl = playlist(pid)
         return MediaSelection(
             kind = MediaKind.TRACK,
             tracks = listOf(
                 Track(
                     id = pid,
-                    title = title,
+                    title = pl.title,
                     artist = "BBC",
                     service = Service.BBC,
-                    durationMs = durationMs,
-                    raw = mapOf("vpid" to vpid, "pid" to pid),
+                    durationMs = pl.durationMs,
+                    artworkUrl = pl.artworkUrl,
+                    raw = mapOf("vpid" to pl.vpid, "pid" to pid),
                 ),
             ),
         )
@@ -70,15 +71,29 @@ class BbcClient(private val cacheDir: java.io.File) : ServiceClient {
 
     override suspend fun streamInfo(track: Track, preference: List<String>): StreamInfo {
         val vpid = track.raw["vpid"] ?: throw IOException("BBC: no vpid")
-        return StreamInfo(url = mediaUrl(vpid), quality = mp3, headers = mapOf("User-Agent" to UA))
+        // HLS-ссылку отдаём как есть: ExoPlayer её играет (media3-exoplayer-hls),
+        // и отдельная обработка тут не нужна.
+        return StreamInfo(url = mediaUrl(vpid).url, quality = mp3, headers = mapOf("User-Agent" to UA))
     }
 
     override fun download(request: DownloadRequest): Flow<DownloadEvent> = flow {
         val vpid = request.track.raw["vpid"] ?: throw IOException("BBC: no vpid")
-        val url = mediaUrl(vpid)
+        val media = mediaUrl(vpid)
         emit(DownloadEvent.Log("BBC: $mp3"))
-        val out = java.io.File(cacheDir, "bbc_${request.track.id}.mp3")
-        val req = Request.Builder().url(url).header("User-Agent", UA).build()
+        val out = java.io.File(cacheDir, "bbc_${request.track.id}." + if (media.hls) "aac" else "mp3")
+        if (media.hls) {
+            // Потоковый набор отдаёт HLS — собираем сегменты тем же сборщиком,
+            // что и не-DRM SoundCloud. Прогресс считаем по сегментам: длину
+            // целого файла HLS заранее не сообщает.
+            net.ripster.mobile.service.soundcloud.HlsAssembler.assemble(media.url, out).collect { p ->
+                emit(DownloadEvent.Progress(
+                    p.segmentsTotal.takeIf { it > 0 }?.let { p.segmentsDone.toFloat() / it },
+                    p.bytesWritten, null))
+            }
+            emit(DownloadEvent.Done(out.absolutePath, mp3, out.length()))
+            return@flow
+        }
+        val req = Request.Builder().url(media.url).header("User-Agent", UA).build()
         RipsterHttp.client.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) throw IOException("BBC: stream -> HTTP ${resp.code}")
             val body = resp.body ?: throw IOException(EngineErrors.EMPTY_STREAM)
@@ -103,12 +118,30 @@ class BbcClient(private val cacheDir: java.io.File) : ServiceClient {
 
     // --- внутреннее ---
 
-    private data class Pl(val title: String, val vpid: String, val durationMs: Long?)
+    private data class Pl(
+        val title: String,
+        val vpid: String,
+        val durationMs: Long?,
+        val artworkUrl: String?,
+    )
 
     private suspend fun playlist(pid: String): Pl = withContext(Dispatchers.IO) {
         val raw = get("https://www.bbc.co.uk/programmes/$pid/playlist.json")
         val root = json.parseToJsonElement(raw).jsonObject
-        val title = root["title"]?.jsonPrimitive?.contentOrNull ?: "BBC $pid"
+        // Названия на верхнем уровне НЕТ — раньше брали root["title"], его там не
+        // бывает, и в плеере всегда стояло «BBC <pid>» вместо передачи (владелец
+        // 04.09.2026: «у BBC нет метаданных»). Настоящие название и картинка
+        // лежат в конфиге плеера версии и в holdingImage.
+        val ver = root["defaultAvailableVersion"]?.jsonObject
+            ?: root["allAvailableVersions"]?.jsonArray?.firstOrNull()?.jsonObject
+        val title = ver?.get("smpConfig")?.jsonObject
+            ?.get("title")?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+            ?: "BBC $pid"
+        // holdingImage приходит без схемы («//ichef.bbci.co.uk/...»): без неё
+        // загрузчик обложек молча ничего не получит.
+        val art = root["holdingImage"]?.jsonPrimitive?.contentOrNull
+            ?.takeIf { it.isNotBlank() }
+            ?.let { if (it.startsWith("//")) "https:$it" else it }
         val versions = root["allAvailableVersions"]?.jsonArray
             ?: throw IOException(EngineErrors.EXPIRED_OR_GEO)
         val item = versions.firstNotNullOfOrNull { v ->
@@ -116,11 +149,37 @@ class BbcClient(private val cacheDir: java.io.File) : ServiceClient {
         } ?: throw IOException("BBC: no playable item")
         val vpid = item["vpid"]?.jsonPrimitive?.contentOrNull ?: throw IOException("BBC: no vpid in playlist")
         val dur = item["duration"]?.jsonPrimitive?.contentOrNull?.toLongOrNull()?.times(1000)
-        Pl(title, vpid, dur)
+        Pl(title, vpid, dur, art)
     }
 
-    private suspend fun mediaUrl(vpid: String): String = withContext(Dispatchers.IO) {
-        for (mediaset in listOf("audio-nondrm-download", "audio-nondrm-download-low")) {
+    /** Что отдала BBC: прямой файл или HLS-плейлист — качать их надо по-разному. */
+    private data class Media(val url: String, val hls: Boolean)
+
+    /**
+     * Ссылка на звук передачи.
+     *
+     * Порядок mediaset'ов не случаен. Сначала спрашиваем «скачивательные»
+     * (`audio-nondrm-download`) — они дают готовый mp3 одним файлом, это самый
+     * дешёвый путь. Но за пределами Великобритании BBC отвечает на них 404, и
+     * раньше на этом всё заканчивалось: передача не скачивалась И не игралась,
+     * причём кнопка ▶ молчала — жалоба владельца 04.09.2026.
+     *
+     * При этом сам звук BBC отдаёт: те же выпуски доступны через потоковые
+     * mediaset'ы (`audio-syndication` и `iptv-all`) — AAC 320 по HLS, проверено
+     * на живом эпизоде из того же места, где download отвечал 404. Их и берём
+     * вторым заходом: играет ExoPlayer штатно, скачивание собирает [HlsAssembler].
+     *
+     * `geolocation` в ответе по-прежнему прерывает перебор сразу — это отказ по
+     * региону целиком, и следующий mediaset ответит тем же.
+     */
+    private suspend fun mediaUrl(vpid: String): Media = withContext(Dispatchers.IO) {
+        val direct = listOf("audio-nondrm-download", "audio-nondrm-download-low")
+        // `pc` — тот же набор, что годами использует ПК-версия
+        // (ripster/routes/bbc.py `_MSEL`), поэтому он первый; остальные два
+        // оставлены запасными, все три проверены живьём 04.09.2026.
+        val streaming = listOf("pc", "audio-syndication", "iptv-all")
+        for (mediaset in direct + streaming) {
+            val wantHls = mediaset in streaming
             val raw = runCatching {
                 get("https://open.live.bbc.co.uk/mediaselector/6/select/version/2.0/mediaset/$mediaset/vpid/$vpid/format/json")
             }.getOrNull() ?: continue
@@ -131,17 +190,36 @@ class BbcClient(private val cacheDir: java.io.File) : ServiceClient {
             }
             val media = root["media"]?.jsonArray ?: continue
             val audio = media.map { it.jsonObject }
-                .filter { it["kind"]?.jsonPrimitive?.contentOrNull == "audio" }
+                .filter {
+                    // У потоковых наборов `kind` может отсутствовать — там всё
+                    // и так аудио; фильтруем только когда поле есть.
+                    val k = it["kind"]?.jsonPrimitive?.contentOrNull
+                    k == null || k == "audio"
+                }
                 .maxByOrNull { it["bitrate"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0 }
                 ?: continue
-            val href = audio["connection"]?.jsonArray?.map { it.jsonObject }
-                ?.firstOrNull { c ->
+            val conns = audio["connection"]?.jsonArray?.map { it.jsonObject }.orEmpty()
+            // https предпочтительнее http: часть Android-сборок запрещает
+            // открытый текст, и такая ссылка молча не откроется.
+            // https раньше http (часть сборок запрещает открытый текст), а среди
+            // равных — cloudfront раньше akamai: тот же порядок предпочтения, что
+            // в ПК-версии.
+            val href = conns.sortedWith(
+                compareByDescending<kotlinx.serialization.json.JsonObject> {
+                    it["protocol"]?.jsonPrimitive?.contentOrNull == "https"
+                }.thenByDescending {
+                    (it["supplier"]?.jsonPrimitive?.contentOrNull ?: "").contains("cloudfront")
+                },
+            )
+                .firstOrNull { c ->
                     val p = c["protocol"]?.jsonPrimitive?.contentOrNull
                     val h = c["href"]?.jsonPrimitive?.contentOrNull ?: ""
-                    (p == "https" || p == "http") && h.contains(".mp3")
+                    val fmt = c["transferFormat"]?.jsonPrimitive?.contentOrNull
+                    (p == "https" || p == "http") &&
+                        if (wantHls) fmt == "hls" || h.contains(".m3u8") else h.contains(".mp3")
                 }
                 ?.get("href")?.jsonPrimitive?.contentOrNull
-            if (href != null) return@withContext href
+            if (href != null) return@withContext Media(href, wantHls)
         }
         throw IOException(EngineErrors.NO_AUDIO)
     }
