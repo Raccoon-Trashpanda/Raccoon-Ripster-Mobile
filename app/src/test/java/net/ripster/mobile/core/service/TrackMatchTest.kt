@@ -97,4 +97,21 @@ class TrackMatchTest {
         assertFalse(TrackMatch.looksLikeSameRecording(original, t("Teardrop (Sped Up)", "Massive Attack")))
         assertFalse(TrackMatch.looksLikeSameRecording(original, t("Teardrop - Slowed + Reverb", "Massive Attack")))
     }
+
+    /**
+     * Жалоба владельца 04.09.2026: открыл релиз Ewterwood, а заиграло
+     * «Heaven & Earth — I Really Love You». Разные исполнители не должны
+     * проходить как один ни при каких обстоятельствах.
+     */
+    @Test
+    fun unrelatedArtistsNeverMatch() {
+        assertFalse(TrackMatch.sameArtist("Ewterwood", "Heaven & Earth"))
+        assertFalse(TrackMatch.sameArtist("Massive Attack", "Portishead"))
+    }
+
+    @Test
+    fun sameArtistWithExtraCreditsStillMatches() {
+        assertTrue(TrackMatch.sameArtist("Ewterwood", "Ewterwood, Someone Else"))
+        assertTrue(TrackMatch.sameArtist("Massive Attack & Tricky", "Massive Attack"))
+    }
 }

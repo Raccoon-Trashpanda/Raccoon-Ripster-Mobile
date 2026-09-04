@@ -130,7 +130,7 @@ object ReleasePlayback {
             !sel?.containerTitle.isNullOrBlank() -> sel!!.containerTitle!!
             else -> return false
         }
-        return playSearch(player, query, quality, fallbackArtwork)
+        return playSearch(player, query, quality, fallbackArtwork, expectArtist = album?.artist)
     }
 
     /**
@@ -144,6 +144,8 @@ object ReleasePlayback {
         query: String,
         quality: List<String>,
         fallbackArtwork: String? = null,
+        /** Кого ждём. Задан — чужие исполнители в выдаче отбрасываются. */
+        expectArtist: String? = null,
     ): Boolean {
         if (query.isBlank()) return false
 
@@ -154,8 +156,17 @@ object ReleasePlayback {
                 async { runCatching { c.search(query).albums }.getOrDefault(emptyList()) }
             }.awaitAll()
         }.flatten()
-        val album = albums.firstOrNull { it.title.length >= 4 && query.contains(it.title, true) }
-            ?: albums.firstOrNull()
+        // Слепого «первый из выдачи» здесь БЫТЬ НЕ ДОЛЖНО. Именно он подсовывал
+        // чужой релиз: по запросу «Ewterwood <трек>» сервис возвращал что-то своё,
+        // и Ripster бодро играл «Heaven & Earth — I Really Love You» (жалоба
+        // владельца 04.09.2026). Берём альбом, только если он ОТНОСИТСЯ к запросу:
+        // совпал исполнитель либо название встречается в самом запросе.
+        val album = albums.firstOrNull { a ->
+            // Знаем исполнителя — он и решает. Не знаем — требуем, чтобы название
+            // релиза встречалось в запросе. Ни одного «а вдруг подойдёт».
+            if (expectArtist != null) TrackMatch.sameArtist(expectArtist, a.artist)
+            else a.title.length >= 4 && query.contains(a.title, true)
+        }
         if (album != null) {
             val u = releaseUrl(album.service, album.id)
             if (u.isNotBlank() && play(player, u, quality, fallbackArtwork)) return true
@@ -166,7 +177,11 @@ object ReleasePlayback {
             STREAMABLE.mapNotNull { ServiceRegistry.get(it) }.map { c ->
                 async { runCatching { c.search(query).tracks.take(20) }.getOrDefault(emptyList()) }
             }.awaitAll()
-        }.firstOrNull { it.isNotEmpty() } ?: return false
+        }.flatten()
+            // Чужого исполнителя не играем: список «что нашлось» без проверки —
+            // тот же способ подсунуть не тот релиз, только треками.
+            .filter { expectArtist == null || TrackMatch.sameArtist(expectArtist, it.artist) }
+            .ifEmpty { return false }
 
         val head = StreamResolver.toStreamItems(fromSearch.take(4), quality, limit = 4, fallbackArtwork = fallbackArtwork)
         if (head.isEmpty()) return false

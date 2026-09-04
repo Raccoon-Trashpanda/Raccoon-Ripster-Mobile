@@ -119,6 +119,8 @@ object TrackMatch {
      * совпадения, поэтому достаточно, чтобы ПЕРВЫЙ (главный) исполнитель одной
      * стороны встречался у другой.
      */
+    fun sameArtist(a: String, b: String): Boolean = artistsOverlap(a, b)
+
     private fun artistsOverlap(a: String, b: String): Boolean {
         val na = normTitle(a)
         val nb = normTitle(b)
