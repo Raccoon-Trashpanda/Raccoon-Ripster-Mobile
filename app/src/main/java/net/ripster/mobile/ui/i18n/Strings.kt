@@ -379,6 +379,13 @@ private val STRINGS: Map<String, Row> = mapOf(
         "この曲を配信で取得できる場所がありません。ダウンロードすればライブラリから再生できます。",
         "无法从任何来源流式播放该曲目。下载后即可在音乐库中播放。",
     ),
+    "ref.lyrics_failed" to row(
+        "Не удалось получить текст — сервис не ответил. Попробуй позже.",
+        "Couldn’t fetch the lyrics — the service didn’t answer. Try again later.",
+        "बोल नहीं मिल सके — सेवा ने उत्तर नहीं दिया। बाद में पुनः प्रयास करें।",
+        "歌詞を取得できませんでした — サービスが応答しません。後でお試しください。",
+        "无法获取歌词 — 服务未响应。请稍后再试。",
+    ),
     "err.geo_uk" to row(
         "доступно только из Великобритании — нужен UK-прокси или VPN.",
         "available only from the UK — a UK proxy or VPN is required.",
