@@ -87,6 +87,10 @@ fun LibraryScreen(
     // включая витрину в MainActivity, продолжают собираться без изменений.
     onOpenSettings: () -> Unit = {},
     onOpenSearch: () -> Unit = {},
+    // Релизами или отдельными треками. По умолчанию релизами: скачивают
+    // альбом, а не россыпь, и слушать его хотят целиком.
+    byAlbum: Boolean = true,
+    onModeChange: (Boolean) -> Unit = {},
 ) {
     val colors = RipsterTheme.colors
     val spacing = RipsterTheme.spacing
@@ -130,7 +134,14 @@ fun LibraryScreen(
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
-            LazyColumn(
+            Row(
+            Modifier.fillMaxWidth().padding(bottom = spacing.md),
+            horizontalArrangement = Arrangement.spacedBy(spacing.sm),
+        ) {
+            LibModeChip(tr("lib.by_album", lang), byAlbum) { onModeChange(true) }
+            LibModeChip(tr("lib.by_track", lang), !byAlbum) { onModeChange(false) }
+        }
+        LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 120.dp),
             ) {
@@ -402,5 +413,31 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawGearGlyph(color
         val start = Offset(center.x + cos * outerR, center.y + sin * outerR)
         val end = Offset(center.x + cos * (outerR + toothLen), center.y + sin * (outerR + toothLen))
         drawLine(color, start, end, strokeW, StrokeCap.Round)
+    }
+}
+
+
+/** Переключатель «релизы / треки» — те же правила, что у чипов фильтра поиска. */
+@Composable
+private fun LibModeChip(label: String, on: Boolean, onClick: () -> Unit) {
+    val c = RipsterTheme.colors
+    val t = RipsterTheme.type
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(Radii.RCtl))
+            .background(if (on) c.surface_active else c.surface_sunken)
+            .border(BorderWidth, if (on) c.accent_text else c.border_subtle,
+                    RoundedCornerShape(Radii.RCtl))
+            .clickable(role = Role.Button) { onClick() }
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+    ) {
+        BasicText(
+            label,
+            style = TextStyle(
+                color = if (on) c.accent_text else c.text_secondary,
+                fontSize = t.caption,
+                fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+            ),
+        )
     }
 }

@@ -152,6 +152,23 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
             p.startsWith("content://") || p.isBlank() || java.io.File(p).exists()
         }
     }
+    // Библиотека релизами, а не сплошным списком треков.
+    //
+    // Жалоба владельца: «нужно внедрить понятия альбом, сингл, чтобы можно было
+    // проигрывать тот самый релиз, который скачал, а не вразброс». Экран
+    // библиотеки показывал плоский список, и тап по треку ставил в очередь ВСЮ
+    // библиотеку с этого места — скачанный альбом играл вперемешку со всем
+    // остальным.
+    //
+    // Группируем по паре «альбом + исполнитель»: одного названия мало, у разных
+    // артистов бывает «Greatest Hits». Запись без альбома остаётся сама по себе
+    // (сингл), а не сваливается в общую кучу с такими же безымянными. Порядок
+    // внутри релиза — как треки легли в библиотеку: у скачанного альбома это и
+    // есть порядок треков.
+    val libraryGroups = remember(library) {
+        net.ripster.mobile.core.library.LibraryGrouping.group(library)
+    }
+    var libraryByAlbum by remember { mutableStateOf(true) }
     val playback by app.player.state.collectAsState()
     val settings by app.settings.state.collectAsState()
 
@@ -502,12 +519,22 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                         onOpenPlayer = openPlayer,
                     )
                     RipsterDestination.Library -> LibraryScreen(
-                        items = library.map { it.toItem() },
+                        items = if (libraryByAlbum) libraryGroups.map { (k, v) -> v.toGroupItem(k) }
+                                else library.map { it.toItem() },
                         searchQuery = "",
                         onSearchQueryChange = {},
+                        byAlbum = libraryByAlbum,
+                        onModeChange = { libraryByAlbum = it },
                         onItemClick = { picked ->
-                            val idx = library.indexOfFirst { it.id == picked.id }.coerceAtLeast(0)
-                            app.player.playQueue(library, idx)
+                            // Релиз играем ЦЕЛИКОМ и только его: очередь — треки
+                            // этого альбома, а не вся библиотека с найденного места.
+                            val grp = libraryGroups[picked.id]
+                            if (grp != null && grp.isNotEmpty()) {
+                                app.player.playQueue(grp, 0)
+                            } else {
+                                val idx = library.indexOfFirst { it.id == picked.id }.coerceAtLeast(0)
+                                app.player.playQueue(library, idx)
+                            }
                             openPlayer()
                         },
                         onOpenSettings = { showSettings = true },
@@ -846,6 +873,22 @@ private fun DownloadItem.toTask() = DownloadTask(
     errorReason = errorReason,
     serviceLabel = track.service.label,
 )
+
+/** Группа записей → карточка релиза. Исполнителя показываем общего, а если в
+ *  релизе их несколько — «Various Artists», как это принято у сборников. */
+private fun List<net.ripster.mobile.core.db.LibraryEntity>.toGroupItem(key: String): LibraryItem {
+    val head = first()
+    val g = net.ripster.mobile.core.library.LibraryGrouping
+    return LibraryItem(
+        id = key,
+        title = g.titleOf(this),
+        artist = g.artistOf(this),
+        format = net.ripster.mobile.player.PlayerController.formatLine(head) +
+            if (any { it.fakeLossless }) "  ⚠" else "",
+        trackCount = size,
+        artworkUrl = firstNotNullOfOrNull { it.artworkUrl },
+    )
+}
 
 private fun LibraryEntity.toItem() = LibraryItem(
     id = id,
