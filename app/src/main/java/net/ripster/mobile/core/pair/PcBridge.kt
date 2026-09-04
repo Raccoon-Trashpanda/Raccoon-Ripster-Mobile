@@ -178,7 +178,7 @@ class PcBridge(context: Context) {
     private suspend fun <T> viaBase(block: suspend (String) -> T): T {
         val b1 = resolveBase(deep = false)
             ?: resolveBase(deep = true)
-            ?: throw java.io.IOException("ПК недоступен — ни один адрес не отвечает")
+            ?: throw java.io.IOException(net.ripster.mobile.core.errors.EngineErrors.PC_OFFLINE)
         return try {
             block(b1)
         } catch (e: java.io.IOException) {

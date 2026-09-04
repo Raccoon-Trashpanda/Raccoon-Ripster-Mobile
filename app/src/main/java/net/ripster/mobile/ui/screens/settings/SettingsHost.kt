@@ -61,6 +61,7 @@ import net.ripster.mobile.ui.screens.cast.YandexStationBlock
 import net.ripster.mobile.ui.components.pressable
 import net.ripster.mobile.ui.theme.RipsterColors
 import net.ripster.mobile.ui.theme.RipsterTheme
+import net.ripster.mobile.ui.i18n.errorText
 
 /**
  * Настройки как навигационный стек: назад по системному жесту/кнопке
@@ -622,7 +623,7 @@ private fun PairingSection(lang: AppLang, c: RipsterColors) {
                             app.registerClients()
                             msg = if (n > 0) tr("pair.imported", lang) + ": " + n
                             else tr("pair.imported_none", lang)
-                        }.onFailure { msg = tr("pair.err", lang) + ": " + (it.message ?: "") }
+                        }.onFailure { msg = tr("pair.err", lang) + ": " + errorText(it, lang) }
                     }
                 }
             }
@@ -653,7 +654,7 @@ private fun PairingSection(lang: AppLang, c: RipsterColors) {
                         app.registerClients()
                         msg = tr("pair.paired", lang) +
                             (if (n > 0) " · " + tr("pair.imported", lang) + ": " + n else "")
-                    }.onFailure { msg = tr("pair.err", lang) + ": " + (it.message ?: "") }
+                    }.onFailure { msg = tr("pair.err", lang) + ": " + errorText(it, lang) }
                     working = false
                 }
             }

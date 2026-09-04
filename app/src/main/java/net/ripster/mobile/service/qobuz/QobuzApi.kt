@@ -236,8 +236,7 @@ class QobuzApi(
         params: (okhttp3.HttpUrl.Builder) -> Unit,
     ): String {
         if (aid.isBlank()) throw IOException(
-            "Qobuz: нет app_id — вставь app_id и app_secret в Настройках → Учётные записи " +
-                "или войди по email/паролю.")
+            net.ripster.mobile.core.errors.EngineErrors.QOBUZ_KEYS)
         val url = "https://www.qobuz.com/api.json/0.2/$path".toHttpUrl().newBuilder().apply(params).build()
         val req = Request.Builder()
             .url(url)

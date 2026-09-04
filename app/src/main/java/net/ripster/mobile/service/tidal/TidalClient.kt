@@ -250,10 +250,7 @@ class TidalClient(
         }
         // 3) фолбэк на просроченный access — вдруг ещё пустят; иначе честная ошибка
         if (s.accessToken.isNotBlank()) { accessToken = s.accessToken; return true }
-        throw IOException(
-            lastAuthError?.let { "Tidal: обновление токена не прошло — $it" }
-                ?: "Tidal: токен истёк — вставь свежий в Настройках → Учётные записи",
-        )
+        throw IOException(EngineErrors.code(EngineErrors.TOKEN_INVALID, lastAuthError))
     }
 
     /** exp из JWT в прошлом (с запасом 60с)? */
@@ -336,14 +333,12 @@ class TidalClient(
         val why = lastErr ?: ""
         throw IOException(
             when {
-                why.contains("401") ->
-                    "Tidal: токен истёк — открой «Забрать учётки с ПК» в сопряжении"
+                why.contains("401") -> EngineErrors.TOKEN_INVALID
                 why.contains("403") || why.contains("4005") ->
-                    "Tidal: этот трек недоступен по твоей подписке или в регионе ($cc)"
-                why.contains("404") ->
-                    "Tidal: трек не найден в каталоге региона ($cc)"
-                why.isNotBlank() -> "Tidal: поток недоступен — $why"
-                else -> "Tidal: не удалось получить поток для этого трека"
+                    EngineErrors.code(EngineErrors.NO_SOURCE_REGION, cc)
+                why.contains("404") -> EngineErrors.code(EngineErrors.TRACK_UNAVAILABLE, cc)
+                why.isNotBlank() -> EngineErrors.code(EngineErrors.EMPTY_STREAM, why)
+                else -> EngineErrors.EMPTY_STREAM
             },
         )
     }
@@ -503,9 +498,7 @@ class TidalClient(
         }
         val path = base.toHttpUrl().encodedPath
         if (code == 401) throw IOException(
-            lastAuthError?.let { "Tidal: 401 — $it" }
-                ?: lastHttpBody?.let { "Tidal: 401 — $it" }
-                ?: "Tidal: 401 — вход не принят, обнови токен в Настройках → Учётные записи",
+            EngineErrors.code(EngineErrors.AUTH_FAILED, lastAuthError ?: lastHttpBody),
         )
         if (body == null) throw IOException("Tidal $path -> HTTP $code")
         return body!!

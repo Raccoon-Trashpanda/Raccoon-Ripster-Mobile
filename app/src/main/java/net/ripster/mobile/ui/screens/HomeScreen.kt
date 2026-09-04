@@ -50,6 +50,7 @@ import net.ripster.mobile.ui.i18n.tr
 import net.ripster.mobile.ui.navigation.RipsterDestination
 import net.ripster.mobile.ui.theme.RipsterColors
 import net.ripster.mobile.ui.theme.RipsterTheme
+import net.ripster.mobile.ui.i18n.errorText
 
 /**
  * Главная — точка входа. Два ЯВНО разных источника (не одна размытая лента):
@@ -280,7 +281,7 @@ fun HomeScreen(
                     dlFailed.forEach { d ->
                         WideCard(
                             title = d.title.ifBlank { tr("home.dl_track", lang) },
-                            subtitle = (engineErrorText(d.errorReason, lang) ?: d.errorReason ?: tr("home.dl_failed", lang)).take(60),
+                            subtitle = (d.errorReason?.let { errorText(it, lang) } ?: tr("home.dl_failed", lang)).take(60),
                             art = dlArt[d.id], progress = 0f,
                             c = c, onClick = { onOpen(RipsterDestination.Downloads) },
                         )

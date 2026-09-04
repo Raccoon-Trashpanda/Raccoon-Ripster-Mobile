@@ -49,6 +49,7 @@ import net.ripster.mobile.ui.i18n.LocalAppLang
 import net.ripster.mobile.ui.i18n.tr
 import net.ripster.mobile.ui.theme.RipsterTheme
 import net.ripster.mobile.ui.theme.RipsterThemeName
+import net.ripster.mobile.ui.i18n.errorText
 
 /**
  * Первый запуск: язык → тема → размер шрифта → папка загрузок → в учётки.
@@ -215,7 +216,7 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                                         pairMsg = tr("ob.pair_ok", lang)
                                     } else {
                                         pairMsg = tr("ob.pair_fail", lang) + ": " +
-                                            (r.exceptionOrNull()?.message ?: "")
+                                            errorText(r.exceptionOrNull(), lang)
                                     }
                                     pairBusy = false
                                 }

@@ -42,6 +42,7 @@ import net.ripster.mobile.ui.i18n.engineErrorText
 import net.ripster.mobile.ui.i18n.tr
 import net.ripster.mobile.ui.theme.RipsterColors
 import net.ripster.mobile.ui.theme.RipsterTheme
+import net.ripster.mobile.ui.i18n.errorText
 
 private sealed interface ScUiState {
     data object Idle : ScUiState
@@ -204,7 +205,7 @@ private fun StatusBlock(
                 DownloadState.RUNNING -> tr("sc.downloading", lang) +
                     (live.fraction?.let { "  ${(it * 100).toInt()}%" } ?: "")
                 DownloadState.DONE -> tr("sc.done", lang)
-                DownloadState.FAILED -> tr("sc.failed", lang) + ((engineErrorText(live.errorReason, lang) ?: live.errorReason)?.let { "  ·  $it" } ?: "")
+                DownloadState.FAILED -> tr("sc.failed", lang) + (live.errorReason?.let { "  ·  " + errorText(it, lang) } ?: "")
                 DownloadState.CANCELLED -> tr("sc.failed", lang)
             }
             BasicText(label, style = TextStyle(color = c.text_secondary, fontSize = 13.sp))

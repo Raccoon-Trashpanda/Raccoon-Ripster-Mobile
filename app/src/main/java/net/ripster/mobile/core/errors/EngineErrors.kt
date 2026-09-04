@@ -47,6 +47,9 @@ object EngineErrors {
     /** Прочий отказ по HTTP. Хвост — код и endpoint. */
     const val HTTP = "__e.http__"
 
+    /** Сервис отдаёт поток только по платной подписке (Beatport Streaming). */
+    const val NEEDS_SUBSCRIPTION = "__e.needs_subscription__"
+
     /** Совпадение не найдено (конверсия Spotify). */
     const val NOT_FOUND = "__e.not_found__"
 

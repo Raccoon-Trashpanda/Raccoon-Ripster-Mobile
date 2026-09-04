@@ -257,7 +257,7 @@ class BeatportClient(
                 last = e
             }
         }
-        throw last ?: IOException("Beatport: не удалось получить поток (нужна подписка Beatport Streaming)")
+        throw last ?: IOException(EngineErrors.NEEDS_SUBSCRIPTION)
     }
 
     override suspend fun getArtist(artistId: String): net.ripster.mobile.core.pair.PcBridge.ArtistPage? {

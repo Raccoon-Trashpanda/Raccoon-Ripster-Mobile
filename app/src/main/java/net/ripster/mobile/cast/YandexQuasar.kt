@@ -61,7 +61,8 @@ class YandexQuasar(private val oauthToken: String) {
             .header("User-Agent", "RipsterMobile/0.1")
             .build()
         RipsterHttp.client.newCall(req).execute().use { r ->
-            if (r.code == 401 || r.code == 403) throw IOException("Yandex: OAuth-токен недействителен")
+            if (r.code == 401 || r.code == 403) throw IOException(
+                net.ripster.mobile.core.errors.EngineErrors.TOKEN_INVALID)
             if (!r.isSuccessful) throw IOException("Yandex quasar ${url.substringAfterLast('/')} -> HTTP ${r.code}")
             return r.body?.string() ?: throw IOException("Yandex quasar -> empty")
         }

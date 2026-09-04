@@ -62,6 +62,7 @@ import net.ripster.mobile.ui.components.rememberReleaseCover
 import net.ripster.mobile.ui.i18n.LocalAppLang
 import net.ripster.mobile.ui.i18n.tr
 import net.ripster.mobile.ui.theme.RipsterTheme
+import net.ripster.mobile.ui.i18n.errorText
 
 /**
  * Радар — витрина отслеживаемых артистов ПК-версии. Своего краулера на телефоне
@@ -136,7 +137,7 @@ fun RadarScreen(
         when {
             res == null && localItems.isEmpty() -> Centered(tr("radar.loading", lang), c)
             res?.isFailure == true && localItems.isEmpty() ->
-                Centered(tr("radar.err", lang) + ": " + (res.exceptionOrNull()?.message ?: ""), c)
+                Centered(tr("radar.err", lang) + ": " + errorText(res.exceptionOrNull(), lang), c)
             else -> {
                 val pc = res?.getOrDefault(emptyList()).orEmpty()
                 // локальные подписки + радар ПК; дедуп по имени артиста (низкий регистр)
@@ -504,7 +505,8 @@ private fun RadarReleaseTile(
                     val ok = kotlinx.coroutines.withTimeoutOrNull(25_000) {
                         if (item.latestUrl.isNotBlank()) {
                             net.ripster.mobile.core.service.ReleasePlayback
-                                .play(app.player, item.latestUrl, q, fallbackArtwork = cover)
+                                .play(app.player, item.latestUrl, q, fallbackArtwork = cover,
+                                    expectArtist = item.name)
                         } else {
                             net.ripster.mobile.core.service.ReleasePlayback.playSearch(
                                 app.player,

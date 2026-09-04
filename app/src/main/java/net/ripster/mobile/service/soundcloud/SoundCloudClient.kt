@@ -198,7 +198,7 @@ class SoundCloudClient(
             emit(DownloadEvent.Done(outFile.absolutePath, tier, outFile.length()))
             return@flow
         }
-        throw lastErr ?: IOException("SoundCloud: не удалось получить ни один поток трека")
+        throw lastErr ?: IOException(EngineErrors.EMPTY_STREAM)
     }.flowOn(Dispatchers.IO)
 
     // --- внутреннее ---
@@ -246,9 +246,9 @@ class SoundCloudClient(
             val onlyEncrypted = t.media.transcodings.isNotEmpty()
             throw IOException(
                 if (onlyEncrypted)
-                    "SoundCloud: трек только в FairPlay-зашифрованном HLS — не-DRM загрузкой не берётся"
+                    EngineErrors.DRM_UNSUPPORTED
                 else
-                    "SoundCloud: у трека нет потоков (снят с публикации или Go+ без токена)"
+                    EngineErrors.TRACK_UNAVAILABLE
             )
         }
         // preference по нашим id → SC quality/preset. Всё, что не hq → mp3_128.

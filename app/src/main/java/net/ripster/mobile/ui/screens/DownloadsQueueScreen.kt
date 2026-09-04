@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import net.ripster.mobile.ui.components.RipsterHairline
 import net.ripster.mobile.ui.theme.RipsterTheme
 import net.ripster.mobile.ui.theme.Weights
+import net.ripster.mobile.ui.i18n.errorText
 
 /**
  * Экран очереди загрузок.
@@ -217,7 +218,7 @@ private fun DownloadTaskRow(
                         // здесь; своё сообщение (от ПК, от сервиса) показываем как есть.
                         // Сервис уже назван строкой выше — в самой причине его не
                         // повторяем.
-                        text = engineErrorText(task.errorReason, lang) ?: task.errorReason,
+                        text = errorText(task.errorReason, lang),
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         style = TextStyle(color = colors.danger_text, fontSize = type.caption),

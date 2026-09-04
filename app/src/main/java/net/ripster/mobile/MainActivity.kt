@@ -144,6 +144,11 @@ FILE "mix.flac" WAVE
 
 @Composable
 private fun Demo() {
+    // Язык витрины берём из тех же настроек, что и боевой экран: иначе это
+    // единственное место, где выбор языка ничего не меняет.
+    val demoLang = net.ripster.mobile.RipsterApp
+        .from(androidx.compose.ui.platform.LocalContext.current)
+        .settings.state.collectAsState().value.uiLang
     var theme by remember { mutableStateOf(RipsterThemeName.Dark) }
     var density by remember { mutableStateOf(RipsterDensity.Normal) }
     // 29.08.2026: первый СОБРАННЫЙ экран, не витрина компонентов по одному.
@@ -158,10 +163,11 @@ private fun Demo() {
     var screen by remember { mutableStateOf(0) }
 
     RipsterTheme(theme = theme, density = density) {
-        // Язык витрины. Набор — ровно как в десктопе (ru/en/hi/ja/zh, см.
-        // ui/i18n/Strings.kt). Пока фиксирован RU под остальной демо-текст;
-        // переключатель придёт с настоящим экраном настроек.
-        CompositionLocalProvider(LocalAppLang provides AppLang.RU) {
+        // Язык витрины — тот же, что выбран в приложении. Был прибит к RU «под
+        // остальной демо-текст»: с настоящим экраном настроек это превратилось в
+        // единственное место, где выбор языка ничего не менял, а правило проекта
+        // прямое — языка в коде не хардкодить.
+        CompositionLocalProvider(LocalAppLang provides AppLang.byTag(demoLang)) {
         val c = RipsterTheme.colors
         Column(Modifier.fillMaxSize().background(c.surface_canvas)) {
             Row(

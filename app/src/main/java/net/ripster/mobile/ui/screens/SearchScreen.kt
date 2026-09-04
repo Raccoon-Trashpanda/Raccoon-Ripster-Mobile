@@ -63,6 +63,7 @@ import net.ripster.mobile.ui.i18n.engineErrorText
 import net.ripster.mobile.ui.i18n.tr
 import net.ripster.mobile.ui.components.pressable
 import net.ripster.mobile.ui.theme.RipsterTheme
+import net.ripster.mobile.ui.i18n.errorText
 
 /**
  * Поток «найти и поставить в очередь». Сервисы выбираются галочками в
@@ -842,26 +843,9 @@ private fun DownloadPill(queued: Boolean, onClick: () -> Unit, c: net.ripster.mo
     }
 }
 
-/** Сетевую аварию — человеку, а не сырым Java-текстом. Юзер видел
- *  «software caused connection abort» и «не ответил за 15 с» как есть. */
-private fun humanNetError(e: Throwable, lang: AppLang): String {
-    engineErrorText(e.message, lang)?.let { return it }
-    val m = (e.message ?: e.javaClass.simpleName).lowercase()
-    return when {
-        "__qobuz_stale_appid__" in m -> tr("search.qobuz_stale_appid", lang)
-        "__qobuz_bad_token__" in m -> tr("search.qobuz_bad_token", lang)
-        m == "__timeout__" || e is java.net.SocketTimeoutException || "timeout" in m || "timed out" in m ->
-            tr("search.svc_timeout", lang)
-        e is java.net.UnknownHostException || e is java.net.ConnectException ||
-            e is java.net.SocketException || "connection abort" in m ||
-            "connection reset" in m || "unreachable" in m || "failed to connect" in m ->
-            tr("search.svc_neterr", lang)
-        // Вызывающий уже добавит «<Сервис>: » перед строкой — снимаем дубль
-        // такого же префикса из текста самого движка.
-        else -> (e.message ?: e.javaClass.simpleName)
-            .replace(Regex("^(Qobuz|Tidal|Deezer|Yandex|Beatport|SoundCloud|Spotify|Apple|BBC):\\s*"), "")
-    }
-}
+/** Осталось для совместимости вызовов внутри экрана: разбор переехал в
+ *  [net.ripster.mobile.ui.i18n.errorText], чтобы у всех экранов он был один. */
+private fun humanNetError(e: Throwable, lang: AppLang): String = errorText(e, lang)
 
 /** URL альбома из id+сервиса — для resolve()/ReleasePlayback, когда в выдаче
  *  поиска нет треков этого альбома. Пусто → плеер по этому альбому не собрать
