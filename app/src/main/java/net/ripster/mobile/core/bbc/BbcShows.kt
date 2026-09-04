@@ -83,8 +83,12 @@ object BbcShows {
     }
 
     private suspend fun episodes(brand: Brand, limit: Int): List<Mix> {
+        // sort=-release_date, а НЕ sequential: последний отдаёт эпизоды вперемешку
+        // (проверено 04.09.2026 на Essential Mix — 2023, 2020, 2026 подряд), и при
+        // limit=3 самые свежие выпуски в выборку просто не попадали. Секция на
+        // Главной называется «последние миксы» — значит и просить надо последние.
         val url = "$RMS/programmes/playable?container=${brand.id}" +
-            "&sort=sequential&type=episode&experience=domestic&offset=0&limit=$limit"
+            "&sort=-release_date&type=episode&experience=domestic&offset=0&limit=$limit"
         val body = get(url)
         val data = json.parseToJsonElement(body).jsonObject["data"]?.jsonArray ?: return emptyList()
         return data.mapNotNull { el ->

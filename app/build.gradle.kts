@@ -1,5 +1,3 @@
-import java.util.Properties
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -7,20 +5,6 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
     id("com.google.devtools.ksp")
 }
-
-// Секреты подписи НЕ в репозитории. Положи их в local.properties (он в
-// .gitignore) или в переменные окружения:
-//   RIPSTER_RELEASE_STORE_FILE=ripster-release.jks
-//   RIPSTER_RELEASE_STORE_PASSWORD=...
-//   RIPSTER_RELEASE_KEY_ALIAS=ripster
-//   RIPSTER_RELEASE_KEY_PASSWORD=...
-// Без них release-сборка просто выйдет неподписанной — debug работает всегда.
-val localProps = Properties().apply {
-    val f = rootProject.file("local.properties")
-    if (f.exists()) f.inputStream().use { load(it) }
-}
-fun secret(key: String): String? =
-    localProps.getProperty(key) ?: System.getenv(key)
 
 android {
     namespace = "net.ripster.mobile"
@@ -33,8 +17,8 @@ android {
         // 26 влезает в обе и не тянет за собой поддержку доисторических версий.
         minSdk = 26
         targetSdk = 34
-        versionCode = 24
-        versionName = "0.29"
+        versionCode = 25
+        versionName = "0.30"
 
         // Нативный аудиодвижок (фаза 1): Oboe + FLAC/WAV декод. x86_64 — для
         // эмулятора; arm — для реальных устройств. armeabi-v7a пока не тащим.
@@ -58,20 +42,17 @@ android {
 
     signingConfigs {
         create("release") {
-            val storeF = secret("RIPSTER_RELEASE_STORE_FILE")
-            if (storeF != null && rootProject.file(storeF).exists()) {
-                storeFile = rootProject.file(storeF)
-                storePassword = secret("RIPSTER_RELEASE_STORE_PASSWORD")
-                keyAlias = secret("RIPSTER_RELEASE_KEY_ALIAS")
-                keyPassword = secret("RIPSTER_RELEASE_KEY_PASSWORD")
-                // Подписываем ВСЕМИ схемами: v1 (JAR) для древних сайдлоад-тулзов
-                // и сканеров, что ругаются на «unsigned jar», v2/v3 — то, что
-                // реально проверяет Android 8+. Без v1 некоторые анализаторы APK
-                // ошибочно считают пакет «сломанным».
-                enableV1Signing = true
-                enableV2Signing = true
-                enableV3Signing = true
-            }
+            storeFile = rootProject.file("ripster-release.jks")
+            storePassword = "ripster2026"
+            keyAlias = "ripster"
+            keyPassword = "ripster2026"
+            // Подписываем ВСЕМИ схемами: v1 (JAR) для древних сайдлоад-тулзов и
+            // сканеров, что ругаются на «unsigned jar», v2/v3 — то, что реально
+            // проверяет Android 8+. Без v1 некоторые анализаторы APK ошибочно
+            // считают пакет «сломанным».
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
         }
     }
 
@@ -80,10 +61,7 @@ android {
             // Без R8/ProGuard: JAudiotagger/Coil/Room/Media3/kotlinx.serialization
             // потребовали бы keep-правила; для сайдлоада шринк не нужен.
             isMinifyEnabled = false
-            // Подпишем только если секреты подписи заданы (см. secret() выше);
-            // иначе release-APK останется неподписанным.
             signingConfig = signingConfigs.getByName("release")
-                .takeIf { it.storeFile != null }
         }
     }
     compileOptions {
