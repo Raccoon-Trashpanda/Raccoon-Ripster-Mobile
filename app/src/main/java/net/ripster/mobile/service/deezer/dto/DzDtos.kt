@@ -22,7 +22,17 @@ data class DzApiAlbum(
     @SerialName("record_type") val recordType: String? = null,   // "album" | "single" | "ep" | "compile"
     val artist: DzApiArtist = DzApiArtist(),
     val upc: String? = null,
+    // /album/<id> отдаёт лейбл и жанры — раньше их не объявляли, и карточка
+    // релиза на телефоне была беднее той же карточки в ПК-версии.
+    val label: String? = null,
+    val genres: DzGenres? = null,
 )
+
+@Serializable
+data class DzGenres(val data: List<DzNamed> = emptyList())
+
+@Serializable
+data class DzNamed(val id: Long = 0, val name: String = "")
 
 /** api.deezer.com/search/album — {data:[<album>]}. Раньше поиск на мобиле
  *  спрашивал ТОЛЬКО /search/track, поэтому фильтры «Альбомы»/«Синглы/EP» всегда
@@ -57,6 +67,10 @@ data class DzApiAlbumFull(
     val artist: DzApiArtist = DzApiArtist(),
     val tracks: DzApiTrackList = DzApiTrackList(),
     val upc: String? = null,
+    // Те же метаданные, что и у краткой формы: /album/<id> их отдаёт.
+    @SerialName("release_date") val releaseDate: String? = null,
+    val label: String? = null,
+    val genres: DzGenres? = null,
 )
 
 @Serializable

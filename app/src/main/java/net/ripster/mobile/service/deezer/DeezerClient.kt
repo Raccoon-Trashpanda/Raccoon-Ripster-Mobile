@@ -168,7 +168,10 @@ class DeezerClient(
                     tracks = a.tracks.data.map { it.toTrack(a) },
                     albums = listOf(
                         Album(a.id.toString(), a.title, a.artist.name, Service.DEEZER,
-                            trackCount = a.nbTracks, artworkUrl = a.coverXl, upc = a.upc),
+                            trackCount = a.nbTracks, artworkUrl = a.coverXl, upc = a.upc,
+                            genre = a.genres?.data?.firstOrNull()?.name,
+                            label = a.label,
+                            releaseDate = a.releaseDate),
                     ),
                     artists = listOf(Artist(a.artist.id.toString(), a.artist.name, Service.DEEZER)),
                 )

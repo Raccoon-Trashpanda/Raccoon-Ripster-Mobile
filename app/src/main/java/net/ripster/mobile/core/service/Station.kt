@@ -148,6 +148,15 @@ object ReleasePlayback {
         expectArtist: String? = null,
     ): Boolean {
         if (query.isBlank()) return false
+        // Подмена БЕЗ известного артиста запрещена.
+        //
+        // Совпадения по одному названию достаточно, чтобы включить чужую песню:
+        // 04.09.2026 тап по релизу Etherwood заиграл Gonzalez. Раньше здесь
+        // оставался «мягкий» путь — если артист неизвестен, сверять только
+        // название, — и он же оказался единственным, которым чужие треки и
+        // проходили. Лучше честно не сыграть, чем сыграть не то: вызывающий
+        // покажет «скачай, чтобы послушать», а карточка откроет релиз.
+        if (expectArtist.isNullOrBlank()) return false
 
         // 1) пробуем найти САМ релиз (поиск теперь отдаёт и альбомы) и заиграть
         //    его целиком — это и есть «открыть весь сборник», а не трек из него.
@@ -161,12 +170,9 @@ object ReleasePlayback {
         // и Ripster бодро играл «Heaven & Earth — I Really Love You» (жалоба
         // владельца 04.09.2026). Берём альбом, только если он ОТНОСИТСЯ к запросу:
         // совпал исполнитель либо название встречается в самом запросе.
-        val album = albums.firstOrNull { a ->
-            // Знаем исполнителя — он и решает. Не знаем — требуем, чтобы название
-            // релиза встречалось в запросе. Ни одного «а вдруг подойдёт».
-            if (expectArtist != null) TrackMatch.sameArtist(expectArtist, a.artist)
-            else a.title.length >= 4 && query.contains(a.title, true)
-        }
+        // Артист известен всегда (выше стоит запрет) — он и решает.
+        val wantArtist = expectArtist
+        val album = albums.firstOrNull { a -> TrackMatch.sameArtist(wantArtist, a.artist) }
         if (album != null) {
             val u = releaseUrl(album.service, album.id)
             if (u.isNotBlank() && play(player, u, quality, fallbackArtwork)) return true

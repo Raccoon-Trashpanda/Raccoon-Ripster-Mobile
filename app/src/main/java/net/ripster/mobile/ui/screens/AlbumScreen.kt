@@ -202,14 +202,35 @@ fun AlbumScreen(
                         style = TextStyle(color = c.accent_text, fontSize = 14.sp),
                     )
                     Spacer(Modifier.height(8.dp))
+                    // Модель альбома несёт только год, а лейбл/жанр/дату сервисы
+                    // отдают НА ТРЕКЕ — и мы их уже запрашиваем ради тегов файла.
+                    // Показываем их и здесь: в ПК-версии карточка релиза даёт ту
+                    // же справку, и человек не должен лезть в файл, чтобы узнать
+                    // лейбл (просьба владельца 04.09.2026).
+                    val firstWith = { pick: (net.ripster.mobile.core.model.Track) -> String? ->
+                        tracks.firstNotNullOfOrNull { pick(it)?.takeIf { v -> v.isNotBlank() } }
+                    }
+                    // Сначала — данные САМОГО релиза (сервисы отдают их на
+                    // альбоме), треки остаются запасным источником: у части
+                    // сервисов альбомный объект беднее трекового.
+                    val relDate = album?.releaseDate?.takeIf { it.isNotBlank() } ?: firstWith { it.releaseDate }
+                    val genre = album?.genre?.takeIf { it.isNotBlank() } ?: firstWith { it.genre }
+                    val label = album?.label?.takeIf { it.isNotBlank() } ?: firstWith { it.label }
                     val meta = buildList {
-                        (album?.year ?: tracks.firstOrNull()?.year)?.let { add(it.toString()) }
+                        // Полная дата информативнее года — берём её, если есть.
+                        (relDate ?: (album?.year ?: tracks.firstOrNull()?.year)?.toString())
+                            ?.let { add(it) }
                         val n = album?.trackCount ?: tracks.size
                         if (n > 0) add("$n " + tr("search.tracks_short", lang))
                         if (totalMs > 0) add(fmtDur(totalMs / 1000))
+                        genre?.let { add(it) }
                     }.joinToString("  ·  ")
                     if (meta.isNotBlank()) {
                         BasicText(meta, style = TextStyle(color = c.text_disabled, fontSize = 12.sp))
+                    }
+                    label?.let {
+                        Spacer(Modifier.height(2.dp))
+                        BasicText(it, style = TextStyle(color = c.text_disabled, fontSize = 11.sp))
                     }
                     album?.upc?.takeIf { it.isNotBlank() }?.let {
                         Spacer(Modifier.height(2.dp))
@@ -334,8 +355,7 @@ fun AlbumScreen(
                     // соседней (пожелание 03.09.2026): линия сверху у всех, кроме
                     // первого, — так список читается как набор строк-кнопок.
                     if (idx > 0) net.ripster.mobile.ui.components.RipsterHairline(inset = 24.dp)
-                    TrackLine(
-                        t = t, pos = idx + 1, queued = queued[t.id] == true, c = c,
+                    TrackLine(albumArtist = artist, t = t, pos = idx + 1, queued = queued[t.id] == true, c = c,
                         onPlay = { playFrom(t) },
                         onDownload = { scope.launch { app.downloads.enqueue(t); queued[t.id] = true } },
                     )
@@ -347,7 +367,8 @@ fun AlbumScreen(
 }
 
 @Composable
-private fun TrackLine(t: Track, pos: Int, queued: Boolean, c: net.ripster.mobile.ui.theme.RipsterColors, onPlay: () -> Unit, onDownload: () -> Unit) {
+private fun TrackLine(
+    t: Track, pos: Int, queued: Boolean, albumArtist: String, c: net.ripster.mobile.ui.theme.RipsterColors, onPlay: () -> Unit, onDownload: () -> Unit) {
     Row(
         Modifier.fillMaxWidth()
             .pressable(pressedBg = c.surface_raised) { onPlay() }
@@ -362,10 +383,23 @@ private fun TrackLine(t: Track, pos: Int, queued: Boolean, c: net.ripster.mobile
             Modifier.width(20.dp),
             style = TextStyle(color = c.text_disabled, fontSize = 13.sp, textAlign = TextAlign.Center),
         )
-        BasicText(
-            t.title, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
-            style = TextStyle(color = c.text_primary, fontSize = 14.sp),
-        )
+        Column(Modifier.weight(1f)) {
+            BasicText(
+                t.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                style = TextStyle(color = c.text_primary, fontSize = 14.sp),
+            )
+            // Кто ещё на треке. Показываем ТОЛЬКО когда состав отличается от
+            // альбомного: иначе имя артиста повторялось бы под каждой строкой и
+            // перестало бы что-либо значить. Просьба владельца 04.09.2026 —
+            // «в треках прописывать коллаборации».
+            val credits = t.artist.trim()
+            if (credits.isNotBlank() && !credits.equals(albumArtist.trim(), ignoreCase = true)) {
+                BasicText(
+                    credits, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    style = TextStyle(color = c.text_tertiary, fontSize = 11.sp),
+                )
+            }
+        }
         t.durationMs?.let {
             BasicText(fmtDur(it / 1000), style = TextStyle(color = c.text_disabled, fontSize = 12.sp, fontFamily = FontFamily.Monospace))
         }

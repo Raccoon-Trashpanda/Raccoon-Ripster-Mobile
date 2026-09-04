@@ -291,7 +291,11 @@ fun ArtistScreen(
                             val q = app.settings.state.value.qualityFor(onWifi = true)
                             val ok = withTimeoutOrNull(25_000) {
                                 if (r.url.isNotBlank()) ReleasePlayback.play(app.player, r.url, q, r.coverUrl)
-                                else ReleasePlayback.playSearch(app.player, fallbackQuery, q, r.coverUrl)
+                                else ReleasePlayback.playSearch(
+                                    app.player, fallbackQuery, q, r.coverUrl,
+                                    // Без имени артиста подмена запрещена — см. playSearch.
+                                    expectArtist = p.name.ifBlank { name },
+                                )
                             } ?: false
                             buffering = false
                             if (!ok && r.url.isNotBlank()) onOpenAlbum(cd)

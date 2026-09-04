@@ -124,7 +124,8 @@ class TidalClient(
                     containerTitle = a.title,
                     tracks = tracks.map { it.toTrack() },
                     albums = listOf(Album(a.id.toString(), a.title, a.artist?.name ?: "", Service.TIDAL,
-                        trackCount = a.numberOfTracks, artworkUrl = coverUrl(a.cover))),
+                        trackCount = a.numberOfTracks, artworkUrl = coverUrl(a.cover),
+                        releaseDate = a.releaseDate, copyright = a.copyright)),
                     artists = listOfNotNull(a.artist?.let { Artist(it.id.toString(), it.name, Service.TIDAL) }),
                 )
             }
@@ -568,6 +569,9 @@ class TidalClient(
         val cover: String? = null,
         val numberOfTracks: Int? = null,
         val artist: TdArtist? = null,
+        // Tidal отдаёт дату и копирайт на альбоме — раньше их не объявляли.
+        val releaseDate: String? = null,
+        val copyright: String? = null,
     )
     @Serializable
     private data class TdPlayback(

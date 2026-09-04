@@ -80,7 +80,17 @@ class QobuzClient(
                     tracks = a.tracks.items.map { it.toTrack(a) },
                     albums = listOf(
                         Album(a.id, a.title, a.artist.name, Service.QOBUZ,
-                            trackCount = a.tracksCount, artworkUrl = a.image.large, upc = a.upc),
+                            trackCount = a.tracksCount, artworkUrl = a.image.large, upc = a.upc,
+                            // Полные метаданные релиза: Qobuz отдаёт их прямо
+                            // на альбоме, и раньше они просто выбрасывались.
+                            genre = a.genre?.name,
+                            label = a.label?.name,
+                            releaseDate = a.releaseDateOriginal
+                                ?: a.releasedAt?.let {
+                                    java.time.Instant.ofEpochSecond(it)
+                                        .atZone(java.time.ZoneOffset.UTC).toLocalDate().toString()
+                                },
+                            copyright = a.copyright),
                     ),
                     artists = listOf(Artist(a.artist.id.toString(), a.artist.name, Service.QOBUZ)),
                 )

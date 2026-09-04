@@ -52,6 +52,15 @@ data class Album(
     val trackCount: Int? = null,
     val artworkUrl: String? = null,
     val upc: String? = null,
+    // ── Полные метаданные релиза ─────────────────────────────────────────
+    // Сервисы отдают их на самом альбоме (Deezer/Qobuz/Tidal — genre, label,
+    // release_date, copyright), а модель хранила только год: карточка релиза
+    // на телефоне показывала меньше, чем та же карточка в ПК-версии, хотя
+    // данные приходили в том же ответе. 04.09.2026.
+    val genre: String? = null,
+    val label: String? = null,
+    val releaseDate: String? = null,
+    val copyright: String? = null,
 )
 
 @Serializable
