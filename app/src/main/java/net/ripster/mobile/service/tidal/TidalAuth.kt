@@ -84,7 +84,10 @@ object TidalAuth {
     private fun jwtClaims(token: String): String? = runCatching {
         val payload = token.split('.').getOrNull(1) ?: return@runCatching null
         val pad = payload.padEnd((payload.length + 3) / 4 * 4, '=')
-        String(android.util.Base64.decode(pad, android.util.Base64.URL_SAFE), Charsets.UTF_8)
+        // java.util.Base64, как в CredentialInput: android.util.Base64 недоступен
+        // в JVM-тестах, из-за чего разбор токена нечем было покрыть. minSdk 26
+        // это позволяет.
+        String(java.util.Base64.getUrlDecoder().decode(pad), Charsets.UTF_8)
     }.getOrNull()
 
     /**
@@ -112,8 +115,29 @@ object TidalAuth {
         )
     }
 
-    fun decodeStored(raw: String): Stored? =
-        runCatching { json.decodeFromString(Stored.serializer(), raw) }.getOrNull()
+    /**
+     * Разбирает хранимое значение. Понимает и JSON-блоб, и ГОЛЫЙ JWT.
+     *
+     * Голый токен сюда попадал, когда его вставляли руками: экран настроек клал
+     * строку как есть, разбор JSON падал, и учётка молча числилась
+     * неподключённой (04.09.2026). Писателя починили, но и читатель обязан быть
+     * терпимым: значение может прийти из старой установки, из бэкапа или из
+     * любого будущего пути, который снова забудет завернуть.
+     */
+    fun decodeStored(raw: String): Stored? {
+        val t = raw.trim()
+        if (t.isEmpty()) return null
+        if (t.startsWith("{")) {
+            return runCatching { json.decodeFromString(Stored.serializer(), t) }.getOrNull()
+        }
+        // Не JSON — принимаем, только если это ПОХОЖЕ на JWT. Иначе любая
+        // случайная строка превратилась бы в «учётку» с мусором внутри, и
+        // экранам пришлось бы отличать её от настоящей (поймано тестом).
+        if (jwtClaims(t) == null || t.count { it == '.' } != 2) return null
+        return runCatching {
+            json.decodeFromString(Stored.serializer(), encodeAccessToken(t))
+        }.getOrNull()
+    }
 
     suspend fun startDevice(): DeviceStart = withContext(Dispatchers.IO) {
         val body = FormBody.Builder()

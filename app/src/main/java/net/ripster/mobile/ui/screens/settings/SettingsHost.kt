@@ -255,7 +255,15 @@ private fun AccountScreen(svc: Service, lang: AppLang, c: RipsterColors) {
             return
         }
         saveProblem = null
-        app.credentials.set(k, clean.ifBlank { null }, CredentialStore.Source.MANUAL)
+        // Tidal хранится JSON-блобом {refreshToken, accessToken, countryCode}, а
+        // из буфера прилетает голый JWT. Раньше он ложился в хранилище как есть:
+        // читатель разбирал его как JSON, не мог — и учётка молча становилась
+        // «Не подключён», а Tidal исчезал из выбора сервисов. Заворачиваем здесь;
+        // готовый блоб (например, синк с ПК) не трогаем. 04.09.2026.
+        val value = if (k == CredentialStore.Key.TIDAL_OAUTH &&
+            clean.isNotBlank() && !clean.trimStart().startsWith("{")
+        ) net.ripster.mobile.service.tidal.TidalAuth.encodeAccessToken(clean) else clean
+        app.credentials.set(k, value.ifBlank { null }, CredentialStore.Source.MANUAL)
         app.registerClients()
     }
 
