@@ -16,6 +16,7 @@ you already pay for; it does not provide accounts or unlock paid tiers.
 
 - [Features](#features)
 - [Codecs & engines](#codecs--engines)
+- [Playing a track](#playing-a-track)
 - [Standalone vs. paired](#standalone-vs-paired)
 - [Install](#install)
 - [First launch](#first-launch)
@@ -57,9 +58,18 @@ Requires pairing with a PC:
 
 ## Screenshots
 
-| Home | Player | Radar |
+| Home | Search | Library |
 |---|---|---|
-| [![Home](screenshots/01_home.png)](screenshots/01_home.png) | [![Player](screenshots/02_player.png)](screenshots/02_player.png) | [![Radar](screenshots/03_radar.png)](screenshots/03_radar.png) |
+| [![Home](screenshots/01_home.png)](screenshots/01_home.png) | [![Search](screenshots/02_search.png)](screenshots/02_search.png) | [![Library](screenshots/03_library.png)](screenshots/03_library.png) |
+
+| Downloads | Player | Cover, full screen |
+|---|---|---|
+| [![Downloads](screenshots/04_downloads.png)](screenshots/04_downloads.png) | [![Player](screenshots/05_player.png)](screenshots/05_player.png) | [![Cover](screenshots/06_cover_oled.png)](screenshots/06_cover_oled.png) |
+
+Every row in the download queue names the service it came from, so a queue
+mixing Tidal, Qobuz and Yandex can be read at a glance. Tapping the cover in
+the player opens it full screen on pure black, system bars hidden, with only
+previous / play / next — tap again to come back.
 
 ## Codecs & engines
 
@@ -80,6 +90,27 @@ track on a service you have).
 **Playback** — `ExoPlayer / Media3` by default (every source, streaming and
 local, MediaSession, Bluetooth); `Oboe · AAudio exclusive` for local
 FLAC/WAV/ALAC (gapless, no resample, bit-perfect readout).
+
+## Playing a track
+
+Press play and Ripster works down a fixed order:
+
+1. **The track's own service.** If it can stream, that is what plays.
+2. **The same recording elsewhere.** Some services hand out segments rather
+   than a playable stream — Tidal does this for lossless — so the same
+   recording is looked for on whatever else is connected: Deezer, Qobuz,
+   Yandex.
+3. **Otherwise it says so:** the track has to be downloaded, and then it plays
+   from your Library.
+
+Step 2 matches on **ISRC** when both sides publish one, because that code
+identifies the recording itself. Without it, title, artist, version markers
+and duration all have to agree at once. A remix, a live take, a cover or a
+sped-up edit is never accepted as a substitute — Ripster would rather tell you
+to download the track than quietly play a different one.
+
+The queue keeps the order you pressed: the track you chose starts first, the
+rest of the list follows behind it.
 
 ## Standalone vs. paired
 
