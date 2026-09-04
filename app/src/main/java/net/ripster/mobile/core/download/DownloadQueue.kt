@@ -100,6 +100,9 @@ class DownloadQueue(
 
     suspend fun clearFinished() = dao.clearFinished()
 
+    /** Снести очередь целиком, вместе с упавшими. Отменять активные — на вызывающем. */
+    suspend fun clearAll() = dao.clearAll()
+
     fun observeQueue(): Flow<List<DownloadItem>> =
         dao.observeAll().map { list -> list.map { it.toItem() } }
 

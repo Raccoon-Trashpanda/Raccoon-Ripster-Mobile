@@ -1,5 +1,7 @@
 package net.ripster.mobile.ui.screens
 
+import net.ripster.mobile.ui.components.MARQUEE_SECOND_LINE_DELAY
+import net.ripster.mobile.ui.components.ripsterMarquee
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -133,8 +135,8 @@ fun NowPlayingScreen(
 
         BasicText(
             text = state.title,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
+            maxLines = 1,
+            modifier = Modifier.ripsterMarquee(),
             style = TextStyle(
                 color = colors.text_primary,
                 fontSize = type.display,
@@ -145,7 +147,7 @@ fun NowPlayingScreen(
         BasicText(
             text = "${state.artist} · ${state.album}",
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.ripsterMarquee(MARQUEE_SECOND_LINE_DELAY),
             style = TextStyle(color = colors.text_secondary, fontSize = type.body, fontWeight = Weights.Body),
         )
 

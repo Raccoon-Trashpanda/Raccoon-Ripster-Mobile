@@ -1,5 +1,7 @@
 package net.ripster.mobile.ui.screens
 
+import net.ripster.mobile.ui.components.MARQUEE_SECOND_LINE_DELAY
+import net.ripster.mobile.ui.components.ripsterMarquee
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -87,14 +89,16 @@ fun ImmersivePlayerScreen(
         ) {
             BasicText(
                 state.title,
-                maxLines = 2, overflow = TextOverflow.Ellipsis,
+                maxLines = 1,
+                modifier = Modifier.ripsterMarquee(),
                 style = TextStyle(color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.W800, letterSpacing = (-0.4).sp),
             )
             Spacer(Modifier.height(4.dp))
             BasicText(
                 if (state.album.isNotBlank() && !state.album.equals(state.title, true))
                     "${state.artist}  ·  ${state.album}" else state.artist,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                maxLines = 1,
+                modifier = Modifier.ripsterMarquee(MARQUEE_SECOND_LINE_DELAY),
                 style = TextStyle(color = Color.White.copy(alpha = 0.72f), fontSize = 14.sp),
             )
             if (state.format.isNotBlank()) {

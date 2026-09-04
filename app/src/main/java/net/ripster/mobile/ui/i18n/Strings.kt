@@ -711,6 +711,13 @@ private val STRINGS: Map<String, Row> = mapOf(
     "ref.no_track" to row("Ничего не играет", "Nothing is playing", "कुछ नहीं चल रहा", "再生中の曲がありません", "当前没有播放"),
     "ref.spectrum" to row("Спектр", "Spectrum", "स्पेक्ट्रम", "スペクトラム", "频谱"),
     "ref.spectrum_building" to row("Строю спектр…", "Building spectrum…", "स्पेक्ट्रम बना रहा है…", "スペクトラムを生成中…", "正在生成频谱…"),
+    "ref.file_missing" to row(
+        "Файла больше нет на устройстве — скачай трек заново.",
+        "The file is no longer on the device — download the track again.",
+        "फ़ाइल अब डिवाइस पर नहीं है — ट्रैक फिर से डाउनलोड करें।",
+        "ファイルが端末に見つかりません — もう一度ダウンロードしてください。",
+        "设备上已没有该文件 — 请重新下载该曲目。",
+    ),
     "ref.spectrum_fail" to row(
         "Не удалось разобрать этот файл на устройстве",
         "Could not decode this file on the device",

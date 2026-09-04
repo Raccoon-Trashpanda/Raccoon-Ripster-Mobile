@@ -41,6 +41,22 @@ class CredentialInputTest {
         assertNull(CredentialInput.problem(CredentialStore.Key.TIDAL_OAUTH, """{"refreshToken":"x"}"""))
     }
 
+    /**
+     * 04.09.2026, найдено на телефоне владельца: в поле лежала склейка тестовой
+     * заглушки `deadbeef123` с настоящим ARL — 203 символа, все шестнадцатеричные.
+     * Порог «не короче 128» пропускал её, в учётках горело «Подключён», Deezer
+     * сессию не открывал, и человека отправляли переклеивать токен, с которым
+     * всё было в порядке. Слишком длинное — такая же порча, как обрезка.
+     */
+    @Test
+    fun arlWithJunkGluedInFrontIsRejected() {
+        assertNotNull(CredentialInput.problem(CredentialStore.Key.DEEZER_ARL, "deadbeef123$arl"))
+        // И хвостом тоже — вставили дважды подряд.
+        assertNotNull(CredentialInput.problem(CredentialStore.Key.DEEZER_ARL, arl + arl))
+        // Ровно 192, но не hex — не ARL.
+        assertNotNull(CredentialInput.problem(CredentialStore.Key.DEEZER_ARL, "z".repeat(192)))
+    }
+
     @Test
     fun truncatedValuesAreRejected() {
         // Ровно тот случай: половина ARL / обрезанный JWT.

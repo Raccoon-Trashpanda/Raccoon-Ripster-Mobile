@@ -79,6 +79,8 @@ object Spectrogram {
         val sampleRateHz: Int,
     )
 
+    private const val TAG = "Spectrogram"
+
     suspend fun analyze(
         context: Context,
         source: String,
@@ -86,9 +88,19 @@ object Spectrogram {
         heightPx: Int = 360,
         containerExt: String? = null,
     ): Result? = withContext(Dispatchers.IO) {
-        val dec = runCatching { decodeMono(context, source) }.getOrNull() ?: return@withContext null
-        if (dec.pcm.size < FFT) return@withContext null
-        runCatching { build(dec, style, heightPx, containerExt) }.getOrNull()
+        // Причину НЕ глотаем: раньше все три отказа сходились в одно «не удалось
+        // разобрать этот файл», и по нему нельзя было понять, что чинить —
+        // отсутствующий кодек, слишком короткий трек или сбой отрисовки.
+        val dec = runCatching { decodeMono(context, source) }
+            .onFailure { android.util.Log.w(TAG, "decode failed: $source", it) }
+            .getOrNull() ?: return@withContext null
+        if (dec.pcm.size < FFT) {
+            android.util.Log.w(TAG, "too few samples: ${dec.pcm.size} < $FFT ($source)")
+            return@withContext null
+        }
+        runCatching { build(dec, style, heightPx, containerExt) }
+            .onFailure { android.util.Log.w(TAG, "build failed: $source", it) }
+            .getOrNull()
     }
 
     // ── декод в моно float [-1..1] + частота дискретизации ─────────────────

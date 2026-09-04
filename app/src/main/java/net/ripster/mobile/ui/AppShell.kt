@@ -133,7 +133,25 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
     val openLabel: (String) -> Unit = { n -> artistTarget = ArtistNav(n, "", "", true) }
 
     val queue by app.downloads.observeQueue().collectAsState(initial = emptyList())
-    val library by app.db.library().observeAll().collectAsState(initial = emptyList())
+    val libraryAll by app.db.library().observeAll().collectAsState(initial = emptyList())
+    // Записи, чей файл исчез, в библиотеке не показываем.
+    //
+    // 04.09.2026: старые загрузки складывались в cache/ (`cache/qb_*.flac`), и
+    // Android его вычистил. Строка в базе осталась — трек был виден, не играл
+    // (ExoPlayer: ENOENT) и на «Спектр» отвечал «не удалось разобрать этот
+    // файл», хотя разбирать было нечего. Показывать то, чего нет, хуже, чем не
+    // показывать: человек думает, что сломан проигрыватель.
+    //
+    // Саму запись НЕ удаляем: пропажа может быть временной (внешний носитель),
+    // а `content://` из SAF файловой проверке не поддаётся — такие пропускаем
+    // как есть и оставляем решать проигрывателю. Новые загрузки уходят в
+    // files/Music и под этот случай уже не попадают.
+    val library = remember(libraryAll) {
+        libraryAll.filter { e ->
+            val p = e.filePath
+            p.startsWith("content://") || p.isBlank() || java.io.File(p).exists()
+        }
+    }
     val playback by app.player.state.collectAsState()
     val settings by app.settings.state.collectAsState()
 
@@ -144,6 +162,10 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
     // намерение и переключаемся, КАК ТОЛЬКО трек появился; таймаут — если
     // воспроизведение вообще не поднялось.
     var pendingPlayer by remember { mutableStateOf(false) }
+    // Обложка во весь экран (OLED). Живёт ЗДЕСЬ, а не в экране плеера: только
+    // отсюда слой перекрывает и шапку, и нижнюю навигацию — иначе картинка
+    // остаётся зажатой между двумя серыми полосами.
+    var coverStage by remember { mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(pendingPlayer, playback.hasItem) {
         if (!pendingPlayer) return@LaunchedEffect
         if (playback.hasItem) {
@@ -403,6 +425,7 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                                 )
                             } else {
                                 net.ripster.mobile.ui.screens.ReferencePlayerScreen(
+                                    onExpandCover = { coverStage = true },
                                     state = npState,
                                     onSeek = { app.player.seekTo(it) },
                                     onPlayPause = { app.player.togglePlay() },
@@ -501,7 +524,7 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                                     app.downloads.cancel(di.id)
                                 }
                             }
-                            scope.launch { app.downloads.clearFinished() }
+                            scope.launch { app.downloads.clearAll() }
                         },
                     )
                     RipsterDestination.Tools -> net.ripster.mobile.ui.screens.ToolsScreen()
@@ -622,6 +645,20 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                     )
                 }
             }
+        }
+
+        // ── обложка во весь экран, поверх ВСЕГО (шапка и навигация тоже) ──
+        if (coverStage) {
+            androidx.activity.compose.BackHandler(enabled = true) { coverStage = false }
+            net.ripster.mobile.ui.components.CoverStage(
+                artworkUrl = playback.artworkUrl,
+                fallbackModel = null,
+                isPlaying = playback.isPlaying,
+                onPlayPause = { app.player.togglePlay() },
+                onNext = { app.player.next() },
+                onPrevious = { app.player.previous() },
+                onDismiss = { coverStage = false },
+            )
         }
     }
 }
@@ -847,6 +884,8 @@ private fun DrawScope.drawGearGlyph(color: Color) {
             Offset(cx + size.minDimension * 0.5f * cos, cy + size.minDimension * 0.5f * sin),
             strokeWidth = size.minDimension * 0.11f,
         )
+
+
     }
 }
 

@@ -33,13 +33,23 @@ object CredentialInput {
         return s.filterNot { it.isWhitespace() }
     }
 
+    /**
+     * Deezer выдаёт ARL ровно такой длины. Проверять «не короче» мало: 04.09.2026
+     * в поле на телефоне лежала склейка тестовой заглушки `deadbeef123` с
+     * настоящим токеном — 203 символа, все шестнадцатеричные, порог «≥128»
+     * пропускал её насквозь. В учётках горело «Подключён», Deezer сессию не
+     * открывал, и человека отправляли переклеивать токен, с которым всё было в
+     * порядке. Слишком длинное — такая же порча, как слишком короткое.
+     */
+    const val DEEZER_ARL_LEN = 192
+
     /** Что не так со значением, или null если годится. */
     fun problem(key: CredentialStore.Key, value: String): Problem? {
         val v = value.trim()
         if (v.isEmpty()) return null            // пустое = очистка поля, это законно
         return when (key) {
             CredentialStore.Key.DEEZER_ARL ->
-                if (v.length < 128 || !v.all { it.isHex() }) Problem.ARL else null
+                if (v.length != DEEZER_ARL_LEN || !v.all { it.isHex() }) Problem.ARL else null
             CredentialStore.Key.TIDAL_OAUTH ->
                 if (!v.startsWith("{") && !looksLikeJwt(v)) Problem.TIDAL else null
             CredentialStore.Key.QOBUZ_TOKEN ->

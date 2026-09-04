@@ -53,6 +53,18 @@ interface DownloadDao {
     @Query("DELETE FROM downloads WHERE state IN ('DONE', 'CANCELLED')")
     suspend fun clearFinished()
 
+    /**
+     * «Очистить всё» — именно всё, включая FAILED.
+     *
+     * 04.09.2026: кнопка звала clearFinished(), а та FAILED не трогает. У кого
+     * очередь состояла из упавших задач — а это как раз тот, кому чистить нужнее
+     * всего, — кнопка выглядела нерабочей: жмёшь, и ничего не исчезает.
+     * Активные задачи вызывающий отменяет ДО этого; запоздалый UPDATE от
+     * воркера по удалённой строке затронет 0 записей и вреда не сделает.
+     */
+    @Query("DELETE FROM downloads")
+    suspend fun clearAll()
+
     /** Снимок последних записей — для отправки активности на ПК. */
     @Query("SELECT * FROM downloads ORDER BY createdAt DESC LIMIT :limit")
     suspend fun recent(limit: Int = 100): List<DownloadEntity>

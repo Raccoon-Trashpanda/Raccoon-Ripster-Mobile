@@ -1,5 +1,6 @@
 package net.ripster.mobile.service.deezer
 
+import net.ripster.mobile.core.settings.CredentialInput
 import net.ripster.mobile.core.errors.EngineErrors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -71,7 +72,11 @@ class DeezerClient(
 
     private fun looksLikeArl(v: String): Boolean {
         val s = v.trim()
-        return s.length >= 128 && s.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }
+        // Длина сверяется с CredentialInput, а не задаётся здесь второй раз:
+        // раньше комментарий выше говорил «ровно 192», а код проверял «>= 128»,
+        // и в эту щель прошла склейка заглушки с настоящим токеном.
+        return s.length == CredentialInput.DEEZER_ARL_LEN &&
+            s.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }
     }
 
     override suspend fun qualities(): List<QualityTier> = listOf(flac, mp3_320, mp3_128)
