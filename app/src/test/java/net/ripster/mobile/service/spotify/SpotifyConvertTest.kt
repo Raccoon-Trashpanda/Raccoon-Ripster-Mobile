@@ -19,12 +19,29 @@ class SpotifyConvertTest {
         assertNull(client.resolve("https://tidal.com/browse/track/12345"))
     }
 
+    /**
+     * Поиск по Spotify либо отдаёт СВОИ треки, либо не отдаёт ничего — и оба
+     * исхода законны.
+     *
+     * Раньше здесь стояло «если поиск удался — треки не пустые», и тест был
+     * красным постоянно. Ожидание было неверным: Spotify в мобильной версии —
+     * сервис «по ссылке» (так он и помечен в выборе сервисов), поиском по имени
+     * он намеренно не ищет, а веб-токен для `api.spotify.com/v1` заблокирован
+     * (см. скилл ripster-spotify-tokens). Пустая выдача — штатный ответ, а не
+     * поломка, и требовать обратного значит держать красный тест, который учат
+     * игнорировать.
+     *
+     * Проверяем то, что действительно должно держаться: не падать иначе как
+     * IOException и не выдавать чужие треки за спотифаевские.
+     */
     @Test
-    fun searchWorksOrFailsCleanly(): Unit = runBlocking {
+    fun searchReturnsOwnTracksOrNothing(): Unit = runBlocking {
         val r = runCatching { client.search("Daft Punk One More Time") }
         r.onSuccess { sel ->
-            assertTrue("если поиск удался — треки не пустые", sel.tracks.isNotEmpty())
-            assertTrue("тип SPOTIFY", sel.tracks.first().service.name == "SPOTIFY")
+            assertTrue(
+                "выдача не должна содержать треки чужого сервиса",
+                sel.tracks.all { it.service.name == "SPOTIFY" },
+            )
         }
         r.onFailure {
             assertTrue("ожидали IOException при недоступном токене, получили ${it::class.simpleName}",
