@@ -372,6 +372,13 @@ private val STRINGS: Map<String, Row> = mapOf(
         "再生できませんでした — ストリームが取得できません。ダウンロードをお試しください。",
         "无法播放 — 服务未返回音频流。可以尝试下载。",
     ),
+    "search.download_to_listen" to row(
+        "Стримить этот трек неоткуда. Скачай — и он будет играть из Библиотеки.",
+        "There is nowhere to stream this track from. Download it and it will play from your Library.",
+        "इस ट्रैक को कहीं से स्ट्रीम नहीं किया जा सकता। डाउनलोड करें — यह लाइब्रेरी से चलेगा।",
+        "この曲を配信で取得できる場所がありません。ダウンロードすればライブラリから再生できます。",
+        "无法从任何来源流式播放该曲目。下载后即可在音乐库中播放。",
+    ),
     "err.geo_uk" to row(
         "доступно только из Великобритании — нужен UK-прокси или VPN.",
         "available only from the UK — a UK proxy or VPN is required.",

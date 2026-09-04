@@ -588,14 +588,29 @@ fun SearchScreen(
                                     error = tr("search.starting", lang)
                                     try {
                                         val ordered = tracks.drop(idx)
-                                        val head = net.ripster.mobile.core.service.StreamResolver
-                                            .toStreamItems(ordered.take(4), quality, limit = 4)
-                                        if (head.isEmpty()) {
-                                            // Как в ПК-версии: свой сервис поток не дал —
-                                            // ищем ЭТОТ ЖЕ трек у тех, кто умеет играть, и
-                                            // играем оттуда. Молча падать в «скачай» рано:
-                                            // Tidal отдаёт только сегменты, а тот же трек в
-                                            // Deezer/Qobuz стримится без вопросов.
+                                        // Порядок ровно такой, как ждёт человек,
+                                        // нажавший ▶ на КОНКРЕТНОМ треке:
+                                        //
+                                        //   1. играем ЕГО с его же сервиса;
+                                        //   2. не отдал поток — ищем ЭТОТ ЖЕ трек
+                                        //      у тех, кто стримит (Deezer, Qobuz,
+                                        //      Яндекс — любой подключённый);
+                                        //   3. не нашли нигде — говорим, что
+                                        //      слушать можно после скачивания.
+                                        //
+                                        // Раньше шаг 1 резолвил сразу ЧЕТЫРЕ трека
+                                        // и играл то, что получилось: если нажатый
+                                        // не стримился, а следующий стримился —
+                                        // начинал играть не тот трек, по которому
+                                        // нажали, и молча. Сначала — нажатый, и
+                                        // только он.
+                                        val first = net.ripster.mobile.core.service.StreamResolver
+                                            .toStreamItems(listOf(t), quality, limit = 1)
+                                        // Причину запоминаем СРАЗУ: playSearch ниже
+                                        // сам зовёт резолвер и затрёт её своей.
+                                        val ownWhy = net.ripster.mobile.core.service.StreamResolver
+                                            .lastStreamError
+                                        val head = first.ifEmpty {
                                             val viaOther = kotlinx.coroutines.withTimeoutOrNull(25_000) {
                                                 net.ripster.mobile.core.service.ReleasePlayback.playSearch(
                                                     app.player,
@@ -609,33 +624,33 @@ fun SearchScreen(
                                                 onOpenPlayer()
                                                 return@launch
                                             }
-                                            // Spotify/BBC-трек играет через Deezer/Qobuz/Tidal.
-                                            // Пусто = либо ни одного стрим-сервиса не
-                                            // подключено, либо у всех мёртвый токен —
-                                            // говорим об этом, а не «трек не стримится».
+                                            emptyList()
+                                        }
+                                        if (head.isEmpty()) {
+                                            // Ни свой сервис, ни чужие. Если движок
+                                            // объяснил отказ — показываем ЕГО причину:
+                                            // она говорит, что делать. Иначе — общий
+                                            // ответ про скачивание.
+                                            val why = ownWhy
                                             val haveStream = net.ripster.mobile.core.service.ServiceRegistry.all()
-                                                .any { it.service in setOf(Service.DEEZER, Service.QOBUZ, Service.TIDAL, Service.SOUNDCLOUD) }
-                                            // Если движок объяснил отказ — показываем ЕГО
-                                            // причину: «Tidal: прямой поток недоступен —
-                                            // скачай трек» полезнее общего «не удалось
-                                            // включить», за которым не видно, что делать.
-                                            val why = net.ripster.mobile.core.service.StreamResolver
-                                                .lastStreamError
-                                            error = if (why != null) humanNetError(why, lang)
-                                            else tr(
-                                                if (t.service in LINK_ONLY || !haveStream)
-                                                    "search.need_stream_svc" else "search.cant_play",
-                                                lang,
-                                            )
+                                                .any { it.service in setOf(Service.DEEZER, Service.QOBUZ, Service.TIDAL, Service.YANDEX) }
+                                            error = when {
+                                                why != null -> humanNetError(why, lang)
+                                                !haveStream -> tr("search.need_stream_svc", lang)
+                                                else -> tr("search.download_to_listen", lang)
+                                            }
                                             return@launch
                                         }
                                         app.player.playStream(head)
                                         error = null
                                         onOpenPlayer()
-                                        if (ordered.size > 4) {
+                                        // Играет нажатый трек — дальше очередь из
+                                        // остальных. drop(1), а не drop(4): пачку
+                                        // из четырёх больше не резолвим.
+                                        if (ordered.size > 1) {
                                             app.player.appendStream(
                                                 net.ripster.mobile.core.service.StreamResolver
-                                                    .toStreamItems(ordered.drop(4), quality, limit = 40),
+                                                    .toStreamItems(ordered.drop(1), quality, limit = 40),
                                             )
                                         }
                                     } catch (t: Throwable) {
