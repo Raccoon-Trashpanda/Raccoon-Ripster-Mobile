@@ -6,15 +6,20 @@ Qobuz, Tidal, SoundCloud and Yandex Music**. Pair it with a PC running
 **Apple Music** and **Spotify** link conversion, and to sync your service logins
 from the PC.
 
-Runs on the phone. No account with us, no cloud. The only server it talks to is
-your own copy of desktop Ripster, and only if you pair.
+Runs on the phone. There is no account with *us*, no cloud, and your files never
+leave your device. The only server it talks to is your own copy of desktop
+Ripster, and only if you pair.
 
-You need your own subscription for each service. Ripster downloads from services
-you already pay for; it does not provide accounts or unlock paid tiers.
+> You need your own valid subscriptions / credentials for each service you use.
+> Ripster automates downloading from services **you already pay for** — it does
+> not provide accounts and does not bypass paid tiers.
+
+---
 
 ## Contents
 
-- [Features](#features)
+- [What you get](#what-you-get)
+- [Screenshots](#screenshots)
 - [Codecs & engines](#codecs--engines)
 - [Playing a track](#playing-a-track)
 - [Standalone vs. paired](#standalone-vs-paired)
@@ -27,23 +32,25 @@ you already pay for; it does not provide accounts or unlock paid tiers.
 - [Build from source](#build-from-source)
 - [Permissions](#permissions)
 - [Credits](#credits)
-- [Disclaimer](#disclaimer)
+- [Disclaimer & License](#disclaimer--license)
 
-## Features
+---
 
-- Download FLAC up to 24-bit/192 kHz from Deezer, Qobuz and Tidal (Tidal HI-RES
+## What you get
+
+- 🎚 **Lossless from every connected service** — FLAC up to 24-bit/192 kHz from Deezer, Qobuz and Tidal (Tidal HI-RES
   over MPEG-DASH), lossless or high-AAC from SoundCloud, FLAC from Yandex Music.
-- Search all connected services from one field, with ▶ preview and one-tap queue.
-- Player with two backends: the OS codec (default) or a native Oboe engine
+- 🔍 **Search across services** from one field, with ▶ preview and one-tap queue.
+- 🎧 **Player with two backends:** the OS codec (default) or a native Oboe engine
   (AAudio exclusive, no resample when rates match) for local FLAC/WAV/ALAC, with
   a gapless queue.
-- Equalizer, bass boost, virtualizer and the engine switch under **Settings →
+- 🎛 **Equalizer**, bass boost, virtualizer and the engine switch under **Settings →
   Equalizer & effects**.
-- Spectrogram with a lossless / upscale verdict.
-- Line-by-line lyrics, active line centred.
-- Ripster Radar: release feed for the artists and labels you follow, sticky date
+- 📊 **Spectrogram** with an honest lossless / upscale verdict.
+- 🅰 **Lyrics** line by line, active line centred.
+- 🦝 **Ripster Radar** — release feed for the artists and labels you follow, sticky date
   headers, per-service filter, ▶ streams from the card.
-- 6 themes, UI in English, Russian, Hindi, Japanese, Chinese.
+- 🌗 **6 themes**, UI in English, Russian, Hindi, Japanese, Chinese.
 - Scans a folder you pick for your existing music.
 
 Requires pairing with a PC:
@@ -132,8 +139,8 @@ Pairing is optional and can be done later in **Settings → PC pairing**.
 
 Not on Google Play. Sideload the APK:
 
-1. Open [Releases](https://github.com/Raccoon-Trashpanda/Raccoon-Ripster-Mobile/releases)
-   on the phone and download `Ripster-Mobile-<version>.apk`.
+1. Open [**the latest release**](https://github.com/Raccoon-Trashpanda/Raccoon-Ripster-Mobile/releases/latest)
+   on the phone and download the `.apk` (current: `Ripster-0.31.apk`).
 2. Tap the file, allow installs from that source, confirm.
 3. Open Ripster.
 
@@ -262,7 +269,9 @@ The download and decode work builds on open-source projects:
 - [desktop Ripster](https://github.com/Raccoon-Trashpanda/Raccoon-Ripster) — the
   PC side of pairing
 
-## Disclaimer
+---
+
+## Disclaimer & License
 
 Not affiliated with Apple, Spotify, Qobuz, Tidal, Deezer, SoundCloud or Yandex.
 Trademarks belong to their owners. For personal use — follow each provider's
