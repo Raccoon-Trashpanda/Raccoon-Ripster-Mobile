@@ -87,6 +87,16 @@ interface LibraryDao {
             "ORDER BY addedAt DESC"
     )
     fun search(q: String): Flow<List<LibraryEntity>>
+
+    /** Пути всего, что уже заведено. Импорт папки сверяется с этим списком,
+     *  чтобы повторный проход не плодил дубли и не тратил время на разбор
+     *  файлов, которые уже разобраны. */
+    @Query("SELECT filePath FROM library")
+    suspend fun allPaths(): List<String>
+
+    /** Забыть запись: файла по этому адресу больше нет. */
+    @Query("DELETE FROM library WHERE filePath = :path")
+    suspend fun forgetPath(path: String)
 }
 
 @Dao

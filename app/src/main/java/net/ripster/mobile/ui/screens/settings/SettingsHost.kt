@@ -473,12 +473,45 @@ private fun StorageSection(lang: AppLang, c: RipsterColors) {
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) { app.storage.persist(uri); app.settings.update { it.copy(downloadTreeUri = uri.toString()) } }
     }
+    // Импорт своей коллекции. Папка выше задаёт, КУДА писать скачанное; эта —
+    // ЧТО завести в библиотеку из того, что Ripster не качал.
+    val scope = rememberCoroutineScope()
+    var importMsg by remember { mutableStateOf("") }
+    var importing by remember { mutableStateOf(false) }
+    val pickImport = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        app.storage.persist(uri)
+        importing = true
+        importMsg = tr("set.import_running", lang)
+        scope.launch {
+            val existing = runCatching { app.db.library().allPaths().toSet() }.getOrDefault(emptySet())
+            val rep = net.ripster.mobile.core.library.FolderImport.run(
+                context = app,
+                treeUri = uri,
+                existingPaths = existing,
+                upsert = { app.db.library().upsert(it) },
+                forget = { app.db.library().forgetPath(it) },
+                onProgress = { r, name ->
+                    importMsg = tr("set.import_progress", lang, r.scanned, r.added) +
+                        (if (name.isNotBlank()) "  ·  $name" else "")
+                },
+            )
+            importing = false
+            importMsg = tr("set.import_done", lang, rep.added, rep.skipped, rep.failed) +
+                (if (rep.forgotten > 0) "  ·  " + tr("set.import_forgotten", lang, rep.forgotten) else "")
+        }
+    }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(8.dp)) {
         SubRow(
             tr("set.storage", lang),
             if (s.downloadTreeUri.isBlank()) tr("sc.folder_none", lang) else Uri.decode(s.downloadTreeUri.substringAfterLast('/')),
             c,
         ) { pick.launch(null) }
+        SubRow(
+            tr("set.import_folder", lang),
+            if (importMsg.isNotBlank()) importMsg else tr("set.import_folder_sub", lang),
+            c,
+        ) { if (!importing) pickImport.launch(null) }
         var tpl by remember(s.nameTemplate) { mutableStateOf(s.nameTemplate) }
         LabeledField(tr("set.name_template", lang), tpl, c, onChange = { tpl = it })
         Box(Modifier.height(6.dp))
