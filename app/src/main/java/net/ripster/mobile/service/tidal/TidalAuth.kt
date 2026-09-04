@@ -23,7 +23,25 @@ import java.io.IOException
  */
 object TidalAuth {
 
+    /**
+     * Клиент для ВХОДА по коду устройства. Стримить им нельзя.
+     *
+     * У Tidal два разных клиента, и ни один не умеет обе вещи (проверено
+     * 04.09.2026 на живом аккаунте): этот проходит device_authorization, но
+     * запрос потока с его токеном отдаёт 401/4005 «Asset is not ready for
+     * playback»; [STREAM_CLIENT_ID] отдаёт поток LOSSLESS, но на
+     * device_authorization отвечает «Client is not a Limited Input Device».
+     *
+     * Мобилка использовала один этот клиент везде — поэтому Tidal логинился и
+     * тут же отказывался качать, а наружу шло «токен истёк», хотя токен был
+     * свежий. Теперь каждый клиент делает то, что умеет: вход — этим, обновление
+     * и поток — стриминговым. Refresh-токен принимают оба (тоже проверено), так
+     * что вход по коду и последующее скачивание сходятся.
+     */
     const val CLIENT_ID = "zU4XHVVkc2tDPo4t"
+
+    /** Клиент, которым Tidal реально отдаёт поток. Тот же, что в ПК-движке. */
+    const val STREAM_CLIENT_ID = "km8T1xS355y7dd3H"
     private const val SCOPE = "r_usr+w_usr+w_sub"
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -134,8 +152,12 @@ object TidalAuth {
      * (поймано на Galaxy A31 03.09.2026).
      */
     suspend fun refresh(refreshToken: String): Tokens = withContext(Dispatchers.IO) {
+        // Обновляемся под СТРИМИНГОВЫМ клиентом: именно его access-токен потом
+        // пустят к потоку. Обновление под клиентом входа проходит успешно и даёт
+        // токен, которым ничего не скачать, — ровно эта ловушка и стоила Tidal
+        // на мобиле работоспособности.
         val body = FormBody.Builder()
-            .add("client_id", CLIENT_ID)
+            .add("client_id", STREAM_CLIENT_ID)
             .add("refresh_token", refreshToken)
             .add("grant_type", "refresh_token")
             .build()
