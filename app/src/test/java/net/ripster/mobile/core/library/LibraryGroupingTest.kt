@@ -113,6 +113,91 @@ class LibraryGroupingTest {
         assertNotEquals(LibraryGrouping.keyOf(a), LibraryGrouping.keyOf(b))
     }
 
+    private fun d(title: String, artist: String, album: String?, sec: Int) =
+        e(title, artist, album).copy(durationSec = sec)
+
+    @Test
+    fun aStandaloneTrackIsASingle() {
+        assertEquals(
+            LibraryGrouping.ReleaseKind.SINGLE,
+            LibraryGrouping.kindOf(listOf(e("moths", "Navjaxx", null))),
+        )
+    }
+
+    @Test
+    fun anAlbumNamedAfterItsLeadTrackIsASingle() {
+        """Оформление сингла: релиз назван по заглавной вещи, вещей ≤ 3."""
+        assertEquals(
+            LibraryGrouping.ReleaseKind.SINGLE,
+            LibraryGrouping.kindOf(listOf(
+                d("Teardrop", "Massive Attack", "Teardrop", 330),
+                d("Teardrop (Mazzy Star Mix)", "Massive Attack", "Teardrop", 340),
+            )),
+        )
+    }
+
+    @Test
+    fun sevenTracksAreAnAlbumEvenWithoutDurations() {
+        val g = (1..7).map { e("T$it", "A", "Rec") }
+        assertEquals(LibraryGrouping.ReleaseKind.ALBUM, LibraryGrouping.kindOf(g))
+    }
+
+    @Test
+    fun halfAnHourOfMusicIsAnAlbum() {
+        val g = (1..5).map { d("T$it", "A", "Rec", 400) }   // 33 минуты
+        assertEquals(LibraryGrouping.ReleaseKind.ALBUM, LibraryGrouping.kindOf(g))
+    }
+
+    @Test
+    fun fiveShortTracksAreAnEp() {
+        val g = (1..5).map { d("T$it", "A", "Rec", 200) }   // 16 минут
+        assertEquals(LibraryGrouping.ReleaseKind.EP, LibraryGrouping.kindOf(g))
+    }
+
+    @Test
+    fun manyArtistsOnOneReleaseMakeItACompilation() {
+        val g = listOf(
+            d("A", "One", "Now 47", 200), d("B", "Two", "Now 47", 200),
+            d("C", "Three", "Now 47", 200), d("D", "Four", "Now 47", 200),
+        )
+        assertEquals(LibraryGrouping.ReleaseKind.COMPILATION, LibraryGrouping.kindOf(g))
+    }
+
+    @Test
+    fun aPartlyDownloadedAlbumIsNotCalledASingle() {
+        """Три трека из двенадцати выглядят как сингл, но им не являются —
+        полного размера релиза в записи нет, поэтому вид не ставится вовсе."""
+        val g = listOf(
+            d("Angel", "Massive Attack", "Mezzanine", 380),
+            d("Risingson", "Massive Attack", "Mezzanine", 300),
+            d("Inertia Creeps", "Massive Attack", "Mezzanine", 350),
+        )
+        assertEquals(null, LibraryGrouping.kindOf(g))
+    }
+
+    @Test
+    fun twoArtistsOnTwoTracksIsNotYetACompilation() {
+        """Дуэт или недокачанный альбом — сборником это не делает."""
+        val g = listOf(d("A", "One", "Split", 200), d("B", "Two", "Split", 200))
+        assertEquals(null, LibraryGrouping.kindOf(g))
+    }
+
+    @Test
+    fun anUnknownDurationDoesNotBecomeZero() {
+        """Одна запись без хронометража делает сумму бессмысленной — тогда
+        честнее не отвечать, чем назвать альбом коротышкой-EP."""
+        val g = listOf(
+            d("A", "X", "Rec", 400), d("B", "X", "Rec", 400),
+            d("C", "X", "Rec", 400), e("D", "X", "Rec"),
+        )
+        assertEquals(null, LibraryGrouping.kindOf(g))
+    }
+
+    @Test
+    fun nothingHasNoKind() {
+        assertEquals(null, LibraryGrouping.kindOf(emptyList()))
+    }
+
     @Test
     fun emptyLibraryIsEmpty() {
         assertTrue(LibraryGrouping.group(emptyList()).isEmpty())

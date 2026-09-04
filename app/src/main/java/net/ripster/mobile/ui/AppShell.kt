@@ -896,6 +896,7 @@ private fun List<net.ripster.mobile.core.db.LibraryEntity>.toGroupItem(key: Stri
             if (any { it.fakeLossless }) "  ⚠" else "",
         trackCount = size,
         artworkUrl = firstNotNullOfOrNull { it.artworkUrl },
+        kind = g.kindOf(this),
     )
 }
 

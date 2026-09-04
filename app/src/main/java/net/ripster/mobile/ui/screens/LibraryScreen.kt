@@ -72,6 +72,8 @@ data class LibraryItem(
     val format: String, // напр. "FLAC · 24-bit/96kHz" — отображается моноширинным шрифтом
     val trackCount: Int,
     val artworkUrl: String? = null,
+    /** Сингл / EP / альбом / сборник. `null` — вид неизвестен, подписи нет. */
+    val kind: net.ripster.mobile.core.library.LibraryGrouping.ReleaseKind? = null,
 )
 
 @Composable
@@ -215,6 +217,7 @@ private fun LibraryItemRow(
     val colors = RipsterTheme.colors
     val spacing = RipsterTheme.spacing
     val type = RipsterTheme.type
+    val lang = LocalAppLang.current
 
     Row(
         modifier = Modifier
@@ -248,15 +251,42 @@ private fun LibraryItemRow(
                     fontSize = type.body,
                 ),
             )
-            BasicText(
-                text = item.artist,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style = TextStyle(
-                    color = colors.text_secondary,
-                    fontSize = type.caption,
-                ),
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Вид релиза стоит ПЕРЕД исполнителем: глазу нужно с одного
+                // взгляда отличить альбом от сингла в общем списке. Если вид
+                // неизвестен — метки просто нет, место не занимается.
+                item.kind?.let { k ->
+                    BasicText(
+                        text = tr(
+                            when (k) {
+                                net.ripster.mobile.core.library.LibraryGrouping.ReleaseKind.SINGLE -> "lib.kind.single"
+                                net.ripster.mobile.core.library.LibraryGrouping.ReleaseKind.EP -> "lib.kind.ep"
+                                net.ripster.mobile.core.library.LibraryGrouping.ReleaseKind.ALBUM -> "lib.kind.album"
+                                net.ripster.mobile.core.library.LibraryGrouping.ReleaseKind.COMPILATION -> "lib.kind.compilation"
+                            },
+                            lang,
+                        ),
+                        style = TextStyle(
+                            color = colors.accent_text,
+                            fontSize = type.caption,
+                            letterSpacing = 0.6.sp,
+                        ),
+                    )
+                    BasicText(
+                        text = "  ·  ",
+                        style = TextStyle(color = colors.text_tertiary, fontSize = type.caption),
+                    )
+                }
+                BasicText(
+                    text = item.artist,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = TextStyle(
+                        color = colors.text_secondary,
+                        fontSize = type.caption,
+                    ),
+                )
+            }
             BasicText(
                 text = item.format,
                 maxLines = 1,
