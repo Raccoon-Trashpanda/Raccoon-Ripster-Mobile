@@ -176,7 +176,7 @@ class TidalClient(
                 // склеиваются в один fMP4 → расширение ВСЕГДА .m4a (а не
                 // s.tier.container: у lossless-тиров он «flac» для подписи, но
                 // на диске здесь всё равно MP4-контейнер).
-                emit(DownloadEvent.Log("Tidal: ${s.tier.label} (DASH, ${s.mediaUrls.size} сегм.)"))
+                emit(DownloadEvent.Log("Tidal: ${s.tier.label} (DASH, ${s.mediaUrls.size} segments)"))
                 val out = File(cacheDir, "td_$id.m4a")
                 out.outputStream().buffered().use { sink ->
                     streamAppend(s.initUrl, sink)

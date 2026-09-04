@@ -25,6 +25,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import net.ripster.mobile.ui.i18n.LocalAppLang
+import net.ripster.mobile.ui.i18n.tr
 
 /**
  * Обложка во весь экран на чистом чёрном — «OLED-режим». Открывается тапом по
@@ -53,6 +55,8 @@ fun CoverStage(
     onPrevious: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    // Подписи для скринридера тоже на языке приложения.
+    val lang = LocalAppLang.current
     // Системные панели тоже прячем: после того как слой перекрыл шапку и
     // навигацию приложения, кнопки Android остались единственной светлой
     // полосой на чёрном. Скрываем только на время режима и возвращаем как было
@@ -107,13 +111,13 @@ fun CoverStage(
                 ) {
                     TransportIconButton(
                         onClick = onPrevious,
-                        contentDescription = "Предыдущий",
+                        contentDescription = tr("a11y.prev", lang),
                         iconSize = 24.dp,
                     ) { drawPrevGlyph(Color.White) }
                     PlayPauseButton(isPlaying = isPlaying, onClick = onPlayPause)
                     TransportIconButton(
                         onClick = onNext,
-                        contentDescription = "Следующий",
+                        contentDescription = tr("a11y.next", lang),
                         iconSize = 24.dp,
                     ) { drawNextGlyph(Color.White) }
                 }

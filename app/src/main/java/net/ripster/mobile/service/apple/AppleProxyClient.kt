@@ -1,5 +1,6 @@
 package net.ripster.mobile.service.apple
 
+import kotlinx.serialization.json.intOrNull
 import net.ripster.mobile.core.errors.EngineErrors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -210,6 +211,25 @@ class AppleProxyClient(
             title = title,
             artist = artist,
             albumTitle = album,
+            // iTunes отдаёт жанр, дату и копирайт в том же ответе, а мы их
+            // выбрасывали: карточка релиза, открытого из радара по apple-ссылке,
+            // оставалась без жанра и лейбла, хотя у Deezer/Qobuz они были
+            // (жалоба владельца 04.09.2026 про Etherwood «Haven»).
+            albumArtist = o["collectionArtistName"]?.jsonPrimitive?.contentOrNull ?: artist,
+            trackNumber = o["trackNumber"]?.jsonPrimitive?.intOrNull,
+            discNumber = o["discNumber"]?.jsonPrimitive?.intOrNull,
+            trackTotal = o["trackCount"]?.jsonPrimitive?.intOrNull,
+            discTotal = o["discCount"]?.jsonPrimitive?.intOrNull,
+            genre = o["primaryGenreName"]?.jsonPrimitive?.contentOrNull,
+            releaseDate = o["releaseDate"]?.jsonPrimitive?.contentOrNull?.take(10),
+            year = o["releaseDate"]?.jsonPrimitive?.contentOrNull?.take(4)?.toIntOrNull(),
+            copyright = o["copyright"]?.jsonPrimitive?.contentOrNull,
+            // Лейбла у iTunes отдельного поля нет — он почти всегда стоит в
+            // копирайте («℗ 2024 Med School Music»). Берём оттуда, срезав
+            // метку и год: выдумывать нечего, это ровно та же строка.
+            label = o["copyright"]?.jsonPrimitive?.contentOrNull
+                ?.replace(Regex("""^[℗©\s]*\d{4}\s*"""), "")
+                ?.trim()?.takeIf { it.isNotBlank() },
             service = Service.APPLE,
             durationMs = durMs,
             artworkUrl = art,
@@ -240,7 +260,7 @@ class AppleProxyClient(
             .let { it.startsWith("flac") || it == "alac" || "lossless" in it || "hires" in it }
         val q = if (wantLossless) "alac" else "aac"
 
-        send(DownloadEvent.Log("Apple → ПК ($q)"))
+        send(DownloadEvent.Log("Apple → PC ($q)"))
         val taskId = pc.appleFetch(url, q).getOrElse {
             send(DownloadEvent.Error(EngineErrors.code(EngineErrors.PC_REJECTED, it.message)))
             return@channelFlow

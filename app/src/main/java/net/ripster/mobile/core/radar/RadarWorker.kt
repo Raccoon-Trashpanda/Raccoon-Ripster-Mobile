@@ -13,6 +13,8 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import net.ripster.mobile.RipsterApp
+import net.ripster.mobile.ui.i18n.AppLang
+import net.ripster.mobile.ui.i18n.tr
 import java.util.concurrent.TimeUnit
 
 /**
@@ -54,13 +56,26 @@ class RadarWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
             return n
         }
 
+        /** Язык интерфейса, выбранный в приложении.
+         *
+         * Уведомление — единственный текст, который приложение показывает, когда
+         * его вообще не открывали, и до этой правки оно было русским независимо
+         * от настройки. Composable-контекста здесь нет, поэтому берём язык прямо
+         * из настроек. */
+        private fun lang(context: Context): AppLang = runCatching {
+            AppLang.byTag(RipsterApp.from(context).settings.state.value.uiLang)
+        }.getOrDefault(AppLang.EN)
+
         private fun ensureChannel(context: Context) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
             val nm = context.getSystemService(NotificationManager::class.java) ?: return
+            val l = lang(context)
             if (nm.getNotificationChannel(CHANNEL) == null) {
                 nm.createNotificationChannel(
-                    NotificationChannel(CHANNEL, "Новые релизы", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                        description = "Радар: новинки отслеживаемых артистов"
+                    NotificationChannel(
+                        CHANNEL, tr("radar.notif_channel", l), NotificationManager.IMPORTANCE_DEFAULT,
+                    ).apply {
+                        description = tr("radar.notif_channel_desc", l)
                     },
                 )
             }
@@ -69,11 +84,12 @@ class RadarWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
         private fun notify(context: Context, count: Int) {
             ensureChannel(context)
             val nm = context.getSystemService(NotificationManager::class.java) ?: return
-            val text = if (count == 1) "У отслеживаемого артиста вышел новый релиз"
-            else "Новые релизы у отслеживаемых артистов: $count"
+            val l = lang(context)
+            val text = if (count == 1) tr("radar.notif_one", l)
+            else tr("radar.notif_many", l, count)
             val n = NotificationCompat.Builder(context, CHANNEL)
                 .setSmallIcon(android.R.drawable.stat_notify_sync)
-                .setContentTitle("Радар Ripster")
+                .setContentTitle(tr("radar.notif_title", l))
                 .setContentText(text)
                 .setAutoCancel(true)
                 .build()

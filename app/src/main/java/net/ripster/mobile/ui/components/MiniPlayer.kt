@@ -28,6 +28,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import net.ripster.mobile.ui.theme.RipsterTheme
+import net.ripster.mobile.ui.i18n.LocalAppLang
+import net.ripster.mobile.ui.i18n.tr
 
 /**
  * Мини-плеер — компактная плашка "сейчас играет", закреплённая над нижней
@@ -57,6 +59,8 @@ fun MiniPlayer(
     onExpand: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // Подписи для скринридера тоже на языке приложения.
+    val lang = LocalAppLang.current
     val colors = RipsterTheme.colors
     val type = RipsterTheme.type
 
@@ -88,7 +92,7 @@ fun MiniPlayer(
                         role = Role.Button,
                         onClick = onExpand,
                     )
-                    .semantics { contentDescription = "${state.title} — ${state.artist}, открыть плеер" },
+                    .semantics { contentDescription = tr("a11y.open_player", lang, state.title, state.artist) },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Cover(
@@ -126,10 +130,10 @@ fun MiniPlayer(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                MiniGlyph(onClick = onPrev, cd = "Предыдущий") { drawPrevGlyph(colors.text_secondary) }
+                MiniGlyph(onClick = onPrev, cd = tr("a11y.prev", lang)) { drawPrevGlyph(colors.text_secondary) }
                 PlayPauseButton(isPlaying = state.isPlaying, onClick = onPlayPause, size = 34.dp)
-                MiniGlyph(onClick = onNext, cd = "Следующий") { drawNextGlyph(colors.text_secondary) }
-                MiniGlyph(onClick = onClose, cd = "Закрыть плеер", icon = 12.dp) {
+                MiniGlyph(onClick = onNext, cd = tr("a11y.next", lang)) { drawNextGlyph(colors.text_secondary) }
+                MiniGlyph(onClick = onClose, cd = tr("a11y.close_player", lang), icon = 12.dp) {
                     drawLine(colors.text_tertiary, androidx.compose.ui.geometry.Offset(size.width * 0.15f, size.height * 0.15f),
                         androidx.compose.ui.geometry.Offset(size.width * 0.85f, size.height * 0.85f), 5f, androidx.compose.ui.graphics.StrokeCap.Round)
                     drawLine(colors.text_tertiary, androidx.compose.ui.geometry.Offset(size.width * 0.85f, size.height * 0.15f),

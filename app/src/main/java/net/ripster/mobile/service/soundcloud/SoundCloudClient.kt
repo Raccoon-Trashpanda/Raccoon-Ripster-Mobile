@@ -176,7 +176,7 @@ class SoundCloudClient(
                 api.streamUrl(transcoding.url, fresh.trackAuthorization)
             } catch (e: IOException) {
                 lastErr = e
-                emit(DownloadEvent.Log("SoundCloud: ${transcoding.format.protocol}/${tier.label} недоступен (${e.message}), пробую следующий"))
+                emit(DownloadEvent.Log("SoundCloud: ${transcoding.format.protocol}/${tier.label} unavailable (${e.message}), trying next"))
                 continue
             }
             emit(DownloadEvent.Log("SoundCloud: ${tier.label}, ${transcoding.format.protocol} stream" + if (idx > 0) " (fallback #$idx)" else ""))
@@ -192,7 +192,7 @@ class SoundCloudClient(
             } catch (e: IOException) {
                 lastErr = e
                 outFile.delete()
-                emit(DownloadEvent.Log("SoundCloud: поток ${transcoding.format.protocol} оборвался (${e.message}), пробую следующий"))
+                emit(DownloadEvent.Log("SoundCloud: ${transcoding.format.protocol} stream broke (${e.message}), trying next"))
                 continue
             }
             emit(DownloadEvent.Done(outFile.absolutePath, tier, outFile.length()))

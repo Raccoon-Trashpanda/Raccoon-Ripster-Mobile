@@ -370,7 +370,7 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                             shuffle = playback.shuffle,
                             repeat = playback.repeat,
                             quality = when {
-                                playback.fakeLossless -> QualityBadgeState.Fake("lossless-контейнер, lossy-поток")
+                                playback.fakeLossless -> QualityBadgeState.Fake(tr("badge.fake_lossless", lang))
                                 playback.qualityMismatch -> QualityBadgeState.Mismatch(
                                     promised = "FLAC / Hi-Res",
                                     actual = playback.format,

@@ -87,7 +87,7 @@ object TagWriter {
                         ),
                     )
                 }.onFailure {
-                    android.util.Log.w("RipsterTag", "обложка не записалась в ${file.name}: $it")
+                    android.util.Log.w("RipsterTag", "cover not written to ${file.name}: $it")
                 }
             }
             af.commit()
@@ -96,7 +96,7 @@ object TagWriter {
             // НЕ глотаем: молчаливый провал давал файл вообще без тегов, и
             // понять это можно было только вскрыв файл (03.09.2026 — так и
             // вышло). Пишем причину в лог.
-            android.util.Log.w("RipsterTag", "теги не записались в ${file.name}: $it")
+            android.util.Log.w("RipsterTag", "tags not written to ${file.name}: $it")
         }.getOrDefault(false)
     }
 

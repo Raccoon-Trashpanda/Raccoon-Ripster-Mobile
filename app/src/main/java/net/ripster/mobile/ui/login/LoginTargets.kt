@@ -52,7 +52,7 @@ object LoginTargets {
         ),
         LoginTarget(
             service = "yandex",
-            title = "Яндекс Музыка",
+            title = "Yandex Music",
             url = "https://oauth.yandex.ru/authorize?response_type=token" +
                 "&client_id=23cabbbdc6cd418abb4b39c32c41195d",
             domain = "yandex.ru",

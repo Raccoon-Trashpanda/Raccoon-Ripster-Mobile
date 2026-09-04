@@ -212,7 +212,7 @@ class YandexMusicClient(
                 return@flow
             }
             runCatching { out.delete() }
-            emit(DownloadEvent.Log("Yandex: lossless не отдался — беру mp3"))
+            emit(DownloadEvent.Log("Yandex: lossless not served — falling back to mp3"))
         }
 
         val (tier, url) = signedUrl(id, pref)

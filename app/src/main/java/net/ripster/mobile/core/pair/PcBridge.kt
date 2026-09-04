@@ -53,11 +53,11 @@ class PcBridge(context: Context) {
 
     private val deviceName: String
         get() = listOfNotNull(Build.MANUFACTURER, Build.MODEL)
-            .joinToString(" ").trim().ifBlank { "телефон" }.take(48)
+            .joinToString(" ").trim().ifBlank { "phone" }.take(48)
 
     /** Стабильный ID спаренного ПК. «Папа». */
     val pcId: String? get() = prefs.getString("pc_id", null)?.ifBlank { null }
-    val pcName: String get() = prefs.getString("pc_name", "")?.ifBlank { "ПК" } ?: "ПК"
+    val pcName: String get() = prefs.getString("pc_name", "")?.ifBlank { "PC" } ?: "PC"
 
     val token: String? get() = prefs.getString("token", null)?.ifBlank { null }
     val deviceGroupId: String? get() = prefs.getString("dgid", null)
@@ -183,7 +183,9 @@ class PcBridge(context: Context) {
             block(b1)
         } catch (e: java.io.IOException) {
             val b2 = resolveBase(deep = true)
-                ?: throw java.io.IOException("ПК перестал отвечать: ${e.message}")
+                ?: throw java.io.IOException(
+                    net.ripster.mobile.core.errors.EngineErrors.code(
+                        net.ripster.mobile.core.errors.EngineErrors.PC_OFFLINE, e.message))
             block(b2)
         }
     }
@@ -219,7 +221,7 @@ class PcBridge(context: Context) {
                     putString("last_good", base)
                     putString("token", tok)
                     putString("pc_id", newPcId)
-                    putString("pc_name", o["pc_name"]?.jsonPrimitive?.contentOrNull ?: "ПК")
+                    putString("pc_name", o["pc_name"]?.jsonPrimitive?.contentOrNull ?: "PC")
                     putString("dgid", o["device_group_id"]?.jsonPrimitive?.contentOrNull)
                     putStringSet("caps", caps)
                     putString("apple_sf", o["apple_storefront"]?.jsonPrimitive?.contentOrNull ?: "us")

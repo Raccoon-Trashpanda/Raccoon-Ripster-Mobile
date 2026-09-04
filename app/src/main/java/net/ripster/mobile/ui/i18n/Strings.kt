@@ -43,6 +43,21 @@ fun tr(key: String, lang: AppLang): String {
     return row[lang] ?: row[AppLang.EN] ?: key
 }
 
+/**
+ * Перевод с подстановкой: `{0}`, `{1}` … заменяются на аргументы по порядку.
+ *
+ * Понадобилось для строк лога загрузки — «поток {0} оборвался ({1}), пробую
+ * следующий». Без подстановки такие строки оставались собранными в коде через
+ * `$переменную`, то есть на одном языке навсегда: именно так русский текст
+ * доживал до английского интерфейса. Номерные заполнители, а не позиция
+ * аргумента в предложении, потому что порядок слов в пяти языках разный.
+ */
+fun tr(key: String, lang: AppLang, vararg args: Any?): String {
+    var s = tr(key, lang)
+    args.forEachIndexed { i, a -> s = s.replace("{$i}", a?.toString() ?: "") }
+    return s
+}
+
 private typealias Row = Map<AppLang, String>
 
 private fun row(ru: String, en: String, hi: String, ja: String, zh: String): Row = mapOf(
@@ -407,6 +422,58 @@ private val STRINGS: Map<String, Row> = mapOf(
         "トークンが無効か期限切れです — 設定→アカウントで再度サインインしてください。",
         "令牌无效或已过期 — 请在设置 → 账户中重新登录。",
     ),
+    // Подписи для скринридера. Их не видно глазами, но они читаются вслух —
+    // и по-русски при английском интерфейсе звучат ровно так же неуместно.
+    "a11y.prev" to row("Предыдущий", "Previous", "पिछला", "前へ", "上一首"),
+    "a11y.next" to row("Следующий", "Next", "अगला", "次へ", "下一首"),
+    "a11y.shuffle" to row("Перемешать", "Shuffle", "शफ़ल", "シャッフル", "随机播放"),
+    "a11y.repeat" to row("Повтор", "Repeat", "दोहराएँ", "リピート", "循环"),
+    "a11y.close_player" to row("Закрыть плеер", "Close player", "प्लेयर बंद करें", "プレーヤーを閉じる", "关闭播放器"),
+    "a11y.open_player" to row(
+        "{0} — {1}, открыть плеер",
+        "{0} — {1}, open player",
+        "{0} — {1}, प्लेयर खोलें",
+        "{0} — {1}、プレーヤーを開く",
+        "{0} — {1}，打开播放器",
+    ),
+    "common.yes" to row("да", "yes", "हाँ", "はい", "是"),
+    "common.no" to row("нет", "no", "नहीं", "いいえ", "否"),
+    "spec.cutoff" to row("Срез", "Cutoff", "कटऑफ़", "カットオフ", "截止频率"),
+    "spec.brickwall" to row("Кирпичная стена", "Brick wall", "ब्रिक-वॉल", "ブリックウォール", "砖墙滤波"),
+    "badge.fake_lossless" to row(
+        "lossless-контейнер, lossy-поток",
+        "lossless container, lossy stream",
+        "lossless कंटेनर, lossy स्ट्रीम",
+        "ロスレス容器・非可逆データ",
+        "无损容器，有损音频",
+    ),
+
+    // Уведомления Радара — единственный текст, который приложение показывает,
+    // когда его вообще не открывали.
+    "radar.notif_channel" to row("Новые релизы", "New releases", "नई रिलीज़", "新着リリース", "新发行"),
+    "radar.notif_channel_desc" to row(
+        "Радар: новинки отслеживаемых артистов",
+        "Radar: new releases from watched artists",
+        "रडार: देखे जा रहे कलाकारों की नई रिलीज़",
+        "レーダー: 追跡中アーティストの新作",
+        "雷达：关注艺人的新作品",
+    ),
+    "radar.notif_title" to row("Радар Ripster", "Ripster Radar", "Ripster रडार", "Ripster レーダー", "Ripster 雷达"),
+    "radar.notif_one" to row(
+        "У отслеживаемого артиста вышел новый релиз",
+        "A watched artist has a new release",
+        "देखे जा रहे कलाकार की नई रिलीज़ आई है",
+        "追跡中のアーティストに新作が出ました",
+        "关注的艺人发布了新作品",
+    ),
+    "radar.notif_many" to row(
+        "Новые релизы у отслеживаемых артистов: {0}",
+        "New releases from watched artists: {0}",
+        "देखे जा रहे कलाकारों की नई रिलीज़: {0}",
+        "追跡中アーティストの新作: {0}",
+        "关注艺人的新作品：{0}",
+    ),
+
     "err.needs_subscription" to row(
         "поток доступен только по платной подписке сервиса.",
         "the stream requires a paid subscription to the service.",
