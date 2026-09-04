@@ -59,6 +59,9 @@ object EngineErrors {
     /** Срок доступа вышел либо запись закрыта по региону — BBC не различает. */
     const val EXPIRED_OR_GEO = "__e.expired_or_geo__"
 
+    /** Сервис отдаёт трек только сегментами — играть нечего, скачать можно. */
+    const val NO_DIRECT_STREAM = "__e.no_direct_stream__"
+
     /** У передачи нет звуковой дорожки для скачивания. */
     const val NO_AUDIO = "__e.no_audio__"
 

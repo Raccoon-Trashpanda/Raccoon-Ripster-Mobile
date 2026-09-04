@@ -591,6 +591,24 @@ fun SearchScreen(
                                         val head = net.ripster.mobile.core.service.StreamResolver
                                             .toStreamItems(ordered.take(4), quality, limit = 4)
                                         if (head.isEmpty()) {
+                                            // Как в ПК-версии: свой сервис поток не дал —
+                                            // ищем ЭТОТ ЖЕ трек у тех, кто умеет играть, и
+                                            // играем оттуда. Молча падать в «скачай» рано:
+                                            // Tidal отдаёт только сегменты, а тот же трек в
+                                            // Deezer/Qobuz стримится без вопросов.
+                                            val viaOther = kotlinx.coroutines.withTimeoutOrNull(25_000) {
+                                                net.ripster.mobile.core.service.ReleasePlayback.playSearch(
+                                                    app.player,
+                                                    "${t.artist} ${t.title}".trim(),
+                                                    quality,
+                                                    fallbackArtwork = t.artworkUrl,
+                                                )
+                                            } ?: false
+                                            if (viaOther) {
+                                                error = null
+                                                onOpenPlayer()
+                                                return@launch
+                                            }
                                             // Spotify/BBC-трек играет через Deezer/Qobuz/Tidal.
                                             // Пусто = либо ни одного стрим-сервиса не
                                             // подключено, либо у всех мёртвый токен —

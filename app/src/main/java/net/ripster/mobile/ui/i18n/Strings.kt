@@ -456,6 +456,13 @@ private val STRINGS: Map<String, Row> = mapOf(
         "この番組は利用できません — 公開期間が終了したか、地域制限があります。",
         "该节目不可用 — 已过期或受地区限制。",
     ),
+    "err.no_direct_stream" to row(
+        "этот сервис отдаёт трек только для скачивания — скачай, и он будет играть.",
+        "this service only offers the track for download — download it and it will play.",
+        "यह सेवा ट्रैक केवल डाउनलोड के लिए देती है — डाउनलोड करें, फिर वह चलेगा।",
+        "このサービスはダウンロード専用で配信しています — 保存すれば再生できます。",
+        "该服务仅提供下载 — 下载后即可播放。",
+    ),
     "err.no_audio" to row(
         "BBC не отдала скачиваемую дорожку — почти всегда это доступ только из Великобритании.",
         "the BBC served no downloadable audio — nearly always this means UK-only access.",

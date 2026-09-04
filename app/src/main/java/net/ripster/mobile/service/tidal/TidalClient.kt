@@ -151,10 +151,7 @@ class TidalClient(
             // («вижу треки Tidal, но приложение зависает при потоковой
             // передаче»). Заведомо неиграбельная ссылка должна быть честным
             // отказом, а не тишиной.
-            is TdStream.Dash -> throw IOException(
-                "Tidal: прямой поток недоступен для этого трека — скачай его, " +
-                    "воспроизведение доступно только после загрузки",
-            )
+            is TdStream.Dash -> throw IOException(EngineErrors.NO_DIRECT_STREAM)
         }
     }
 
