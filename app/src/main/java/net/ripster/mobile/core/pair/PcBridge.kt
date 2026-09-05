@@ -405,6 +405,58 @@ class PcBridge(context: Context) {
         }.getOrDefault(emptyList())
     }
 
+    /** Вкус владельца с ПК: имя артиста → вес, и жанр, если ПК его знает. */
+    data class PcTaste(
+        val weights: Map<String, Double> = emptyMap(),
+        /** Пары «артист → сырой ярлык жанра» — корм для дирижёра жанров. */
+        val genreHints: List<Pair<String, String>> = emptyList(),
+    )
+
+    /**
+     * Забрать вкус с ПК: Раскопки плюс подписки Spotify.
+     *
+     * Телефон строит станции по СВОЕЙ истории прослушиваний, а это капля рядом
+     * с фонотекой и пятью тысячами подписок на компьютере. Замер 05.09.2026:
+     * ПК отдаёт 2037 артистов и 132 КБ за полсекунды по локальной сети.
+     *
+     * Пустой результат — законное «не смогли»: ПК может быть не в сети.
+     * Станция обязана строиться и без него.
+     */
+    suspend fun taste(limit: Int = 40): PcTaste = withContext(Dispatchers.IO) {
+        val tok = token ?: return@withContext PcTaste()
+        runCatching {
+            viaBase { base ->
+                val req = Request.Builder().url("$base/api/pair/taste?limit=$limit")
+                    .header("Authorization", "Bearer $tok").build()
+                RipsterHttp.client.newCall(req).execute().use { r ->
+                    val txt = r.body?.string().orEmpty()
+                    if (!r.isSuccessful) {
+                        android.util.Log.w("RipsterPair", "taste HTTP ${r.code}")
+                        return@use PcTaste()
+                    }
+                    val o = json.parseToJsonElement(txt).jsonObject
+                    val w = HashMap<String, Double>()
+                    val hints = ArrayList<Pair<String, String>>()
+                    (o["artists"]?.jsonArray ?: return@use PcTaste()).forEach { el ->
+                        val a2 = el.jsonObject
+                        val name = a2["name"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                        if (name.isBlank()) return@forEach
+                        a2["weight"]?.jsonPrimitive?.contentOrNull?.toDoubleOrNull()
+                            ?.let { w[name] = it }
+                        a2["genre"]?.jsonPrimitive?.contentOrNull
+                            ?.takeIf { it.isNotBlank() && it != "null" }
+                            ?.let { hints += name to it }
+                    }
+                    android.util.Log.i(
+                        "RipsterPair",
+                        "taste: ${w.size} artists, ${hints.size} genre hints",
+                    )
+                    PcTaste(w, hints)
+                }
+            }
+        }.getOrDefault(PcTaste())
+    }
+
     /** ПК уже качает ровно это, но не назвал задачу — следить не за чем. */
     class AlreadyQueued : IllegalStateException("__e.pc_already_queued__")
 

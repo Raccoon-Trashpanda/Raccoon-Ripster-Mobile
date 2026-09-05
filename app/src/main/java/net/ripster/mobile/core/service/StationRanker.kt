@@ -48,6 +48,17 @@ object StationRanker {
     /** Потолок прибавки за «этого артиста человек слушает». */
     private const val TASTE_MAX = 0.60
 
+    /**
+     * Потолок прибавки за вкус, ПРИШЕДШИЙ С ПК (Раскопки + подписки Spotify).
+     *
+     * Отдельно от [TASTE_MAX] намеренно. Это две разные величины: местные
+     * прослушивания считаются в штуках, а вес с ПК — в своей шкале (замер
+     * 05.09.2026: от 3 у подписки до 88 у самого слушаемого). Сложить их в
+     * одно поле значило бы выдать пересчёт одной шкалы в другую за
+     * измерение. Держим врозь, складываем как два независимых признака.
+     */
+    private const val PC_TASTE_MAX = 0.50
+
     /** Признаки одной вещи. Всё, чего не знаем, — `null`, и это не «нет». */
     data class Signals(
         /** Источник ручается за жанр (курируемая станция, канон жанра). */
@@ -64,8 +75,24 @@ object StationRanker {
      * Вкус слушателя: сколько раз он включал каждого артиста.
      * Ключи нормализованы — см. [normArtist].
      */
-    data class Taste(val plays: Map<String, Int> = emptyMap()) {
+    data class Taste(
+        /** Сколько раз включали ЗДЕСЬ, на телефоне. Штуки. */
+        val plays: Map<String, Int> = emptyMap(),
+        /**
+         * Расположение к артисту по данным ПК — Раскопки и подписки Spotify.
+         * Уже приведено к 0..1, потому что исходная шкала ПК своя и на
+         * телефоне ничего не значит.
+         */
+        val affinity: Map<String, Double> = emptyMap(),
+    ) {
         fun playsOf(artist: String): Int = plays[normArtist(artist)] ?: 0
+        fun affinityOf(artist: String): Double = affinity[normArtist(artist)] ?: 0.0
+
+        /** Слить местное и пришедшее с ПК, не смешивая шкалы. */
+        fun plus(other: Taste): Taste = Taste(
+            plays = plays + other.plays,
+            affinity = affinity + other.affinity,
+        )
 
         companion object {
             val EMPTY = Taste()
@@ -78,6 +105,22 @@ object StationRanker {
                     if (k.isNotEmpty()) m[k] = (m[k] ?: 0) + 1
                 }
                 return Taste(m)
+            }
+
+            /**
+             * Собрать из весов ПК. Нормируем по САМОМУ большому весу в наборе:
+             * абсолютные числа Раскопок на телефоне смысла не имеют, а
+             * отношение «этот вдвое любимее того» — имеет.
+             */
+            fun fromWeights(weights: Map<String, Double>): Taste {
+                val top = weights.values.maxOrNull() ?: return EMPTY
+                if (top <= 0.0) return EMPTY
+                val m = HashMap<String, Double>()
+                weights.forEach { (name, w) ->
+                    val k = normArtist(name)
+                    if (k.isNotEmpty() && w > 0.0) m[k] = (w / top).coerceIn(0.0, 1.0)
+                }
+                return Taste(affinity = m)
             }
         }
     }
@@ -101,6 +144,10 @@ object StationRanker {
             val t = (log10(1.0 + plays) / log10(11.0)).coerceAtMost(1.0)
             w *= 1.0 + TASTE_MAX * t
         }
+        // Расположение с ПК — отдельный множитель, а не добавка к штукам.
+        val aff = taste.affinityOf(track.artist)
+        if (aff > 0.0) w *= 1.0 + PC_TASTE_MAX * aff
+
         s.year?.let { y ->
             val age = nowYear - y
             w *= when {

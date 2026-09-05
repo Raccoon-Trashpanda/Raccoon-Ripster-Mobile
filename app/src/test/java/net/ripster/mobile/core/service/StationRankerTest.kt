@@ -92,6 +92,45 @@ class StationRankerTest {
         assertEquals(StationRanker.normArtist("Burial feat. Someone"), StationRanker.normArtist("burial"))
     }
 
+    @Test
+    fun pcTasteIsASeparateSignalFromLocalPlays() {
+        """Вкус с ПК (Раскопки + подписки) и местные прослушивания — разные
+        величины в разных шкалах. Сложить их в одно поле значило бы выдать
+        пересчёт за измерение, поэтому они складываются как два признака."""
+        val local = StationRanker.Taste.of(List(5) { "A" })
+        val fromPc = StationRanker.Taste.fromWeights(mapOf("B" to 88.0))
+        val both = local.plus(fromPc)
+        val wa = StationRanker.weight(t("x", "A"), S, both, 2026)
+        val wb = StationRanker.weight(t("x", "B"), S, both, 2026)
+        val wc = StationRanker.weight(t("x", "C"), S, both, 2026)
+        assertTrue("местный любимец весит больше незнакомца", wa > wc)
+        assertTrue("любимец с ПК тоже весит больше незнакомца", wb > wc)
+    }
+
+    @Test
+    fun pcWeightsAreNormalisedByTheTopOne() {
+        """Абсолютные числа Раскопок на телефоне ничего не значат — значимо
+        отношение. Замер 05.09.2026: от 3 у подписки до 88 у самого
+        слушаемого."""
+        val t1 = StationRanker.Taste.fromWeights(mapOf("верх" to 88.0, "низ" to 3.0))
+        assertEquals(1.0, t1.affinityOf("верх"), 1e-9)
+        assertTrue(t1.affinityOf("низ") < 0.1)
+        // Та же расстановка в других единицах даёт тот же результат.
+        val t2 = StationRanker.Taste.fromWeights(mapOf("верх" to 880.0, "низ" to 30.0))
+        assertEquals(t1.affinityOf("низ"), t2.affinityOf("низ"), 1e-9)
+    }
+
+    @Test
+    fun anEmptyPcProfileChangesNothing() {
+        """ПК не в сети — станция обязана строиться как раньше, а не хуже."""
+        val empty = StationRanker.Taste.fromWeights(emptyMap())
+        assertEquals(StationRanker.Taste.EMPTY, empty)
+        assertEquals(
+            StationRanker.weight(t("x"), S, StationRanker.Taste.EMPTY, 2026),
+            StationRanker.weight(t("x"), S, empty, 2026), 1e-9,
+        )
+    }
+
     // ── отбор ───────────────────────────────────────────────────────────────
 
     private val pool = buildList {

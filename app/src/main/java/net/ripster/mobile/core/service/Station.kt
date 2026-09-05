@@ -216,6 +216,14 @@ object StationBuilder {
          */
         taste: StationRanker.Taste = StationRanker.Taste.EMPTY,
     ): List<Track> {
+        // Вкус и жанровые подсказки с ПК. Дирижёр учится на них ровно так же,
+        // как на пулах: это те же пары «артист — ярлык», просто ПК знает их
+        // больше, чем телефон когда-либо увидит сам.
+        val pcTaste = if (pc?.paired == true) pc.taste() else null
+        pcTaste?.genreHints?.forEach { (artist, raw) -> genres.observe(artist, raw) }
+        val effectiveTaste = if (pcTaste == null || pcTaste.weights.isEmpty()) taste
+            else taste.plus(StationRanker.Taste.fromWeights(pcTaste.weights))
+
         val clients = ServiceRegistry.configured()
         val ya = ServiceRegistry.get(Service.YANDEX) as? YandexMusicClient
         val sc = ServiceRegistry.get(Service.SOUNDCLOUD) as? SoundCloudClient
@@ -346,12 +354,12 @@ object StationBuilder {
         val seedOrOne = if (rotationSeed == 0L) 1L else rotationSeed
         val out = ArrayList<Track>()
         out += StationRanker.rank(
-            candidatesOf(wantLead = true), taste = taste, seed = seedOrOne,
+            candidatesOf(wantLead = true), taste = effectiveTaste, seed = seedOrOne,
             size = size, nowYear = nowYear,
         )
         if (out.size < size) {
             out += StationRanker.rank(
-                candidatesOf(wantLead = false), taste = taste, seed = seedOrOne + 7919L,
+                candidatesOf(wantLead = false), taste = effectiveTaste, seed = seedOrOne + 7919L,
                 size = size - out.size, nowYear = nowYear, already = out,
             )
         }
