@@ -29,6 +29,17 @@ object Popularity {
     /** Верхняя точка логарифмической шкалы: 10^7 прослушиваний = 1.0. */
     private const val PLAYS_TOP = 7.0
 
+    /**
+     * Популярность артиста по числу поклонников Deezer. Тоже логарифм: между
+     * тысячей и десятью тысячами поклонников разница та же, что между миллионом
+     * и десятью. Верх шкалы — 10^6 поклонников.
+     */
+    fun fromFans(fans: Long?): Double? {
+        val f = fans ?: return null
+        if (f <= 0) return null
+        return min(1.0, log10(1.0 + f) / 6.0)
+    }
+
     /** Популярность по `rank` Deezer (0..1_000_000). */
     fun fromDeezerRank(rank: Int?): Double? {
         val r = rank ?: return null

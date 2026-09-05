@@ -82,8 +82,88 @@ object StationBuilder {
         return words.any { w -> norm(w).length >= 4 && g.contains(norm(w)) }
     }
 
-    /** Один опрошенный источник. [vetted] — список уже курируемый по жанру. */
-    private data class Pool(val tracks: List<Track>, val vetted: Boolean)
+    /**
+     * Треки артистов, которые этот жанр и делают.
+     *
+     * Канон берётся из MusicBrainz ([GenreCanon]) — там артистов размечают
+     * тегами с весом, и по тегу видно, кто в жанре свой. Играем их топ-треки
+     * из Deezer: он открыт, без ключа, и отдаёт то, что у артиста РЕАЛЬНО
+     * слушают, а не то, что подошло под запрос.
+     *
+     * Список считается курируемым: жанр здесь гарантирован не тегом трека, а
+     * самим артистом, и сверять его ещё раз незачем — у Deezer в топе трека
+     * жанра нет, и проверка выбросила бы весь канон.
+     */
+    private suspend fun canonPool(
+        genre: String,
+        clients: List<ServiceClient>,
+        artists: Int = 10,
+        perArtist: Int = 3,
+    ): List<Track> {
+        val canon = GenreCanon.artists(genre).take(artists)
+        if (canon.isEmpty() || clients.isEmpty()) return emptyList()
+
+        // У Deezer есть готовый «топ артиста» — один запрос вместо поиска.
+        // Но опираться ТОЛЬКО на него нельзя: у человека может не быть ничего,
+        // кроме токена Qobuz или Tidal, а жанровая волна обязана работать при
+        // любом наборе подключённого (замечание владельца 05.09.2026).
+        val dz = clients.filterIsInstance<net.ripster.mobile.service.deezer.DeezerClient>().firstOrNull()
+
+        val byArtist = coroutineScope {
+            canon.map { a ->
+                async {
+                    val viaDeezer = dz?.let {
+                        runCatching { it.artistTopTracks(a.name, perArtist) }.getOrDefault(emptyList())
+                    }.orEmpty()
+                    if (viaDeezer.isNotEmpty()) viaDeezer else anyServiceTracks(clients, a.name, perArtist)
+                }
+            }.awaitAll()
+        }
+
+        // ПО ОДНОМУ от каждого артиста, а не подряд всё его.
+        // Сложенные встык списки давали четыре трека Scandroid друг за другом —
+        // это не волна жанра, а мини-альбом одного артиста.
+        val out = ArrayList<Track>()
+        var i = 0
+        while (byArtist.any { i < it.size }) {
+            for (list in byArtist) list.getOrNull(i)?.let { out.add(it) }
+            i++
+        }
+        return out
+    }
+
+    /**
+     * Вещи этого артиста у любого подключённого сервиса.
+     *
+     * Готового «топа артиста» у остальных нет, поэтому спрашиваем поиском по
+     * имени и оставляем только то, где ЭТОТ артист действительно указан:
+     * поиск охотно отдаёт однофамильцев и каверы, а в станции жанра они
+     * выглядят ровно как та «шляпа», от которой всё и затевалось.
+     */
+    private suspend fun anyServiceTracks(
+        clients: List<ServiceClient>,
+        name: String,
+        limit: Int,
+    ): List<Track> = coroutineScope {
+        clients.map { c -> async { runCatching { c.search(name).tracks }.getOrDefault(emptyList()) } }
+            .awaitAll()
+            .flatten()
+            .filter { ChartBoost.isSameArtist(it.artist, name) }
+            .distinctBy { (it.isrc ?: (it.title + "|" + it.artist)).lowercase() }
+            .take(limit)
+    }
+
+    /**
+     * Один опрошенный источник.
+     *
+     * [vetted] — жанр уже гарантирован источником, сверять его не нужно (и
+     * нечем: у топ-треков артиста Deezer жанра не отдаёт).
+     * [lead] — идёт в начало эфира. Это РАЗНЫЕ свойства: чарт SoundCloud по
+     * жанру верен жанрово, но по качеству неровен — в «Техно» из него приезжали
+     * «epileptic techno» и «dddance perfect slowed» рядом с Nina Kraviz и Aphex
+     * Twin. Такое допустимо на доборе, но не во главе станции.
+     */
+    private data class Pool(val tracks: List<Track>, val vetted: Boolean, val lead: Boolean = vetted)
 
     suspend fun build(
         scGenreSlug: String,
@@ -114,10 +194,30 @@ object StationBuilder {
                     add(async { Pool(runCatching { ya.station(yandexStationId, size) }.getOrDefault(emptyList()), true) })
                 }
                 if (scGenreSlug.isNotBlank() && sc != null) {
-                    add(async { Pool(runCatching { sc.station(scGenreSlug, size) }.getOrDefault(emptyList()), true) })
+                    // Жанрово верен, но во главу не ставим — см. Pool.lead.
+                    add(
+                        async {
+                            Pool(
+                                runCatching { sc.station(scGenreSlug, size) }.getOrDefault(emptyList()),
+                                vetted = true, lead = false,
+                            )
+                        },
+                    )
                 }
-                // Поиск у каждого сервиса. Берём широко: дальше отсев по жанру,
-                // и из десятка результатов своих может не остаться совсем.
+                // ГЛАВНЫЙ источник для жанров — канон: кто этот жанр ДЕЛАЕТ.
+                //
+                // Поиск по названию жанра находит вещи, у которых это слово в
+                // заголовке или тегах: любительские загрузки и часовые миксы
+                // «synthwave mix». Артистов жанра он не находит вовсе — у
+                // Timecop1983 слова «synthwave» в названиях треков нет. Отсюда
+                // и была «шляпа, которую никто не стал бы слушать».
+                add(
+                    async {
+                        Pool(runCatching { canonPool(fallbackQuery, clients) }.getOrDefault(emptyList()), true)
+                    },
+                )
+                // Поиск у каждого сервиса остаётся ПОДСПОРЬЕМ: он добирает то,
+                // чего канон не покрыл, и обязан пройти сверку жанра.
                 clients.forEach { c ->
                     add(async { Pool(runCatching { c.search(fallbackQuery).tracks.take(40) }.getOrDefault(emptyList()), false) })
                 }
@@ -147,20 +247,47 @@ object StationBuilder {
             WaveRotation.pick(list, rotationSeed + i * 7919L, size)
         }
 
-        // Слияние по кругу: станция получается из всех сервисов сразу, а не из
-        // того, кто первым ответил.
+        // Порядок слияния решает, что человек услышит.
+        //
+        // Сначала — курируемое: канон жанра, станция ротора, чарт по жанру.
+        // Поиск идёт ТОЛЬКО на добор. При слиянии вперемешку канон и выдача
+        // поиска шли через одного, и половину эфира занимали любительские
+        // «Dub Techno Sessions Episode 98» рядом с DeepChord и Monolake —
+        // ровно то, на что владелец сказал «никто бы такое не стал слушать».
+        val lead = rotated.filterIndexed { i, _ -> pools[i].lead }
+        val fill = rotated.filterIndexed { i, _ -> !pools[i].lead }
+
         val seen = HashSet<String>()
         val out = ArrayList<Track>()
-        var i = 0
-        while (out.size < size && rotated.any { i < it.size }) {
-            for (list in rotated) {
-                val tr = list.getOrNull(i) ?: continue
-                val key = (tr.isrc ?: (tr.title + "|" + tr.artist)).lowercase()
-                if (seen.add(key)) out.add(tr)
-                if (out.size >= size) break
+
+        /**
+         * Ключи, по которым вещь считается уже взятой — И ISRC, И «название +
+         * артист». По одному ISRC не хватало: разные сервисы отдают одну запись
+         * то с кодом, то без, и «Scaramanga» от Calyx & Teebee приезжала в
+         * станцию дважды.
+         */
+        fun keys(t: Track): List<String> = listOfNotNull(
+            t.isrc?.takeIf { it.isNotBlank() }?.lowercase(),
+            (t.title.trim() + "|" + t.artist.trim()).lowercase(),
+        )
+
+        fun drain(lists: List<List<Track>>) {
+            var i = 0
+            while (out.size < size && lists.any { i < it.size }) {
+                for (list in lists) {
+                    val tr = list.getOrNull(i) ?: continue
+                    val k = keys(tr)
+                    if (k.none { it in seen }) {
+                        seen.addAll(k)
+                        out.add(tr)
+                    }
+                    if (out.size >= size) break
+                }
+                i++
             }
-            i++
         }
+        drain(lead)
+        drain(fill)
 
         if (out.size >= 5) { lastOutcome = Outcome.OK; return out }
 

@@ -50,6 +50,16 @@ object ChartBoost {
     fun namesOf(artist: String): List<String> =
         artist.split(SPLIT).map { norm(it) }.filter { it.length >= 3 }
 
+    /**
+     * Тот ли это исполнитель. Строка трека может быть составной («A feat. B»),
+     * поэтому сравниваем по частям и без диакритики.
+     */
+    fun isSameArtist(artistField: String, name: String): Boolean {
+        val want = norm(name)
+        if (want.length < 3) return false
+        return namesOf(artistField).any { it == want }
+    }
+
     /** Есть ли этот исполнитель в чарте жанра. */
     fun isCharting(artist: String, chart: Set<String>): Boolean {
         if (chart.isEmpty()) return false

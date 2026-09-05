@@ -30,6 +30,7 @@ import net.ripster.mobile.service.deezer.dto.DzApiAlbumFull
 import net.ripster.mobile.service.deezer.dto.DzApiAlbumSearch
 import net.ripster.mobile.service.deezer.dto.DzApiSearch
 import net.ripster.mobile.service.deezer.dto.DzApiTrack
+import net.ripster.mobile.service.deezer.dto.DzApiTrackList
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import java.io.File
@@ -151,6 +152,51 @@ class DeezerClient(
             )
         }
     }.getOrDefault(emptyList())
+
+    /**
+     * Топ-треки артиста по имени — то, что у него РЕАЛЬНО слушают.
+     *
+     * Нужно жанровым станциям. Поиск по названию жанра находил вещи, у которых
+     * это слово в заголовке (любительские «synthwave mix»), а не канон жанра;
+     * теперь станция идёт от имён артистов, и здесь берётся их топ. Deezer
+     * отдаёт и число поклонников, и `rank` каждого трека — обе меры настоящие,
+     * а не выведенные из порядка выдачи.
+     *
+     * Возвращает пусто, если артист не найден: выдумывать похожего нельзя,
+     * иначе в станцию жанра приедет однофамилец.
+     */
+    suspend fun artistTopTracks(name: String, limit: Int = 5): List<Track> = runCatching {
+        val found = json.parseToJsonElement(
+            apiGet("https://api.deezer.com/search/artist") {
+                it.addQueryParameter("q", name); it.addQueryParameter("limit", "1")
+            },
+        ).jsonObject["data"]?.jsonArray.orEmpty().firstOrNull()?.jsonObject ?: return emptyList()
+
+        val id = found["id"]?.jsonPrimitive?.contentOrNull ?: return emptyList()
+        // Имя должно совпасть: поиск Deezer охотно отдаёт «похожее».
+        val got = found["name"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        if (!sameArtist(got, name)) return emptyList()
+        val fans = found["nb_fan"]?.jsonPrimitive?.contentOrNull?.toLongOrNull()
+
+        val raw = apiGet("https://api.deezer.com/artist/$id/top") {
+            it.addQueryParameter("limit", limit.toString())
+        }
+        json.decodeFromString(DzApiTrackList.serializer(), raw).data.map { t ->
+            t.toTrack().copy(
+                // У топ-треков артиста популярность считаем по числу его
+                // поклонников, если у самого трека `rank` не пришёл.
+                popularity = net.ripster.mobile.core.service.Popularity.fromDeezerRank(t.rank)
+                    ?: net.ripster.mobile.core.service.Popularity.fromFans(fans),
+            )
+        }
+    }.getOrDefault(emptyList())
+
+    /** Тот же артист или просто похоже названный. */
+    private fun sameArtist(a: String, b: String): Boolean {
+        fun n(x: String) = java.text.Normalizer.normalize(x, java.text.Normalizer.Form.NFD)
+            .lowercase().filter { it.isLetterOrDigit() }
+        return n(a) == n(b)
+    }
 
     override suspend fun resolve(url: String): MediaSelection? {
         val m = Regex("""deezer\.com/(?:[a-z]{2}/)?(track|album|playlist)/(\d+)""").find(url) ?: return null
