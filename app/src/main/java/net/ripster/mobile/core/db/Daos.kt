@@ -21,6 +21,10 @@ interface DownloadDao {
     @Query("SELECT * FROM downloads WHERE id = :id")
     suspend fun get(id: String): DownloadEntity?
 
+    /** Незавершённые задачи — для сверки с WorkManager при запуске. */
+    @Query("SELECT * FROM downloads WHERE state IN ('QUEUED', 'RUNNING')")
+    suspend fun unfinished(): List<DownloadEntity>
+
     /** Активная (в очереди или качается) задача по тому же треку — для дедупа
      *  повторного тапа «Скачать». */
     @Query(

@@ -72,6 +72,10 @@ class DownloadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         setForeground(foregroundInfo(track.title))
         dao.setState(id, DownloadState.RUNNING.name, now())
 
+        // Ставится из ветки временного отказа внутри collect: из лямбды выйти
+        // с Result нельзя, а решение всё равно принимается после сбора.
+        var retryLater = false
+
         try {
             // Качество зависит от типа сети — как в Apple Music (Wi-Fi/сотовая).
             val onWifi = NetworkType.isOnWifi(applicationContext)
@@ -185,7 +189,21 @@ class DownloadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
                             )
                         )
                     }
-                    is DownloadEvent.Error -> dao.markFailed(id, ev.reason, now())
+                    is DownloadEvent.Error -> {
+                        // Ограничение частоты и сетевые обрывы проходят сами —
+                        // см. TransientFailure. Возвращаем в очередь и уходим на
+                        // откат, а не рисуем человеку окончательный отказ.
+                        if (TransientFailure.shouldRetry(ev.reason, runAttemptCount)) {
+                            dao.setState(id, DownloadState.QUEUED.name, now())
+                            android.util.Log.i(
+                                "RipsterDownloads",
+                                "retry ${runAttemptCount + 1}/${TransientFailure.MAX_ATTEMPTS}: ${ev.reason}",
+                            )
+                            retryLater = true
+                            return@collect
+                        }
+                        dao.markFailed(id, ev.reason, now())
+                    }
                     is DownloadEvent.Log -> Unit
                 }
             }
@@ -197,6 +215,7 @@ class DownloadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
             return Result.failure()
         }
 
+        if (retryLater) return Result.retry()
         return if (dao.get(id)?.state == DownloadState.DONE.name) Result.success() else Result.failure()
     }
 

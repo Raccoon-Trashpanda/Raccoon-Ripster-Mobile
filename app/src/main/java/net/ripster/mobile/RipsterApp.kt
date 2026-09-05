@@ -86,6 +86,13 @@ class RipsterApp : Application() {
         )
         DownloadWorker.ensureChannel(this)
 
+        // Свести очередь загрузок с действительностью: строки, оставшиеся
+        // «качается» после гибели процесса, некому продолжать — см.
+        // DownloadQueue.reconcileOnStart.
+        MainScope().launch(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { downloads.reconcileOnStart() }
+        }
+
         // Разовая уборка библиотеки при запуске: убрать записи о файлах,
         // которых больше нет, и склеить дубли на один путь. Дубли копились,
         // пока ключом записи был id задачи загрузки; ссылки в кэш ОС чистит

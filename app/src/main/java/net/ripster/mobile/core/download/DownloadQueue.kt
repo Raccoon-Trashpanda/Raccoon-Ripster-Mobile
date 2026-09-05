@@ -5,6 +5,7 @@ import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
@@ -83,6 +84,56 @@ class DownloadQueue(
 
         wm.enqueueUniqueWork("dl_$id", ExistingWorkPolicy.KEEP, req)
         id
+    }
+
+    /** Собрать заявку на работу для уже лежащей в базе строки. */
+    private fun workFor(id: String): OneTimeWorkRequest {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(if (wifiOnlyProvider()) NetworkType.UNMETERED else NetworkType.CONNECTED)
+            .build()
+        return OneTimeWorkRequestBuilder<DownloadWorker>()
+            .setInputData(workDataOf(DownloadWorker.KEY_ID to id))
+            .setConstraints(constraints)
+            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, Duration.ofSeconds(20))
+            .addTag(TAG)
+            .build()
+    }
+
+    /**
+     * Свести базу с действительностью при запуске.
+     *
+     * Room помнит состояние, WorkManager выполняет — и эти двое расходятся
+     * молча. Процесс убили в момент загрузки (обновление приложения, сборщик
+     * памяти, «Остановить» в настройках) — строка так и остаётся RUNNING, а
+     * работать над ней уже некому. 05.09.2026 владелец увидел ровно это:
+     * девятнадцать треков висели «качается» с 13:44, до вечера, и не двигались
+     * ни на процент. Экран говорил «идёт загрузка», хотя не шло ничего.
+     *
+     * Ни один прежний путь этого не ловил: воркер сам себя воскресить не может,
+     * а очередь при старте базу не читала вовсе.
+     *
+     * Чиним по факту, а не по догадке: спрашиваем WorkManager, жива ли работа.
+     * Жива — не трогаем. Нет — возвращаем в QUEUED и ставим работу заново.
+     * Именно QUEUED, а не FAILED: ничего не падало, просто некому было делать.
+     */
+    suspend fun reconcileOnStart(): Int {
+        val rows = runCatching { dao.unfinished() }.getOrNull() ?: return 0
+        var revived = 0
+        for (row in rows) {
+            val alive = runCatching {
+                wm.getWorkInfosForUniqueWork("dl_${row.id}").get()
+                    .any { !it.state.isFinished }
+            }.getOrDefault(false)
+            if (alive) continue
+            dao.setState(row.id, DownloadState.QUEUED.name, System.currentTimeMillis())
+            wm.enqueueUniqueWork("dl_${row.id}", ExistingWorkPolicy.REPLACE, workFor(row.id))
+            revived++
+        }
+        if (revived > 0) {
+            android.util.Log.i("RipsterDownloads", "reconcile: revived $revived orphaned task(s)")
+        }
+        return revived
     }
 
     fun cancel(id: String) {

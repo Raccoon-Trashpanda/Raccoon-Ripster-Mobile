@@ -260,14 +260,42 @@ class SoundCloudClient(
         }
     }
 
+    /**
+     * Сколько килобит обещает пресет SoundCloud.
+     *
+     * Имена у них разного вида: «aac_160k» и «aac_96k» несут число в себе,
+     * а «mp3_0_0» и «opus_0_0» — нет, хотя их битрейт у сервиса фиксирован.
+     * Незнакомый пресет получает середину, а не ноль: «не знаю» не должно
+     * означать «плохой» — иначе новый тир молча уедет в конец списка.
+     */
+    internal fun presetKbps(preset: String): Int {
+        val p = preset.lowercase()
+        Regex("(\\d+)k").find(p)?.let { return it.groupValues[1].toInt() }
+        return when {
+            p.startsWith("mp3") -> 128
+            p.startsWith("opus") -> 72
+            p.startsWith("aac") -> 160
+            else -> 128
+        }
+    }
+
+    /**
+     * Какой поток брать. Главный признак — КАЧЕСТВО ЗВУКА.
+     *
+     * Было наоборот: mp3 получал +40 «за совместимость контейнера», aac — +30,
+     * и progressive ещё +20 сверху. У трека с aac_160k и mp3_0_0 выигрывал mp3 128 —
+     * то есть телефон сознательно брал худшее из двух доступных. Замер
+     * 05.09.2026 по треку nWu: сервис отдаёт aac_160k, aac_96k, mp3_0_0.
+     *
+     * AAC на Android играется штатно, так что «совместимость» была не доводом,
+     * а привычкой. Протокол остался тай-брейком: progressive действительно
+     * проще HLS, но это не повод терять тридцать килобит.
+     */
     private fun score(t: ScTranscoding, wantHq: Boolean): Int {
-        var s = 0
-        if (t.quality == "hq") s += if (wantHq) 100 else 10
-        if (t.preset.startsWith("mp3")) s += 40          // самый совместимый контейнер
-        if (t.preset.startsWith("aac")) s += 30
-        if (t.format.protocol == "progressive") s += 20  // проще и надёжнее HLS
-        if (t.preset.startsWith("opus")) s -= 20         // валиден, но хуже играется на Android-плеерах
-        return s
+        // Тир Go+ без токена не отдаётся — не тратим на него первую попытку.
+        val hqBonus = if (t.quality == "hq" && wantHq) 1000 else 0
+        val protocolTieBreak = if (t.format.protocol == "progressive") 1 else 0
+        return hqBonus + presetKbps(t.preset) * 2 + protocolTieBreak
     }
 
     private fun isNonDrm(t: ScTranscoding): Boolean {
