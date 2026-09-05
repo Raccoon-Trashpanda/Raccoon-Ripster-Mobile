@@ -90,15 +90,69 @@ fun AlbumScreen(
     // сокет). Без потолка экран оставался в «Анализирую…» НАВСЕГДА — владелец
     // ловил это по 5 минут (03.09.2026). 25 с и честная пустая карточка.
     var resolveFailed by remember(url) { mutableStateOf(false) }
+    /** Чем именно ответил сервис. Нужен, чтобы сказать правду, а не общее
+     *  «сервис не ответил»: протухший вход и молчание сети — разные беды. */
+    var failReason by remember(url) { mutableStateOf<Throwable?>(null) }
     val sel by produceState<MediaSelection?>(initialValue = null, url) {
         val svc = Service.entries.firstOrNull { it.id == service || it.label.equals(service, true) }
-        if (svc == null) { resolveFailed = true; value = null; return@produceState }
-        val got = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        if (svc == null) {
+            // Пустой или незнакомый сервис — карточка открыться не могла в
+            // принципе. Раньше это выглядело как «сервис не ответил», хотя
+            // спрашивать было некого.
+            android.util.Log.w("RipsterAlbum", "no service for card: service='$service' url='$url'")
+            resolveFailed = true; value = null; return@produceState
+        }
+        var why: Throwable? = null
+        val own = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             kotlinx.coroutines.withTimeoutOrNull(25_000) {
-                runCatching { ServiceRegistry.get(svc)?.resolve(url) }.getOrNull()
+                runCatching { ServiceRegistry.get(svc)?.resolve(url) }
+                    .onFailure {
+                        why = it
+                        android.util.Log.w("RipsterAlbum", "resolve failed: ${svc.id} $url", it)
+                    }
+                    .getOrNull()
             }
         }
+
+        // Свой сервис не отдал релиз — ищем ТОТ ЖЕ релиз у остальных.
+        //
+        // Карточка не должна становиться тупиком из-за одного протухшего
+        // входа: 05.09.2026 у Qobuz на телефоне умер токен
+        // (`__qobuz_bad_token__`), и открытый из радара альбом M83 показывал
+        // пустоту, хотя тот же альбом есть у Deezer и Tidal.
+        val got = if (own != null && own.tracks.isNotEmpty()) own else {
+            val alt = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                kotlinx.coroutines.withTimeoutOrNull(20_000) {
+                    val want = fallbackTitle.trim()
+                    if (want.isEmpty()) null else Service.entries
+                        .filter { it != svc }
+                        .mapNotNull { ServiceRegistry.get(it) }
+                        .firstNotNullOfOrNull { c ->
+                            runCatching {
+                                val hit = c.search("$fallbackArtist $want").albums.firstOrNull { a ->
+                                    a.title.equals(want, ignoreCase = true) ||
+                                        a.title.contains(want, ignoreCase = true)
+                                } ?: return@runCatching null
+                                val u = hit.url ?: return@runCatching null
+                                c.resolve(u)?.takeIf { it.tracks.isNotEmpty() }
+                            }.getOrNull()
+                        }
+                }
+            }
+            if (alt != null) {
+                android.util.Log.i("RipsterAlbum", "resolved elsewhere: '$fallbackTitle' after ${svc.id} failed")
+            }
+            alt ?: own
+        }
+
+        if (got == null) {
+            android.util.Log.w(
+                "RipsterAlbum",
+                "resolve empty: ${svc.id} url='$url' reason=${why?.message ?: "no answer"}",
+            )
+        }
         resolveFailed = got == null
+        failReason = why
         value = got
     }
 
@@ -351,7 +405,15 @@ fun AlbumScreen(
                         // Пока идёт резолв — «Анализирую…»; когда он не удался
                         // (таймаут/ошибка) — говорим об этом, а не крутим вечно.
                         BasicText(
-                            tr(if (resolveFailed) "album.resolve_failed" else "tools.analyzing", lang),
+                            // Причину называем ТУ, что сказал сервис. «Сервис не
+                            // ответил» при живом ответе «токен протух» — это
+                            // ложный диагноз: человек лезет чинить сеть вместо
+                            // входа. Переводчик ошибок общий, тот же, что у поиска.
+                            when {
+                                !resolveFailed -> tr("tools.analyzing", lang)
+                                failReason != null -> net.ripster.mobile.ui.i18n.errorText(failReason, lang)
+                                else -> tr("album.resolve_failed", lang)
+                            },
                             style = TextStyle(color = c.text_tertiary, fontSize = 12.sp, textAlign = TextAlign.Center),
                         )
                     }

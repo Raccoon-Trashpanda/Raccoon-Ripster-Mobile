@@ -476,6 +476,90 @@ class PcBridge(context: Context) {
         }
     }
 
+    /**
+     * Один грядущий релиз: объявлен в прессе, но ещё не вышел.
+     *
+     * Обычный радар видит только то, что УЖЕ появилось в каталоге сервиса.
+     * Анонс живёт за месяцы до этого и только в новостях.
+     */
+    data class UpcomingItem(
+        val artist: String,
+        val title: String,
+        /** Дата выхода, ISO. Пусто — ещё не объявлена; это не повод прятать. */
+        val date: String = "",
+        val label: String = "",
+        val trackCount: Int = 0,
+        /** Полная строка авторства: совместные работы и фиты. */
+        val credits: String = "",
+        val genres: List<String> = emptyList(),
+        val artwork: String = "",
+        /** Издания, написавшие об этом. Чем больше — тем очевиднее, что ждут. */
+        val sources: List<String> = emptyList(),
+        val kind: String = "album",
+    )
+
+    /**
+     * Грядущие релизы с ПК (`/api/pair/upcoming`).
+     *
+     * Собирает и подтверждает их ПК: там уже есть обход четырнадцати новостных
+     * лент и сверка дат с MusicBrainz. Второй такой же обход с телефона стоил
+     * бы второго разбора новостей и второго лимита запросов — при том, что за
+     * обычным радаром телефон и так ходит на ПК.
+     */
+    suspend fun upcoming(): Result<List<UpcomingItem>> = withContext(Dispatchers.IO) {
+        val tok = token ?: return@withContext Result.failure(IllegalStateException("not paired"))
+        runCatching {
+            viaBase { base ->
+                val req = Request.Builder().url("$base/api/pair/upcoming")
+                    .header("Authorization", "Bearer $tok").build()
+                RipsterHttp.client.newCall(req).execute().use { r ->
+                    val txt = r.body?.string().orEmpty()
+                    require(r.isSuccessful) { "HTTP ${r.code}: ${txt.take(160)}" }
+                    (json.parseToJsonElement(txt).jsonObject["items"]?.jsonArray ?: emptyList()).map { el ->
+                        val o = el.jsonObject
+                        UpcomingItem(
+                            artist = o["artist"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                            title = o["title"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                            date = o["date"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                            label = o["label"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                            trackCount = o["track_count"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0,
+                            credits = o["credits"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                            genres = o["genres"]?.jsonArray?.mapNotNull {
+                                it.jsonPrimitive.contentOrNull
+                            }.orEmpty(),
+                            artwork = o["artwork"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                            sources = o["sources"]?.jsonArray?.mapNotNull {
+                                it.jsonPrimitive.contentOrNull
+                            }.orEmpty(),
+                            kind = o["kind"]?.jsonPrimitive?.contentOrNull ?: "album",
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * «Жду» — артист уходит в вишлист на ПК.
+     *
+     * Радар грядущего знает, что релиз БУДЕТ; ловить его появление умеет
+     * вишлист, в том числе через ранние витрины. Соединять их руками незачем.
+     */
+    suspend fun waitFor(artist: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val tok = token ?: return@withContext Result.failure(IllegalStateException("not paired"))
+        runCatching {
+            viaBase { base ->
+                val body = """{"artist":${jsonStr(artist)}}"""
+                    .toRequestBody("application/json".toMediaType())
+                val req = Request.Builder().url("$base/api/pair/upcoming/wait")
+                    .header("Authorization", "Bearer $tok").post(body).build()
+                RipsterHttp.client.newCall(req).execute().use { r ->
+                    require(r.isSuccessful) { "HTTP ${r.code}" }
+                }
+            }
+        }
+    }
+
     /** Дискография артиста с ПК (`/api/pair/artist`). Нужен `artistId`. */
     suspend fun artist(service: String, artistId: String): Result<ArtistPage> =
         artistOrLabel("$normPairArtistPath?service=${enc(service)}&id=${enc(artistId)}",

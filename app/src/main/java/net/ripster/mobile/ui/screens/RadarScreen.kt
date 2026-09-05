@@ -111,6 +111,14 @@ fun RadarScreen(
         value = if (bridge.paired) bridge.radar() else Result.success(emptyList())
     }
 
+    // Грядущее: объявлено в прессе, но ещё не вышло. Отдельно от ленты —
+    // это принципиально другой список: там то, что появилось, здесь то, чего
+    // ещё нет ни в одном каталоге.
+    val upcoming by produceState<List<PcBridge.UpcomingItem>>(emptyList(), bridge.paired) {
+        value = if (bridge.paired) bridge.upcoming().getOrDefault(emptyList()) else emptyList()
+    }
+    val waiting = remember { mutableStateMapOf<String, Boolean>() }
+
     Column(modifier.fillMaxSize().background(c.surface_canvas)) {
         // ── шапка ──
         Row(
@@ -216,6 +224,56 @@ fun RadarScreen(
                             ),
                             verticalArrangement = Arrangement.spacedBy(16.dp),
                         ) {
+                            if (upcoming.isNotEmpty()) {
+                                item(key = "upcoming") {
+                                    Column(Modifier.fillMaxWidth()) {
+                                        BasicText(
+                                            tr("radar.upcoming", lang),
+                                            Modifier.padding(top = 4.dp, bottom = 8.dp),
+                                            style = TextStyle(
+                                                color = c.text_secondary, fontSize = 12.sp,
+                                                fontWeight = FontWeight.W700, letterSpacing = 1.sp,
+                                            ),
+                                        )
+                                        Row(
+                                            Modifier.horizontalScroll(rememberScrollState()),
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        ) {
+                                            upcoming.forEach { u ->
+                                                val key = u.artist + "|" + u.title
+                                                net.ripster.mobile.ui.components.ReleaseCard(
+                                                    data = net.ripster.mobile.ui.components.ReleaseCardData(
+                                                        // Название объявляют не всегда — тогда честно
+                                                        // говорим «альбом без названия», а не выдумываем.
+                                                        title = u.title.ifBlank { tr("radar.untitled_release", lang) },
+                                                        artist = u.artist,
+                                                        service = "",
+                                                        url = "",
+                                                        type = u.kind,
+                                                        coverUrl = u.artwork.takeIf { it.isNotBlank() },
+                                                        trackCount = u.trackCount.takeIf { it > 0 },
+                                                        label = u.label.takeIf { it.isNotBlank() },
+                                                        dateText = u.date.ifBlank { tr("radar.date_unknown", lang) },
+                                                    ),
+                                                    modifier = Modifier.width(160.dp),
+                                                    queued = waiting[key] == true,
+                                                    // Скачивать нечего — релиза ещё нет. Кнопка ставит
+                                                    // артиста в вишлист, и релиз поймают, как только
+                                                    // он появится.
+                                                    actionGlyph = "☆",
+                                                    onOpen = { onOpenArtist(u.artist, "", "") },
+                                                    onArtist = { onOpenArtist(u.artist, "", "") },
+                                                    onDownload = {
+                                                        scope.launch {
+                                                            if (bridge.waitFor(u.artist).isSuccess) waiting[key] = true
+                                                        }
+                                                    },
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                             groups.forEach { (key, rows) ->
                                 stickyHeader(key = "h-$key") {
                                     Box(

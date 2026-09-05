@@ -76,6 +76,13 @@ fun ReleaseCard(
     onDownload: () -> Unit,
     onArtist: (() -> Unit)? = null,
     onPlay: (() -> Unit)? = null,
+    /**
+     * Значок кнопки действия. По умолчанию «скачать».
+     *
+     * У ГРЯДУЩЕГО релиза скачивать нечего — его ещё не существует, и стрелка
+     * вниз на такой карточке была бы кнопкой, которая врёт. Там стоит «жду».
+     */
+    actionGlyph: String = "↓",
 ) {
     val c = RipsterTheme.colors
     val lang = LocalAppLang.current
@@ -155,7 +162,7 @@ fun ReleaseCard(
                     .pressable(enabled = !queued) { onDownload() },
                 contentAlignment = Alignment.Center,
             ) {
-                BasicText(if (queued) "✓" else "↓", style = TextStyle(color = if (queued) c.success_text else c.text_on_fill, fontSize = 13.sp, fontWeight = FontWeight.Bold))
+                BasicText(if (queued) "✓" else actionGlyph, style = TextStyle(color = if (queued) c.success_text else c.text_on_fill, fontSize = 13.sp, fontWeight = FontWeight.Bold))
             }
         }
         Spacer(Modifier.height(8.dp))
