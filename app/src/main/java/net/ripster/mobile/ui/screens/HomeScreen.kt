@@ -119,7 +119,10 @@ fun HomeScreen(
         downloads.filter { it.state == "RUNNING" || it.state == "QUEUED" }
     }
     val dlFailed = remember(downloads) {
-        downloads.filter { it.state == "FAILED" }.take(3)
+        // Тоже через витрину: двенадцать отвалившихся треков одного альбома
+        // иначе заполняют самую ВЕРХНЮЮ полку главного экрана одной обложкой.
+        // Именно её владелец и увидел первой 05.09.2026.
+        Showcase.spread(downloads.filter { it.state == "FAILED" }, take = 3) { it.artist }
     }
     // Обложка карточки загрузки: у DownloadEntity своего поля обложки нет, но в
     // trackJson лежит весь сериализованный Track с artworkUrl. Раньше сюда
@@ -135,12 +138,15 @@ fun HomeScreen(
     }
 
     // Недавно добавленное в библиотеку — по времени добавления, не по алфавиту.
+    // Полки показывают РАЗНОЕ. Девятнадцать треков одного альбома иначе
+    // заполняют обе целиком одной обложкой — жалоба владельца 05.09.2026:
+    // «массив аттак захватил нашу коллекцию подчистую». См. Showcase.
     val recentlyAdded = remember(library) {
-        library.sortedByDescending { it.addedAt }.take(10)
+        Showcase.spread(library.sortedByDescending { it.addedAt }, take = 10) { it.artist }
     }
     // Витрина коллекции — случайная выборка на этот заход, не первые 12.
     val collectionShow = remember(library, visitSeed) {
-        library.shuffled(kotlin.random.Random(visitSeed)).take(12)
+        Showcase.spread(library.shuffled(kotlin.random.Random(visitSeed)), take = 12) { it.artist }
     }
     // Жанровые станции — крутим 10 из полного набора за заход.
     val waveShow = remember(visitSeed) {
@@ -366,6 +372,7 @@ fun HomeScreen(
                                     net.ripster.mobile.core.service.StationBuilder.build(
                                         st.scSlug, st.query, st.ya,
                                         appleGenreId = st.appleGenre,
+                                        pc = app.pcBridge,
                                         // Вкус — из истории прослушиваний. Без
                                         // этого признак в ранкере был бы, а
                                         // данных в него никто бы не подавал.

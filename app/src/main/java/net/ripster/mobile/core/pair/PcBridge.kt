@@ -14,6 +14,8 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
+import net.ripster.mobile.core.model.Service
+import net.ripster.mobile.core.model.Track
 import net.ripster.mobile.core.net.RipsterHttp
 import net.ripster.mobile.core.settings.CredentialStore
 import okhttp3.MediaType.Companion.toMediaType
@@ -343,6 +345,65 @@ class PcBridge(context: Context) {
         val error: String,
         val note: String,
     )
+
+    /**
+     * Редакторская подборка Apple по жанру — с ПК.
+     *
+     * Телефон Apple не стримит и dev-токена не имеет, зато умеет разрешить
+     * вещь в играбельную копию у своего сервиса по ISRC. Поэтому ПК отдаёт
+     * только метаданные, а играем мы уже оттуда, откуда умеем.
+     *
+     * Пустой список — законное «не смогли»: ПК может быть не в сети, токен
+     * Apple протух, подходящей подборки может не быть. Станция обязана
+     * собраться и без этого источника, а не показать пустой экран.
+     */
+    suspend fun appleStation(genre: String, limit: Int = 40): List<Track> = withContext(Dispatchers.IO) {
+        val tok = token ?: return@withContext emptyList()
+        runCatching {
+            viaBase { base ->
+                val url = "$base/api/pair/station?genre=" +
+                    java.net.URLEncoder.encode(genre, "UTF-8") + "&limit=$limit"
+                val req = Request.Builder().url(url).header("Authorization", "Bearer $tok").build()
+                RipsterHttp.client.newCall(req).execute().use { r ->
+                    val txt = r.body?.string().orEmpty()
+                    if (!r.isSuccessful) {
+                        android.util.Log.w("RipsterPair", "appleStation HTTP ${r.code}: ${txt.take(200)}")
+                        return@use emptyList<Track>()
+                    }
+                    val o = json.parseToJsonElement(txt).jsonObject
+                    if (o["ok"]?.jsonPrimitive?.contentOrNull != "true") {
+                        android.util.Log.i(
+                            "RipsterPair",
+                            "appleStation «$genre»: ${o["reason"]?.jsonPrimitive?.contentOrNull}",
+                        )
+                        return@use emptyList<Track>()
+                    }
+                    android.util.Log.i(
+                        "RipsterPair",
+                        "appleStation «$genre» ← «${o["playlist"]?.jsonPrimitive?.contentOrNull}» " +
+                            "[${o["curator"]?.jsonPrimitive?.contentOrNull}]",
+                    )
+                    (o["tracks"]?.jsonArray ?: return@use emptyList<Track>()).mapNotNull { el ->
+                        val t = el.jsonObject
+                        fun str(k: String) = t[k]?.jsonPrimitive?.contentOrNull.orEmpty()
+                        val title = str("title"); val artist = str("artist")
+                        if (title.isBlank() || artist.isBlank()) return@mapNotNull null
+                        Track(
+                            id = "apple-station:" + str("isrc").ifBlank { "$artist|$title" },
+                            title = title,
+                            artist = artist,
+                            service = Service.APPLE,
+                            albumTitle = str("album").ifBlank { null },
+                            isrc = str("isrc").ifBlank { null },
+                            artworkUrl = str("artworkUrl").ifBlank { null },
+                            durationMs = t["durationMs"]?.jsonPrimitive?.contentOrNull?.toLongOrNull(),
+                            year = t["year"]?.jsonPrimitive?.contentOrNull?.toIntOrNull(),
+                        )
+                    }
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
 
     /** ПК уже качает ровно это, но не назвал задачу — следить не за чем. */
     class AlreadyQueued : IllegalStateException("__e.pc_already_queued__")

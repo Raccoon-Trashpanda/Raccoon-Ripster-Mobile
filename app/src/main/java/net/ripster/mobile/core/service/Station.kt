@@ -183,6 +183,13 @@ object StationBuilder {
          */
         rotationSeed: Long = 0L,
         /**
+         * Мост к ПК. Если пара есть, ПК отдаёт редакторскую подборку Apple по
+         * этому жанру — самый качественный из доступных источников (её собирал
+         * редактор, а не размечал кто попало). `null` — пары нет, станция
+         * строится по-старому.
+         */
+        pc: net.ripster.mobile.core.pair.PcBridge? = null,
+        /**
          * Что этот человек уже слушает (из play_history). Пустой вкус —
          * законное «не знаю»: станция просто строится без этого признака.
          */
@@ -205,6 +212,22 @@ object StationBuilder {
                             Pool(
                                 runCatching { sc.station(scGenreSlug, size) }.getOrDefault(emptyList()),
                                 vetted = true, lead = false,
+                            )
+                        },
+                    )
+                }
+                // Редакторская подборка Apple с ПК — если пара есть.
+                // Ставим в один ряд с каноном: и то и другое собрано людьми,
+                // а не сведено поиском по слову. Apple сам телефон не стримит,
+                // поэтому вещи отсюда разрешаются в играбельную копию по ISRC
+                // тем же путём, что и всё остальное.
+                if (pc?.paired == true) {
+                    add(
+                        async {
+                            Pool(
+                                runCatching { pc.appleStation(fallbackQuery, size) }
+                                    .getOrDefault(emptyList()),
+                                vetted = true,
                             )
                         },
                     )

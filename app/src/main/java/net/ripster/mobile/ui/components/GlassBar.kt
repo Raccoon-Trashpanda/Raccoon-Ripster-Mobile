@@ -10,6 +10,16 @@ import androidx.compose.ui.graphics.Color
 import net.ripster.mobile.ui.theme.RipsterTheme
 
 /**
+ * Насколько плотна задняя заливка стекла.
+ *
+ * Было 0.55, и владелец 05.09.2026: «задняя заливка в блюре вообще
+ * практически не видна, усиль эффект в пол раза». Полоса читалась как ничто:
+ * подсветка сквозь неё просвечивала, а самой плашки видно не было. Подняли в
+ * полтора раза — стекло стало стеклом, но осталось полупрозрачным.
+ */
+const val GLASS_ALPHA = 0.83f
+
+/**
  * Полупрозрачная полоса — верхняя шапка и нижняя строка загрузок.
  *
  * Владелец: «эту плашку убрать вообще, либо сделать прозрачной и более узкой…
@@ -28,7 +38,7 @@ import net.ripster.mobile.ui.theme.RipsterTheme
  * [top] — полоса вверху: градиент гаснет книзу, линия снизу. Иначе наоборот.
  */
 @Composable
-fun Modifier.glassBar(top: Boolean = true, alpha: Float = 0.55f): Modifier {
+fun Modifier.glassBar(top: Boolean = true, alpha: Float = GLASS_ALPHA): Modifier {
     val c = RipsterTheme.colors
     val base = c.surface_canvas
     val fadeTo = base.copy(alpha = 0f)
@@ -36,7 +46,7 @@ fun Modifier.glassBar(top: Boolean = true, alpha: Float = 0.55f): Modifier {
         if (top) listOf(base.copy(alpha = alpha), fadeTo)
         else listOf(fadeTo, base.copy(alpha = alpha)),
     )
-    val hair = c.border_subtle.copy(alpha = 0.5f)
+    val hair = c.border_subtle.copy(alpha = 0.75f)
     return this
         .background(brush)
         .drawWithContent {
@@ -48,5 +58,5 @@ fun Modifier.glassBar(top: Boolean = true, alpha: Float = 0.55f): Modifier {
 
 /** Тот же тон для мелких элементов поверх стекла (кружок загрузки). */
 @Composable
-fun glassTint(alpha: Float = 0.55f): Color =
+fun glassTint(alpha: Float = GLASS_ALPHA): Color =
     RipsterTheme.colors.surface_canvas.copy(alpha = alpha)

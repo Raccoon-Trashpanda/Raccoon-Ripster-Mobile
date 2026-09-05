@@ -19,6 +19,18 @@ import org.junit.Test
 class WaveStationsTest {
 
     /** Станции ротора, которые называют ровно один жанр. */
+    /**
+     * Станции ротора, чьё имя РОВНО совпадает с обещанием плитки.
+     *
+     * Каждая строка проверена живым запросом к `rotor/stations/list`
+     * (05.09.2026, 161 жанровая станция), а не взята из головы. Ровно на этом
+     * сторож меня и поймал: в первой версии новых плиток я подставил
+     * `genre:rock`, `genre:metal` и прочие, не спросив, существуют ли они.
+     *
+     * Пары вроде `genre:rap` → «hip hop» и `genre:latinfolk` → «latin» — это
+     * не подмена, а разные названия одного жанра у разных сервисов; здесь они
+     * и записаны, чтобы решение было видно, а не растворено в коде.
+     */
     private val exactGenre = mapOf(
         "genre:techno" to "techno",
         "genre:trance" to "trance",
@@ -26,6 +38,24 @@ class WaveStationsTest {
         "genre:dnb" to "drum and bass",
         "genre:jazz" to "jazz",
         "genre:classical" to "classical",
+        "genre:rap" to "hip hop",
+        "genre:rock" to "rock",
+        "genre:metal" to "metal",
+        "genre:blues" to "blues",
+        "genre:country" to "country",
+        "genre:pop" to "pop",
+        "genre:indie" to "indie rock",
+        "genre:soul" to "soul",
+        "genre:disco" to "disco",
+        "genre:funk" to "funk",
+        "genre:reggae" to "reggae",
+        "genre:dub" to "dub",
+        "genre:rnb" to "r&b",
+        "genre:postpunk" to "post-punk",
+        "genre:newwave" to "new wave",
+        "genre:latinfolk" to "latin",
+        "genre:house" to "house",
+        "genre:dubstep" to "dubstep",
     )
 
     @Test

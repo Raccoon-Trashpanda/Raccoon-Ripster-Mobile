@@ -75,6 +75,46 @@ val WAVE_STATIONS = listOf(
     WaveStation("idm", "", "idm", null, "IDM", appleGenre = 7),
     WaveStation("lofi", "", "lofi hip hop", null, "Lo-Fi", appleGenre = 7),
 
+    // Большие жанры. Владелец 05.09.2026: «жанров и настроений должно быть
+    // больше, инди, соул, диско и так далее».
+    //
+    // Номера жанров Apple взяты живым запросом к `catalog/us/genres`, а не из
+    // головы: 20 Alternative, 21 Rock, 15 R&B/Soul, 18 Hip-Hop/Rap, 14 Pop,
+    // 24 Reggae, 12 Latin, 2 Blues, 6 Country, 1153 Metal, 19 Worldwide.
+    // Там, где у Apple отдельного жанра нет (диско, фанк, соул-фанк живут
+    // внутри R&B/Soul и Dance), ставим ближайший НАСТОЯЩИЙ, а не выдумываем
+    // номер: подборку всё равно ищем по названию жанра, чарт лишь подсказывает.
+    WaveStation("indie", "indie", "indie rock", "genre:indie", "Indie", appleGenre = 20),
+    WaveStation("indiepop", "", "indie pop", null, "Indie Pop", appleGenre = 20),
+    WaveStation("soul", "soul", "soul", "genre:soul", "Soul", appleGenre = 15),
+    WaveStation("rnb", "rbsoul", "r&b", "genre:rnb", "R&B", appleGenre = 15),
+    WaveStation("disco", "disco", "disco", "genre:disco", "Disco", appleGenre = 17),
+    WaveStation("funk", "funk", "funk", "genre:funk", "Funk", appleGenre = 15),
+    WaveStation("hiphop", "hiphoprap", "hip hop", "genre:rap", "Hip-Hop", appleGenre = 18),
+    WaveStation("rock", "rock", "rock", "genre:rock", "Rock", appleGenre = 21),
+    WaveStation("postpunk", "", "post-punk", "genre:postpunk", "Post-Punk", appleGenre = 20),
+    WaveStation("shoegaze", "", "shoegaze", null, "Shoegaze", appleGenre = 20),
+    WaveStation("metal", "metal", "metal", "genre:metal", "Metal", appleGenre = 1153),
+    WaveStation("blues", "jazzblues", "blues", "genre:blues", "Blues", appleGenre = 2),
+    WaveStation("reggae", "reggae", "reggae", "genre:reggae", "Reggae", appleGenre = 24),
+    WaveStation("dub", "", "dub", "genre:dub", "Dub", appleGenre = 24),
+    WaveStation("afrobeat", "", "afrobeat", null, "Afrobeat", appleGenre = 19),
+    WaveStation("latin", "latin", "latin", "genre:latinfolk", "Latin", appleGenre = 12),
+    WaveStation("country", "country", "country", "genre:country", "Country", appleGenre = 6),
+    WaveStation("pop", "pop", "pop", "genre:pop", "Pop", appleGenre = 14),
+    WaveStation("garage", "", "uk garage", null, "UK Garage", appleGenre = 17),
+    WaveStation("breakbeat", "", "breakbeat", null, "Breakbeat", appleGenre = 7),
+    WaveStation("hardtechno", "", "hard techno", null, "Hard Techno", appleGenre = 7),
+    WaveStation("minimal", "", "minimal techno", null, "Minimal", appleGenre = 7),
+    WaveStation("psytrance", "", "psytrance", null, "Psytrance", appleGenre = 7),
+    WaveStation("jungle", "", "jungle", null, "Jungle", appleGenre = 7),
+    WaveStation("liquid", "", "liquid drum and bass", null, "Liquid DnB", appleGenre = 7),
+    WaveStation("electronica", "", "electronica", null, "Electronica", appleGenre = 7),
+    WaveStation("triphop", "", "trip hop", null, "Trip-Hop", appleGenre = 7),
+    WaveStation("newwave", "", "new wave", "genre:newwave", "New Wave", appleGenre = 20),
+    WaveStation("bossa", "", "bossa nova", null, "Bossa Nova", appleGenre = 11),
+    WaveStation("nujazz", "", "nu jazz", null, "Nu Jazz", appleGenre = 11),
+
     // Настроения и занятия: `mood:`/`activity:` — это ровно то, что обещано.
     WaveStation("focus", "", "focus concentration music", "activity:study", nameKey = "wave.focus"),
     WaveStation("workout", "", "workout energy mix", "activity:sport", nameKey = "wave.workout"),
@@ -82,4 +122,8 @@ val WAVE_STATIONS = listOf(
     WaveStation("sleep", "ambient", "sleep calm ambient", "mood:calm", nameKey = "wave.sleep"),
     WaveStation("sunset", "deephouse", "sunset chill balearic", "mood:romantic", nameKey = "wave.sunset"),
     WaveStation("rain", "", "rainy day mellow lofi", "mood:sentimental", nameKey = "wave.rain"),
+    WaveStation("morning", "", "morning coffee mellow", "mood:happy", nameKey = "wave.morning"),
+    WaveStation("night", "", "late night drive", "mood:sad", nameKey = "wave.night"),
+    WaveStation("road", "", "road trip driving", "activity:driving", nameKey = "wave.road"),
+    WaveStation("cook", "", "dinner background jazz", "activity:cooking", nameKey = "wave.cook"),
 )
