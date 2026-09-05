@@ -176,6 +176,20 @@ object NativeAudioEngine {
     private fun detectFormat(context: Context, uri: Uri): Int {
         val name = (uri.lastPathSegment ?: "").lowercase()
         val mime = context.contentResolver.getType(uri)?.lowercase().orEmpty()
+
+        // СНАЧАЛА байты, потом имя. Расширение — это обещание, а обещание
+        // расходится с содержимым: 05.09.2026 в библиотеке нашёлся файл
+        // `03 - Teardrop.flac`, внутри которого MP4 (`ftyp iso8`). Движок
+        // верил имени, читал MP4 как FLAC, drflac_open возвращал null — и всё
+        // молча уезжало на ExoPlayer.
+        when (sniff(context, uri)) {
+            "flac" -> return 0
+            "wav" -> return 1
+            "m4a" -> return if (isAlacContainer(context, uri)) 2 else -1
+            // Опознали что-то заведомо чужое (mp3/ogg) — нативный тракт не про них.
+            "mp3", "ogg", "dsf", "aiff" -> return -1
+        }
+
         when {
             name.endsWith(".flac") || "flac" in mime -> return 0
             name.endsWith(".wav") || "wav" in mime || "x-wav" in mime -> return 1
@@ -187,6 +201,17 @@ object NativeAudioEngine {
         }
         return -1
     }
+
+    /** Первые байты файла → контейнер. `null`, если прочитать не удалось. */
+    private fun sniff(context: Context, uri: Uri): String? = runCatching {
+        openFd(context, uri)?.use { pfd ->
+            java.io.FileInputStream(pfd.fileDescriptor).use { s ->
+                val buf = ByteArray(net.ripster.mobile.core.audio.ContainerSniff.HEAD_BYTES)
+                val n = s.read(buf)
+                if (n <= 0) null else net.ripster.mobile.core.audio.ContainerSniff.of(buf.copyOf(n))
+            }
+        }
+    }.getOrNull()
 
     /** Быстрая проверка контейнера: есть ли аудиодорожка audio/alac. */
     private fun isAlacContainer(context: Context, uri: Uri): Boolean = runCatching {

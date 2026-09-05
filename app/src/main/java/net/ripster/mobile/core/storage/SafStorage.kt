@@ -44,7 +44,8 @@ class SafStorage(private val context: Context) {
     ): String? {
         if (!cacheFile.exists()) return null
         val root = context.getExternalFilesDir("Music") ?: return null
-        val rel = NameTemplate.render(template, track, quality)
+        val actual = net.ripster.mobile.core.audio.ContainerSniff.of(cacheFile)
+        val rel = NameTemplate.render(template, track, quality, actual)
         val out = File(root, rel)
         return runCatching {
             out.parentFile?.mkdirs()
@@ -79,7 +80,8 @@ class SafStorage(private val context: Context) {
         val root = runCatching { DocumentFile.fromTreeUri(context, Uri.parse(treeUri)) }.getOrNull()
             ?: return null
 
-        val relPath = NameTemplate.render(template, track, quality)
+        val actual = net.ripster.mobile.core.audio.ContainerSniff.of(cacheFile)
+        val relPath = NameTemplate.render(template, track, quality, actual)
         val parts = relPath.split('/')
         val fileName = parts.last()
         val dirs = parts.dropLast(1)
@@ -93,7 +95,7 @@ class SafStorage(private val context: Context) {
 
         // Затираем одноимённый — повторная загрузка не должна плодить "(1)".
         dir.findFile(fileName)?.delete()
-        val mime = mimeFor(quality.container)
+        val mime = mimeFor(actual ?: quality.container)
         val doc = dir.createFile(mime, fileName) ?: return null
 
         val ok = runCatching {

@@ -23,7 +23,17 @@ object NameTemplate {
     // Недопустимо в имени файла Android/FAT. Пробел и дефис оставляем.
     private const val ILLEGAL = "\\/:*?\"<>|"
 
-    fun render(template: String, track: Track, quality: QualityTier): String {
+    /**
+     * [actualContainer] — контейнер, опознанный по байтам уже скачанного файла
+     * (см. `ContainerSniff`). Если он известен, имя строится по нему: расширение
+     * должно описывать содержимое, а не пожелание.
+     */
+    fun render(
+        template: String,
+        track: Track,
+        quality: QualityTier,
+        actualContainer: String? = null,
+    ): String {
         val trackNo = track.trackNumber?.let { "%02d".format(it) } ?: ""
         val values = mapOf(
             "artist" to track.artist,
@@ -45,7 +55,11 @@ object NameTemplate {
             .map { sanitizeSegment(it) }
             .filter { it.isNotBlank() }
             .joinToString("/")
-        val ext = quality.container.ifBlank { "bin" }
+        // Расширение — по тому, что РЕАЛЬНО легло на диск, если это
+        // известно. Тир качества здесь лишь запрос: Apple отдаёт ALAC в
+        // MP4 там, где просили lossless, и файл уезжал в библиотеку с
+        // именем `.flac` при содержимом MP4 (поймано 05.09.2026).
+        val ext = (actualContainer ?: quality.container).ifBlank { "bin" }
         return "$rel.$ext"
     }
 

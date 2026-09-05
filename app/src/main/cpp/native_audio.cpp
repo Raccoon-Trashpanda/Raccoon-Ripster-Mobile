@@ -43,8 +43,12 @@ namespace {
 
 // ── источник: сырой fd, позиционируемое чтение ─────────────────────────────
 struct FdSource {
-    int     fd  = -1;
-    int64_t pos = 0;
+    int     fd   = -1;
+    int64_t pos  = 0;
+    // Размер файла нужен для отсчёта «от конца». Без него seek(END) уходил
+    // в 0, то есть «конец файла» = его начало, и tell() возвращал нулевую
+    // длину потока (см. flac_seek/wav_seek ниже).
+    int64_t size = 0;
 };
 size_t fd_read(void* user, void* out, size_t bytes) {
     auto* s = static_cast<FdSource*>(user);
@@ -55,14 +59,21 @@ size_t fd_read(void* user, void* out, size_t bytes) {
 }
 drflac_bool32 flac_seek(void* user, int off, drflac_seek_origin o) {
     auto* s = static_cast<FdSource*>(user);
-    if (o == DRFLAC_SEEK_CUR) s->pos += off; else if (o == DRFLAC_SEEK_END) s->pos = -1; else s->pos = off;
+    // ОТСЧЁТ ОТ КОНЦА — это size + off, а не ноль. Раньше здесь стояло
+    // `pos = -1` с последующим прижатием к нулю: декодер, спрашивая «где
+    // конец», получал начало файла и считал поток пустым.
+    if (o == DRFLAC_SEEK_CUR) s->pos += off;
+    else if (o == DRFLAC_SEEK_END) s->pos = s->size + off;
+    else s->pos = off;
     if (s->pos < 0) s->pos = 0;
     return DRFLAC_TRUE;
 }
 drflac_bool32 flac_tell(void* user, drflac_int64* c) { *c = static_cast<FdSource*>(user)->pos; return DRFLAC_TRUE; }
 drwav_bool32 wav_seek(void* user, int off, drwav_seek_origin o) {
     auto* s = static_cast<FdSource*>(user);
-    if (o == DRWAV_SEEK_CUR) s->pos += off; else if (o == DRWAV_SEEK_END) s->pos = -1; else s->pos = off;
+    if (o == DRWAV_SEEK_CUR) s->pos += off;
+    else if (o == DRWAV_SEEK_END) s->pos = s->size + off;
+    else s->pos = off;
     if (s->pos < 0) s->pos = 0;
     return DRWAV_TRUE;
 }
@@ -93,9 +104,20 @@ struct Decoder {
         if (f == 2) return openAlac(fd);
         src.fd = ::dup(fd);
         src.pos = 0;
+        { struct stat st{}; src.size = (::fstat(src.fd, &st) == 0) ? (int64_t) st.st_size : 0; }
         if (f == 0) {
             flac = drflac_open(fd_read, flac_seek, flac_tell, &src, nullptr);
-            if (!flac) { close(); return false; }
+            if (!flac) {
+                // Отказ без единой подробности не отличить от «файла нет».
+                // Читаем сигнатуру прямо с дескриптора: сразу видно, живой ли
+                // он и правда ли это FLAC.
+                unsigned char h[4] = {0, 0, 0, 0};
+                ssize_t n = ::pread(src.fd, h, 4, 0);
+                LOGW("drflac_open failed: size=%lld read=%zd magic=%02x%02x%02x%02x",
+                     (long long) src.size, n, h[0], h[1], h[2], h[3]);
+                close();
+                return false;
+            }
             channels = (int) flac->channels;
             sampleRate = (int) flac->sampleRate;
             bits = (int) flac->bitsPerSample;
@@ -390,13 +412,21 @@ bool Engine::loadQueue(const std::vector<int>& fds, const std::vector<int>& fmts
     int i = startIdx < 0 ? 0 : (startIdx >= (int) fds_.size() ? 0 : startIdx);
 
     Decoder probe;
-    if (!openAt(i, probe)) { unload(); return false; }
+    // Раньше оба отказа — декодера и Oboe — выходили наружу одним и тем же
+    // «false», и в Kotlin превращались в общее «декодер/Oboe не открылись».
+    // Отличить их было нечем, а это две совершенно разные поломки.
+    if (!openAt(i, probe)) {
+        LOGW("decoder open failed: idx=%d fmt=%d", i, i < (int) fmts_.size() ? fmts_[i] : -1);
+        unload();
+        return false;
+    }
     int rate = probe.sampleRate, ch = probe.channels;
+    LOGI("decoder ok: %dHz %dch %dbit frames=%lld", rate, ch, probe.bits, (long long) probe.totalFrames);
     probe.close();
 
     ring_.reset((size_t) rate * ch * 2);           // ~2 сек буфер
     rebuildStreamFor(rate, ch);
-    if (!stream_) { unload(); return false; }
+    if (!stream_) { LOGW("no output stream for %dHz %dch", rate, ch); unload(); return false; }
 
     idx_.store(i);
     decIdx_.store(i);
