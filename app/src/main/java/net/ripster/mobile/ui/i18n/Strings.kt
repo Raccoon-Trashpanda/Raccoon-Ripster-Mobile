@@ -214,6 +214,7 @@ private val STRINGS: Map<String, Row> = mapOf(
     "fmt.bit_perfect" to row("bit-perfect", "bit-perfect", "bit-perfect", "bit-perfect", "bit-perfect"),
     "fmt.resampled" to row("(ресемпл → {0} Hz — не bit-perfect)", "(resampled → {0} Hz — not bit-perfect)", "(रीसैम्पल → {0} Hz — bit-perfect नहीं)", "(リサンプル → {0} Hz — bit-perfect ではない)", "(重采样 → {0} Hz — 非 bit-perfect)"),
     "fmt.device_rate" to row("(устройство: {0} Hz)", "(device: {0} Hz)", "(डिवाइस: {0} Hz)", "(デバイス: {0} Hz)", "(设备：{0} Hz)"),
+    "wave.off_genre" to row("Нашлось мало треков именно этого жанра — чужую музыку ставить не стал", "Too few tracks of this exact genre — I will not pad it with something else", "इस शैली के ट्रैक बहुत कम मिले — दूसरी शैली से भरना नहीं करूँगा", "このジャンルの曲が少なすぎます — 他ジャンルで埋めることはしません", "该风格的曲目太少 — 不会用其他风格凑数"),
     "queue.add" to row("В очередь", "Add to queue", "कतार में जोड़ें", "キューに追加", "加入队列"),
     "rel.share" to row("Поделиться", "Share", "शेयर करें", "共有", "分享"),
     "album.listen" to row("Слушать", "Listen", "सुनें", "再生", "播放"),

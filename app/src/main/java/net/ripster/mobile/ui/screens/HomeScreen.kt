@@ -369,7 +369,17 @@ fun HomeScreen(
                                 val head = net.ripster.mobile.core.service.StreamResolver
                                     .toStreamItems(tracks.take(6), q, limit = 6)
                                 building = null
-                                if (head.isEmpty()) { stationMsg = tr("wave.empty", lang); return@launch }
+                                if (head.isEmpty()) {
+                                    // Причина разная, и совет тоже: «нет связи»
+                                    // и «нашлось, но не этого жанра» — не одно и то же.
+                                    stationMsg = tr(
+                                        if (net.ripster.mobile.core.service.StationBuilder.lastOutcome ==
+                                            net.ripster.mobile.core.service.StationBuilder.Outcome.OFF_GENRE
+                                        ) "wave.off_genre" else "wave.empty",
+                                        lang,
+                                    )
+                                    return@launch
+                                }
                                 app.player.playStream(head)
                                 onOpen(RipsterDestination.Player)
                                 if (tracks.size > 6) {
@@ -697,40 +707,11 @@ private fun RecoCard(title: String, reason: String, c: RipsterColors, onClick: (
     }
 }
 
-// ── Волна: станции по жанрам и настроениям ─────────────────────────────────
-// Жанровое ядро = _DIGS_GENRE_PICKS с ПК (digs.js) — то, что осмысленно
-// искать этой качалкой. Плюс несколько тематических станций как у Apple/Яндекса.
-private data class WaveStation(
-    val id: String,
-    val scSlug: String,             // жанр SoundCloud charts ("" → только поиск-фолбэк)
-    val query: String,              // фолбэк-запрос для сборки из всех сервисов
-    val ya: String? = null,         // id станции Яндекс rotor (genre:/mood:/activity:)
-    val display: String = "",       // готовое имя (жанры — как есть, латиницей)
-    val nameKey: String? = null,    // либо ключ i18n (настроения)
-)
-
-private val WAVE_STATIONS = listOf(
-    WaveStation("deephouse", "deephouse", "deep house", "genre:house", "Deep House"),
-    WaveStation("proghouse", "house", "progressive house", "genre:house", "Progressive House"),
-    WaveStation("meltech", "techno", "melodic techno", "genre:techno", "Melodic Techno"),
-    WaveStation("techno", "techno", "techno", "genre:techno", "Techno"),
-    WaveStation("trance", "trance", "trance", "genre:trance", "Trance"),
-    WaveStation("ambient", "ambient", "ambient", "genre:ambient", "Ambient"),
-    WaveStation("downtempo", "triphop", "downtempo", "genre:electronics", "Downtempo"),
-    WaveStation("dnb", "drumbass", "drum and bass", "genre:dnb", "Drum & Bass"),
-    WaveStation("lofi", "", "lofi hip hop", "mood:calm", "Lo-Fi"),
-    WaveStation("synthwave", "", "synthwave", "genre:electronics", "Synthwave"),
-    WaveStation("idm", "electronic", "idm", "genre:electronics", "IDM"),
-    WaveStation("dubtechno", "techno", "dub techno", "genre:techno", "Dub Techno"),
-    WaveStation("jazz", "jazzblues", "jazz", "genre:jazz", "Jazz"),
-    WaveStation("classical", "classical", "classical", "genre:classical", "Classical"),
-    WaveStation("focus", "", "focus concentration music", "activity:study", nameKey = "wave.focus"),
-    WaveStation("workout", "", "workout energy mix", "activity:sport", nameKey = "wave.workout"),
-    WaveStation("party", "danceedm", "party dance mix", "activity:party", nameKey = "wave.party"),
-    WaveStation("sleep", "ambient", "sleep calm ambient", "mood:calm", nameKey = "wave.sleep"),
-    WaveStation("sunset", "deephouse", "sunset chill balearic", "mood:romantic", nameKey = "wave.sunset"),
-    WaveStation("rain", "", "rainy day mellow lofi", "mood:sentimental", nameKey = "wave.rain"),
-)
+// Таблица станций переехала в core/service/WaveStations.kt: там она
+// проверяется тестом. Плитка обязана играть то, что на ней написано —
+// источник шире названия подменяет жанр (жалоба 05.09.2026 про синтвейв).
+private typealias WaveStation = net.ripster.mobile.core.service.WaveStation
+private val WAVE_STATIONS = net.ripster.mobile.core.service.WAVE_STATIONS
 
 private val WAVE_PALETTE = listOf(
     Color(0xFFFF4D8F), Color(0xFFA238FF), Color(0xFF3A5FD9),

@@ -25,6 +25,29 @@ import net.ripster.mobile.service.yandex.YandexMusicClient
  */
 object StationBuilder {
 
+    /** Почему станция не собралась — чтобы экран сказал правду, а не общее
+     *  «проверьте связь». Тот же приём, что у `StreamResolver.lastStreamError`. */
+    enum class Outcome { OK, NOTHING_FOUND, OFF_GENRE }
+
+    @Volatile
+    var lastOutcome: Outcome = Outcome.OK
+        private set
+
+
+    /**
+     * Слова, по которым трек считается принадлежащим жанру станции.
+     * Сравнивается с жанром, объявленным сервисом (SoundCloud его отдаёт).
+     */
+    private fun genreWords(query: String): List<String> =
+        query.lowercase().split(' ', '-', '/').filter { it.length >= 3 }
+
+    /** Совпадает ли объявленный жанр трека с тем, что обещает станция. */
+    private fun onGenre(t: Track, words: List<String>): Boolean {
+        val g = t.raw["genre"]?.lowercase()?.trim().orEmpty()
+        if (g.isEmpty()) return false
+        return words.any { w -> w in g }
+    }
+
     suspend fun build(
         scGenreSlug: String,
         fallbackQuery: String,
@@ -35,21 +58,23 @@ object StationBuilder {
         if (!yandexStationId.isNullOrBlank()) {
             (ServiceRegistry.get(Service.YANDEX) as? YandexMusicClient)?.let { ya ->
                 val t = runCatching { ya.station(yandexStationId, size) }.getOrDefault(emptyList())
-                if (t.size >= 5) return t
+                if (t.size >= 5) { lastOutcome = Outcome.OK; return t }
             }
         }
         // 2. Чарт SoundCloud по жанру.
         if (scGenreSlug.isNotBlank()) {
             (ServiceRegistry.get(Service.SOUNDCLOUD) as? SoundCloudClient)?.let { sc ->
                 val t = runCatching { sc.station(scGenreSlug, size) }.getOrDefault(emptyList())
-                if (t.size >= 5) return t
+                if (t.size >= 5) { lastOutcome = Outcome.OK; return t }
             }
         }
         val clients = ServiceRegistry.configured()
-        if (clients.isEmpty()) return emptyList()
+        if (clients.isEmpty()) { lastOutcome = Outcome.NOTHING_FOUND; return emptyList() }
         val perClient: List<List<Track>> = coroutineScope {
             clients.map { c ->
-                async { runCatching { c.search(fallbackQuery).tracks.take(12) }.getOrDefault(emptyList()) }
+                // Берём широко: дальше идёт отсев по объявленному жанру, и
+                // из двенадцати результатов своих может не остаться совсем.
+                async { runCatching { c.search(fallbackQuery).tracks.take(40) }.getOrDefault(emptyList()) }
             }.awaitAll()
         }
         val seen = HashSet<String>()
@@ -64,7 +89,27 @@ object StationBuilder {
             }
             i++
         }
-        return out
+
+        // ПОСЛЕДНИЙ ШАГ — отсев по объявленному жанру.
+        //
+        // Текстовый поиск по названию жанра станцией не является: на «idm»
+        // сервисы вернули шведский поп-ремикс, и плитка «IDM» его заиграла
+        // (проверено на эмуляторе 05.09.2026 — та же жалоба, что и про
+        // синтвейв). Если сервис сам говорит жанр трека, верим ему и берём
+        // только совпадающее. Осталось слишком мало — честно отдаём пусто:
+        // экран скажет «станция не собралась», а не подсунет чужую музыку.
+        val words = genreWords(fallbackQuery)
+        val onGenre = out.filter { onGenre(it, words) }
+        return when {
+            onGenre.size >= 5 -> { lastOutcome = Outcome.OK; onGenre }
+            // Никто из сервисов жанр не объявил — судить не по чему, отдаём
+            // как есть: это не подмена, а отсутствие сведений.
+            out.none { it.raw["genre"] != null } -> {
+                lastOutcome = if (out.isEmpty()) Outcome.NOTHING_FOUND else Outcome.OK
+                out
+            }
+            else -> { lastOutcome = Outcome.OFF_GENRE; emptyList() }
+        }
     }
 }
 
@@ -102,6 +147,15 @@ object ReleasePlayback {
         url: String,
         quality: List<String>,
         fallbackArtwork: String? = null,
+        /**
+         * Кого мы открываем, если это известно вызывающему.
+         *
+         * Карточка радара знает артиста всегда, а вот `resolve()` по
+         * apple-ссылке возвращает треки без альбома — артиста взять было
+         * неоткуда, подмена отключалась, и релиз нельзя было послушать, не
+         * открыв его карточку (жалоба владельца 04.09.2026).
+         */
+        expectArtist: String? = null,
     ): Boolean {
         val sel = withContext(Dispatchers.IO) {
             ServiceRegistry.all()
@@ -127,10 +181,17 @@ object ReleasePlayback {
         val album = sel?.albums?.firstOrNull()
         val query = when {
             album != null -> "${album.artist} ${album.title}".trim()
+            !expectArtist.isNullOrBlank() && !sel?.containerTitle.isNullOrBlank() ->
+                "$expectArtist ${sel!!.containerTitle}".trim()
             !sel?.containerTitle.isNullOrBlank() -> sel!!.containerTitle!!
             else -> return false
         }
-        return playSearch(player, query, quality, fallbackArtwork, expectArtist = album?.artist)
+        return playSearch(
+            player, query, quality, fallbackArtwork,
+            // Артист вызывающего важнее: у него он точный, а `album` может быть
+            // заглушкой сервиса, который ссылку лишь опознал.
+            expectArtist = expectArtist?.takeIf { it.isNotBlank() } ?: album?.artist,
+        )
     }
 
     /**
