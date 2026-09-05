@@ -3,6 +3,7 @@ package net.ripster.mobile
 import android.app.Application
 import android.content.Context
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import net.ripster.mobile.core.db.RipsterDb
 import net.ripster.mobile.core.download.DownloadQueue
@@ -84,6 +85,37 @@ class RipsterApp : Application() {
             wifiOnlyProvider = { settings.state.value.wifiOnly },
         )
         DownloadWorker.ensureChannel(this)
+
+        // Разовая уборка библиотеки при запуске: убрать записи о файлах,
+        // которых больше нет, и склеить дубли на один путь. Дубли копились,
+        // пока ключом записи был id задачи загрузки; ссылки в кэш ОС чистит
+        // сама, и такие строки молча переставали играть.
+        MainScope().launch(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                val dao = db.library()
+                val rows = dao.observeAll().first()
+                val plan = net.ripster.mobile.core.library.LibraryUpkeep.plan(rows) { path ->
+                    when {
+                        path.startsWith("/") -> java.io.File(path).exists()
+                        path.startsWith("content://") -> runCatching {
+                            androidx.documentfile.provider.DocumentFile
+                                .fromSingleUri(this@RipsterApp, android.net.Uri.parse(path))?.exists()
+                        }.getOrNull()
+                        // Незнакомый вид адреса — не наше дело, а не приговор.
+                        else -> null
+                    }
+                }
+                if (plan.forget.isNotEmpty()) {
+                    plan.forget.forEach { dao.forgetPath(it) }
+                    plan.keep.forEach { dao.upsert(it) }
+                    android.util.Log.i(
+                        "RipsterLibrary",
+                        "upkeep: ${plan.ghosts} gone, ${plan.duplicates} duplicate groups, " +
+                            "${plan.keep.size} re-keyed",
+                    )
+                }
+            }
+        }
 
         localRadar = net.ripster.mobile.core.radar.LocalRadar(db)
         net.ripster.mobile.core.radar.RadarWorker.schedule(this)

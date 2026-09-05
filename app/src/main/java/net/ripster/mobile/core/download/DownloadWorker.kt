@@ -151,14 +151,25 @@ class DownloadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
                         }
 
                         dao.markDone(id, finalPath, ev.quality.id, ev.bytes, now())
+                        // Ключ записи — САМ ФАЙЛ, а не задача загрузки.
+                        // Пока ключом был id задачи (свежий UUID), повторное
+                        // скачивание того же трека заводило новую строку, и
+                        // upsert ничего не перезаписывал: на телефоне владельца
+                        // набежало по три записи на один файл (05.09.2026).
+                        // Контейнер — по тому, что реально легло, а не по
+                        // запрошенному тиру: сервис вправе отдать другое.
+                        val realContainer = java.io.File(finalPath)
+                            .takeIf { finalPath.startsWith("/") }
+                            ?.let { net.ripster.mobile.core.audio.ContainerSniff.of(it) }
+                            ?: ev.quality.container
                         app.db.library().upsert(
                             LibraryEntity(
-                                id = id,
+                                id = net.ripster.mobile.core.library.LibraryUpkeep.idFor(finalPath),
                                 title = realTitle,
                                 artist = realArtist,
                                 album = realAlbum,
                                 serviceId = track.service.id,
-                                container = ev.quality.container,
+                                container = realContainer,
                                 bitrateKbps = probe?.bitrateKbps ?: ev.quality.bitrateKbps,
                                 filePath = finalPath,
                                 sizeBytes = sizeBytes,
