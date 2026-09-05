@@ -88,7 +88,22 @@ object NativeAudioEngine {
             // Причина должна быть хотя бы в логе. Текст английский:
             // журнал читают инструментами, а не глазами пользователя.
             lastError = it.toString()
-            android.util.Log.w(TAG, "native queue not opened, falling back to ExoPlayer", it)
+            // ШТАТНЫЙ откат печатаем ОДНОЙ строкой, без трассы стека.
+            //
+            // «Элемент не FLAC/WAV/ALAC» — это не сбой, а обычное положение
+            // дел: половина фонотеки в m4a/mp3, и нативный тракт для них не
+            // предназначен. Полная трасса на каждый такой случай забивает
+            // журнал так, что настоящие поломки в нём не найти — я сам на этом
+            // потерял время 06.09.2026, разбирая чужой ANR по нашему логу.
+            //
+            // Трасса остаётся там, где она нужна: когда упал сам декодер или
+            // Oboe, то есть когда причина НЕ очевидна из текста.
+            val routine = it is IllegalArgumentException
+            if (routine) {
+                android.util.Log.i(TAG, "queue goes to ExoPlayer: ${it.message}")
+            } else {
+                android.util.Log.w(TAG, "native queue not opened, falling back to ExoPlayer", it)
+            }
         }
     }
 
