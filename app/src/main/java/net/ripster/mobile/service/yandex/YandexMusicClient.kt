@@ -407,6 +407,10 @@ class YandexMusicClient(
     @Serializable private data class YmAlbumRef(
         val id: Long = 0, val title: String = "", val year: Int? = null,
         @SerialName("coverUri") val coverUri: String? = null,
+        /** Жанр альбома по данным Яндекса. Станции сверяют по нему, а не по
+         *  названию: слово из названия плитки в заголовке трека — совпадение,
+         *  а не жанр. */
+        val genre: String? = null,
     )
     @Serializable
     private data class YmTrack(
@@ -435,7 +439,10 @@ class YandexMusicClient(
                     // id альбома нужен, чтобы тап по треку из сборника открывал
                     // весь релиз (экран артиста, «участие»), и для каста на Станцию.
                     "albId" to (alb?.id?.takeIf { it > 0 }?.toString().orEmpty()),
-                ),
+                    // Жанр из метаданных — по нему станция решает, свой ли это
+                    // трек. Без него треки Яндекса проходили отбор насквозь.
+                    "genre" to alb?.genre?.takeIf { it.isNotBlank() }.orEmpty(),
+                ).filterValues { it.isNotEmpty() },
             )
         }
     }
