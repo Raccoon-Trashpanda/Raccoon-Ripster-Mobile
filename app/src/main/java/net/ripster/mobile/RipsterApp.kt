@@ -70,6 +70,9 @@ class RipsterApp : Application() {
             ids.mapNotNull { id -> rows.firstOrNull { it.id == id } }   // сохранить порядок
         }
         // История прослушивания — «память» того, что игралось, даже вне библиотеки.
+        // Вкус слушателя для станций — те же 200 последних прослушиваний.
+        player.bindTaste { db.plays().recent(200).map { it.artist } }
+
         player.bindPlayLog { row ->
             runCatching { db.plays().add(row) }
             // отдать ПК свежую активность, но не чаще раза в минуту

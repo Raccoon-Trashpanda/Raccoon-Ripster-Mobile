@@ -7,11 +7,14 @@ import kotlin.random.Random
 /**
  * Что и в каком порядке прозвучит — один слой поверх ЛЮБОГО источника.
  *
- * До этого каждый признак жил сам по себе: [WaveRotation] крутила по
- * популярности, [ChartBoost] поднимала тех, кто на слуху, а порядок слияния
- * решал очерёдность списков. Три механизма ничего не знали друг о друге,
- * и добавить четвёртый — вкус слушателя — было некуда. Здесь они сходятся
- * в одну оценку, и добавление пятого не трогает остальные.
+ * До этого каждый признак жил сам по себе: WaveRotation крутила по
+ * популярности, ChartBoost переписывала полю popularity, а порядок слияния
+ * решал очерёдность списков. Три механизма ничего не знали друг о друге, и
+ * добавить четвёртый — вкус слушателя — было некуда. Здесь они сходятся в одну
+ * оценку, и добавление пятого не трогает остальные. Оба прежних модуля после
+ * этого остались бы мёртвым кодом, дублирующим ту же логику, — поэтому
+ * WaveRotation удалён, а от ChartBoost осталось только распознавание артиста
+ * (`isCharting`), которым ранкер и пользуется.
  *
  * Что учитывается:
  *  - ручается ли источник за жанр (канон против выдачи поиска);
@@ -128,6 +131,13 @@ object StationRanker {
         nowYear: Int = 2026,
         maxPerArtist: Int = 2,
         artistGap: Int = 3,
+        /**
+         * Что уже взято раньше — когда эфир собирается в два захода
+         * (сначала курируемое, потом добор). Без этого второй заход не
+         * знал бы ни про дубли первого, ни про его артистов, и на стыке
+         * дважды подряд шёл бы один и тот же артист.
+         */
+        already: List<Track> = emptyList(),
     ): List<Track> {
         if (size <= 0 || items.isEmpty()) return emptyList()
         val rnd = Random(if (seed == 0L) 1L else seed)
@@ -141,10 +151,18 @@ object StationRanker {
             (t.title.trim() + "|" + t.artist.trim()).lowercase(),
         )
 
+        already.forEach { t ->
+            seen.addAll(keys(t))
+            val k = normArtist(t.artist)
+            perArtist[k] = (perArtist[k] ?: 0) + 1
+        }
+
         fun blockedNow(artist: String): Boolean {
             val a = normArtist(artist)
             if ((perArtist[a] ?: 0) >= maxPerArtist) return true
-            return out.takeLast(artistGap).any { normArtist(it.artist) == a }
+            // Хвост предыдущего захода тоже считается соседством.
+            val tail = (already + out).takeLast(artistGap)
+            return tail.any { normArtist(it.artist) == a }
         }
 
         // Взвешенная выборка без возврата. Кандидат, отклонённый только из-за

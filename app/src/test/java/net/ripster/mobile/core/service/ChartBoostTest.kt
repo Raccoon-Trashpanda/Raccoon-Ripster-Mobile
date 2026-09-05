@@ -24,18 +24,7 @@ class ChartBoostTest {
 
     private val chart = setOf("fredagain", "bicep", "royksopp")
 
-    @Test
-    fun aChartingArtistIsLifted() {
-        val out = ChartBoost.apply(listOf(t("Bicep", 0.1)), chart)
-        assertEquals(ChartBoost.CHART_WEIGHT, out.single().popularity!!, 1e-9)
-    }
 
-    @Test
-    fun anAlreadyStrongerTrackIsNotPulledDown() {
-        """Чарт поднимает, но не понижает: у трека может быть свой счётчик выше."""
-        val out = ChartBoost.apply(listOf(t("Bicep", 0.97)), chart)
-        assertEquals(0.97, out.single().popularity!!, 1e-9)
-    }
 
     @Test
     fun aCollaborationIsRecognised() {
@@ -54,19 +43,17 @@ class ChartBoostTest {
 
     @Test
     fun someoneNotInTheChartLosesNothing() {
-        """Отсутствия в чарте — не признак плохой музыки, а отсутствие
-        свидетельства: у вещи остаётся её собственный вес, в том числе `null`."""
-        val out = ChartBoost.apply(listOf(t("Unknown Artist", 0.3), t("Nobody", null)), chart)
-        assertEquals(0.3, out[0].popularity!!, 1e-9)
-        assertEquals(null, out[1].popularity)
+        // Отсутствие в чарте — не признак плохой музыки, а отсутствие
+        // свидетельства. Раньше это проверялось на `apply`, который правил
+        // popularity; теперь правило живёт в StationRanker, а здесь остаётся
+        // то, за что ChartBoost отвечает на самом деле: узнавание артиста.
+        assertFalse(ChartBoost.isCharting("Unknown Artist", chart))
+        assertFalse(ChartBoost.isCharting("Nobody", chart))
     }
 
     @Test
     fun anEmptyChartChangesNothing() {
-        """Чарт не ответил — подбор обязан остаться прежним, а не обнулиться."""
-        val src = listOf(t("Bicep", 0.4), t("Nobody", null))
-        val out = ChartBoost.apply(src, emptySet())
-        assertEquals(src, out)
+        // Чарт не ответил — это «не знаю», а не «никого нет в чарте».
         assertFalse(ChartBoost.isCharting("Bicep", emptySet()))
     }
 

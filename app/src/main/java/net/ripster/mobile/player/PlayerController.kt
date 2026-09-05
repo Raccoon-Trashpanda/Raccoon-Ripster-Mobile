@@ -220,6 +220,17 @@ class PlayerController(context: Context) {
         playLogger = recorder
     }
 
+    /**
+     * Кого человек слушает — для станции. Ставится из RipsterApp тем же
+     * способом, что и логгер: контроллер к БД напрямую не ходит.
+     * Не поставили — вкус просто не участвует, это законное «не знаю».
+     */
+    private var tasteProvider: (suspend () -> List<String>)? = null
+
+    fun bindTaste(provider: suspend () -> List<String>) {
+        tasteProvider = provider
+    }
+
     private fun logPlayIfNew(title: String, artist: String, album: String, art: String?, e: LibraryEntity?) {
         val rec = playLogger ?: return
         if (title.isBlank()) return
@@ -460,6 +471,11 @@ class PlayerController(context: Context) {
                     scGenreSlug = "",
                     fallbackQuery = artist.ifBlank { title },
                     size = 12,
+                    // Продолжение эфира тоже смотрит, кого человек слушает.
+                    taste = net.ripster.mobile.core.service.StationRanker.Taste.of(
+                        tasteProvider?.let { p -> runCatching { p() }.getOrDefault(emptyList()) }
+                            ?: emptyList(),
+                    ),
                 )
                 // Сам текущий трек в продолжение не берём.
                 val fresh = more.filterNot {

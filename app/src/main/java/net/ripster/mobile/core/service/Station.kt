@@ -182,6 +182,11 @@ object StationBuilder {
          * другой. Ноль означает «без ротации»: удобно в тестах.
          */
         rotationSeed: Long = 0L,
+        /**
+         * Что этот человек уже слушает (из play_history). Пустой вкус —
+         * законное «не знаю»: станция просто строится без этого признака.
+         */
+        taste: StationRanker.Taste = StationRanker.Taste.EMPTY,
     ): List<Track> {
         val clients = ServiceRegistry.configured()
         val ya = ServiceRegistry.get(Service.YANDEX) as? YandexMusicClient
@@ -228,7 +233,15 @@ object StationBuilder {
         // Сверка жанра — общая для всех сервисов, ровно один модуль на всех.
         val words = genreWords(fallbackQuery)
         val kept = pools.map { pool ->
-            if (pool.vetted) pool.tracks else pool.tracks.filter { onGenre(it, fallbackQuery, words) }
+            val byGenre =
+                if (pool.vetted) pool.tracks
+                else pool.tracks.filter { onGenre(it, fallbackQuery, words) }
+            // Часовые сборки проходят сверку жанра ЧЕСТНО — слово «melodic
+            // techno» в названии у них есть, — но станция из DJ-сетов
+            // неслушаема. Замер 05.09.2026: у «Melodic Techno» канон оказался
+            // пуст, эфир собрался целиком из поиска, и все двенадцать вещей
+            // были миксами и лайв-сетами. См. DjSetFilter.
+            DjSetFilter.tracksOnly(byGenre)
         }
 
         // Кто в этом жанре на слуху по чарту Apple. Отказ чарта ничего не
@@ -238,58 +251,67 @@ object StationBuilder {
         } else {
             emptySet()
         }
-        val boosted = kept.map { ChartBoost.apply(it, chart) }
-
-        // Ротация внутри каждого источника: чем больше вещь слушают, тем выше
-        // её шанс попасть в эфир, но шанс есть у каждой. Без этого станция —
-        // один и тот же список из десяти имён на все времена.
-        val rotated = if (rotationSeed == 0L) boosted else boosted.mapIndexed { i, list ->
-            WaveRotation.pick(list, rotationSeed + i * 7919L, size)
-        }
-
-        // Порядок слияния решает, что человек услышит.
+        // Оценка и отбор — одним слоем (StationRanker), но ДВУМЯ заходами.
         //
-        // Сначала — курируемое: канон жанра, станция ротора, чарт по жанру.
-        // Поиск идёт ТОЛЬКО на добор. При слиянии вперемешку канон и выдача
-        // поиска шли через одного, и половину эфира занимали любительские
-        // «Dub Techno Sessions Episode 98» рядом с DeepChord и Monolake —
-        // ровно то, на что владелец сказал «никто бы такое не стал слушать».
-        val lead = rotated.filterIndexed { i, _ -> pools[i].lead }
-        val fill = rotated.filterIndexed { i, _ -> !pools[i].lead }
-
-        val seen = HashSet<String>()
-        val out = ArrayList<Track>()
-
-        /**
-         * Ключи, по которым вещь считается уже взятой — И ISRC, И «название +
-         * артист». По одному ISRC не хватало: разные сервисы отдают одну запись
-         * то с кодом, то без, и «Scaramanga» от Calyx & Teebee приезжала в
-         * станцию дважды.
-         */
-        fun keys(t: Track): List<String> = listOfNotNull(
-            t.isrc?.takeIf { it.isNotBlank() }?.lowercase(),
-            (t.title.trim() + "|" + t.artist.trim()).lowercase(),
+        // Деление на «курируемое» и «добор» остаётся ЖЁСТКИМ, а не превращается
+        // в очередное слагаемое веса. Когда выдача поиска шла вперемешку с
+        // каноном жанра, половину эфира занимали любительские «Dub Techno
+        // Sessions Episode 98» рядом с DeepChord и Monolake — ровно то, про что
+        // владелец сказал «никто бы такое не стал слушать». Мягкий вес при
+        // удачном броске вернул бы именно это.
+        //
+        // Подъём чартом больше не отдельная перестановка списков: «артист в
+        // чарте» — это признак для ранжирования, там ему и место.
+        fun signalsFor(poolIndex: Int, t: Track) = StationRanker.Signals(
+            vetted = pools[poolIndex].vetted,
+            charting = ChartBoost.isCharting(t.artist, chart),
+            popularity = t.popularity,
+            year = t.year,
         )
 
-        fun drain(lists: List<List<Track>>) {
-            var i = 0
-            while (out.size < size && lists.any { i < it.size }) {
-                for (list in lists) {
-                    val tr = list.getOrNull(i) ?: continue
-                    val k = keys(tr)
-                    if (k.none { it in seen }) {
-                        seen.addAll(k)
-                        out.add(tr)
-                    }
-                    if (out.size >= size) break
-                }
-                i++
+        fun candidatesOf(wantLead: Boolean): List<Pair<Track, StationRanker.Signals>> =
+            kept.flatMapIndexed { i, list ->
+                if (pools[i].lead != wantLead) emptyList()
+                else list.map { it to signalsFor(i, it) }
             }
-        }
-        drain(lead)
-        drain(fill)
 
-        if (out.size >= 5) { lastOutcome = Outcome.OK; return out }
+        // Откуда что взялось. Без этой строки станцию невозможно разобрать:
+        // видно только итог, а он сам по себе не говорит, чей это вклад —
+        // канона жанра, курируемой станции сервиса или выдачи поиска. Ровно на
+        // этом 05.09.2026 разбор встал: «Melodic Techno» заиграла Lana Del Rey,
+        // и понять, какой источник её принёс, было нечем.
+        android.util.Log.i(
+            "RipsterStation",
+            "«$fallbackQuery»: " + pools.indices.joinToString(", ") { i ->
+                val tag = if (pools[i].lead) "lead" else "fill"
+                val vet = if (pools[i].vetted) "vetted" else "sifted"
+                "#$i $tag/$vet ${pools[i].tracks.size}→${kept[i].size}"
+            } + " | chart: ${chart.size}",
+        )
+
+        val nowYear = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
+        val seedOrOne = if (rotationSeed == 0L) 1L else rotationSeed
+        val out = ArrayList<Track>()
+        out += StationRanker.rank(
+            candidatesOf(wantLead = true), taste = taste, seed = seedOrOne,
+            size = size, nowYear = nowYear,
+        )
+        if (out.size < size) {
+            out += StationRanker.rank(
+                candidatesOf(wantLead = false), taste = taste, seed = seedOrOne + 7919L,
+                size = size - out.size, nowYear = nowYear, already = out,
+            )
+        }
+
+
+        if (out.size >= 5) {
+            lastOutcome = Outcome.OK
+            android.util.Log.i(
+                "RipsterStation",
+                "air «$fallbackQuery»: " + out.take(12).joinToString(" · ") { "${it.artist} — ${it.title}" },
+            )
+            return out
+        }
 
         // Своего набралось мало. Либо искать было негде, либо всё найденное
         // оказалось чужого жанра — это разные новости, и совет разный.

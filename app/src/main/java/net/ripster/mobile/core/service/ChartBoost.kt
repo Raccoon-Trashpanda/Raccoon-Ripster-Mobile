@@ -66,19 +66,4 @@ object ChartBoost {
         return namesOf(artist).any { it in chart }
     }
 
-    /**
-     * Поднять популярность тем, кто в чарте. Остальное остаётся как было —
-     * в том числе `null` («сервис счётчиков не даёт»), который в подборе
-     * трактуется как средний вес, а не как ноль.
-     */
-    fun apply(tracks: List<Track>, chart: Set<String>): List<Track> {
-        if (chart.isEmpty()) return tracks
-        return tracks.map { t ->
-            if (isCharting(t.artist, chart)) {
-                t.copy(popularity = maxOf(t.popularity ?: 0.0, CHART_WEIGHT))
-            } else {
-                t
-            }
-        }
-    }
 }

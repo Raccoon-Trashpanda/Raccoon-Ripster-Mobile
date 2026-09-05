@@ -366,6 +366,13 @@ fun HomeScreen(
                                     net.ripster.mobile.core.service.StationBuilder.build(
                                         st.scSlug, st.query, st.ya,
                                         appleGenreId = st.appleGenre,
+                                        // Вкус — из истории прослушиваний. Без
+                                        // этого признак в ранкере был бы, а
+                                        // данных в него никто бы не подавал.
+                                        taste = net.ripster.mobile.core.service.StationRanker.Taste.of(
+                                            runCatching { app.db.plays().recent(200).map { it.artist } }
+                                                .getOrDefault(emptyList()),
+                                        ),
                                         // Свой эфир на каждое нажатие: одна и та же
                                         // плитка не должна играть один и тот же список.
                                         rotationSeed = System.currentTimeMillis() / 1000L + st.id.hashCode(),
