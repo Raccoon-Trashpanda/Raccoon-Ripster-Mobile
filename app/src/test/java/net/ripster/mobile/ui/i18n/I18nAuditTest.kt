@@ -129,6 +129,46 @@ class I18nAuditTest {
     }
 
     @Test
+    fun noHandlerIsWiredToNothing() {
+        // Кнопка, которая ничего не делает, — такой же обман, как кнопка,
+        // которая делает не то. Найдено 05.09.2026: в плеере «Studio» главная
+        // кнопка во всю ширину «Скачать альбом» была подключена как
+        // `onDownloadAlbum = {}`, и нажатие не делало РОВНО ничего.
+        //
+        // Пустой обработчик уместен там, где экран сознательно не даёт
+        // действия (витрина, предпросмотр) — такие места перечислены явно.
+        val allowedEmpty = setOf(
+            // Полоса перемотки в «Studio» не показывает предпросмотр кадра —
+            // это осознанный отказ от фичи, а не забытая проводка.
+            "onScrubPreview",
+        )
+        val root = sourceRoot()
+        val call = Regex("""(on[A-Z]\w*)\s*=\s*\{\s*\}""")
+        val decl = Regex("""(on[A-Z]\w*)\s*:\s*\(""")
+        val offenders = mutableListOf<String>()
+
+        root.walkTopDown().filter { it.isFile && it.extension == "kt" }.forEach { f ->
+            val rel = f.relativeTo(root).path.replace('\\', '/')
+            if (allowed.keys.any { rel.endsWith(it) }) return@forEach
+            stripComments(f.readText()).lines().forEachIndexed { i, line ->
+                if (decl.containsMatchIn(line)) return@forEachIndexed
+                call.findAll(line).forEach { m ->
+                    if (m.groupValues[1] !in allowedEmpty) {
+                        offenders += "$rel:${i + 1}: ${m.groupValues[1]} = {}"
+                    }
+                }
+            }
+        }
+
+        assertTrue(
+            "Обработчик подключён пустым: контрол на экране есть, а нажатие " +
+                "не делает ничего.\n" +
+                offenders.joinToString("\n"),
+            offenders.isEmpty(),
+        )
+    }
+
+    @Test
     fun everyEngineErrorMarkerHasATranslation() {
         val root = sourceRoot()
         val markers = Regex("\"__e\\.([a-z_]+)__\"")

@@ -177,6 +177,10 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
      * контрол, который делает не то.
      */
     var libraryQuery by remember { mutableStateOf("") }
+
+    /** Исход «Скачать альбом» из плеера. Кнопка главная и во всю ширину —
+     *  молчать ей нельзя. */
+    var albumDlMsg by remember { mutableStateOf<String?>(null) }
     val playback by app.player.state.collectAsState()
     val settings by app.settings.state.collectAsState()
 
@@ -445,6 +449,49 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                                 }
                             },
                         ) {
+                            // «Скачать альбом» из плеера. Раньше кнопка стояла
+                            // главной, во всю ширину — и не делала НИЧЕГО
+                            // (onDownloadAlbum = {}). Собираем релиз по тому,
+                            // что играет, и ставим его треки в очередь.
+                            val downloadCurrentAlbum: () -> Unit = {
+                                scope.launch {
+                                    val alb = playback.album.trim()
+                                    val art = playback.artist.trim()
+                                    if (alb.isEmpty()) {
+                                        // У сингла и потока альбома нет — честно
+                                        // говорим об этом, а не молчим.
+                                        albumDlMsg = tr("np.dl_no_album", lang)
+                                        return@launch
+                                    }
+                                    // ОБЯЗАТЕЛЬНО в фоне: поиск и resolve ходят в
+                                    // сеть, а этот scope живёт на главном потоке.
+                                    // Сеть на нём — это застывший интерфейс и ANR.
+                                    val sel = kotlinx.coroutines.withContext(
+                                        kotlinx.coroutines.Dispatchers.IO,
+                                    ) {
+                                      kotlinx.coroutines.withTimeoutOrNull(25_000) {
+                                        net.ripster.mobile.core.model.Service.entries
+                                            .mapNotNull { net.ripster.mobile.core.service.ServiceRegistry.get(it) }
+                                            .firstNotNullOfOrNull { c ->
+                                                runCatching {
+                                                    val hit = c.search("$art $alb").albums.firstOrNull { a ->
+                                                        a.title.equals(alb, true) || a.title.contains(alb, true)
+                                                    } ?: return@runCatching null
+                                                    c.resolve(hit.url ?: return@runCatching null)
+                                                        ?.takeIf { it.tracks.isNotEmpty() }
+                                                }.getOrNull()
+                                            }
+                                      }
+                                    }
+                                    val tracks = sel?.tracks.orEmpty()
+                                    if (tracks.isEmpty()) {
+                                        albumDlMsg = tr("np.dl_album_failed", lang)
+                                    } else {
+                                        tracks.forEach { app.downloads.enqueue(it) }
+                                        albumDlMsg = tr("np.dl_album_queued", lang, tracks.size.toString())
+                                    }
+                                }
+                            }
                             if (settings.playerStyle == "immersive") {
                                 net.ripster.mobile.ui.screens.ImmersivePlayerScreen(
                                     state = npState,
@@ -463,7 +510,7 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                                     onPrevious = { app.player.previous() },
                                     onToggleShuffle = { app.player.toggleShuffle() },
                                     onToggleRepeat = { app.player.cycleRepeat() },
-                                    onDownloadAlbum = {},
+                                    onDownloadAlbum = downloadCurrentAlbum,
                                 )
                             } else {
                                 net.ripster.mobile.ui.screens.ReferencePlayerScreen(
@@ -475,8 +522,30 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                                     onPrevious = { app.player.previous() },
                                     onToggleShuffle = { app.player.toggleShuffle() },
                                     onToggleRepeat = { app.player.cycleRepeat() },
-                                    onDownloadAlbum = {},
+                                    onDownloadAlbum = downloadCurrentAlbum,
                                 )
+                            }
+
+                            // Исход «Скачать альбом» — у нижнего края, где палец.
+                            // Кнопка главная и во всю ширину: нажал и не понял,
+                            // что произошло, — это та же немота, только тише.
+                            albumDlMsg?.let { msg ->
+                                androidx.compose.runtime.LaunchedEffect(msg) {
+                                    kotlinx.coroutines.delay(4000); albumDlMsg = null
+                                }
+                                Box(
+                                    Modifier.align(Alignment.BottomCenter)
+                                        .padding(horizontal = 20.dp, vertical = 96.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(c.surface_raised)
+                                        .border(1.dp, c.border_subtle, RoundedCornerShape(12.dp))
+                                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                                ) {
+                                    BasicText(
+                                        msg,
+                                        style = TextStyle(color = c.text_secondary, fontSize = 13.sp),
+                                    )
+                                }
                             }
                             // «Свернуть» больше не кнопка, а горизонтальная метка-хват
                             // по центру сверху — как у Apple: очевидно «потяни вниз».
