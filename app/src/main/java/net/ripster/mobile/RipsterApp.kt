@@ -127,6 +127,24 @@ class RipsterApp : Application() {
             }
         }
 
+        // Дирижёр жанров: один на приложение, помнит выученное между
+        // запусками. Пишем не чаще раза в минуту — учится он на том, что и
+        // так качается, и дёргать диск на каждый трек незачем.
+        run {
+            val prefs = getSharedPreferences("genre_brain", MODE_PRIVATE)
+            net.ripster.mobile.core.service.StationBuilder.genres
+                .restoreFrom(prefs.getString("learned", null))
+            MainScope().launch(kotlinx.coroutines.Dispatchers.IO) {
+                while (true) {
+                    kotlinx.coroutines.delay(60_000)
+                    val g = net.ripster.mobile.core.service.StationBuilder.genres
+                    runCatching {
+                        prefs.edit().putString("learned", g.serialize()).apply()
+                    }
+                }
+            }
+        }
+
         localRadar = net.ripster.mobile.core.radar.LocalRadar(db)
         net.ripster.mobile.core.radar.RadarWorker.schedule(this)
 

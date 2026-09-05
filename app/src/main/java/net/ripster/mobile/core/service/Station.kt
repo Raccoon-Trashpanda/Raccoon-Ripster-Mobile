@@ -30,6 +30,13 @@ import net.ripster.mobile.service.yandex.YandexMusicClient
  */
 object StationBuilder {
 
+    /**
+     * Дирижёр жанров. Ставится один раз из RipsterApp; до этого работает
+     * пустой, то есть ровно как посевная таблица — станция обязана строиться
+     * и без него.
+     */
+    var genres: GenreLearner = GenreLearner()
+
     /** Почему станция не собралась — чтобы экран сказал правду, а не общее
      *  «проверьте связь». Тот же приём, что у `StreamResolver.lastStreamError`. */
     enum class Outcome { OK, NOTHING_FOUND, OFF_GENRE }
@@ -75,8 +82,22 @@ object StationBuilder {
      * которые и приезжали вместо музыки.
      */
     private fun onGenre(t: Track, station: String, words: List<String>): Boolean {
-        val g = norm(declaredGenre(t) ?: return false)
+        val raw = declaredGenre(t) ?: return false
+        val g = norm(raw)
         if (g.isEmpty()) return false
+
+        // Сначала спрашиваем дирижёра: он сводит ярлыки РАЗНЫХ сервисов к
+        // одному ключу и умеет то, чего сравнение строк не умеет в принципе —
+        // например, что болгарское «Блус» от Deezer и «Blues» от Apple это
+        // один жанр. Если оба ключа известны, ответ однозначен, и гадать по
+        // подстрокам уже незачем.
+        val tk = genres.of(raw)
+        val sk = genres.of(station)
+        if (tk != null && sk != null) return tk == sk
+
+        // Ключа нет — значит «не знаю», и работает прежняя сверка по словам.
+        // Это не запасной путь на всякий случай, а честное поведение: пока
+        // модуль не выучил ярлык, судить по нему нельзя.
         val q = norm(station)
         if (q.isNotEmpty() && (g.contains(q) || q.contains(g))) return true
         return words.any { w -> norm(w).length >= 4 && g.contains(norm(w)) }
@@ -252,6 +273,15 @@ object StationBuilder {
             }.awaitAll()
         }
         if (pools.isEmpty()) { lastOutcome = Outcome.NOTHING_FOUND; return emptyList() }
+
+        // Показать дирижёру всё, что и так прошло через руки: ярлыки жанров
+        // от разных сервисов на одних и тех же артистах. Никаких лишних
+        // запросов — учимся на том, что уже скачано.
+        pools.forEach { pool ->
+            pool.tracks.forEach { t ->
+                declaredGenre(t)?.let { genres.observe(t.artist, it) }
+            }
+        }
 
         // Сверка жанра — общая для всех сервисов, ровно один модуль на всех.
         val words = genreWords(fallbackQuery)
