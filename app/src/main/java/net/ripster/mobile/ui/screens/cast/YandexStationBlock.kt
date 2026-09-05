@@ -16,6 +16,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -75,10 +76,16 @@ fun YandexStationBlock() {
             conn?.status?.collect { status = it }
         }
 
+        // Список из ОБЛАКА нужен не только ради имён. Если mDNS ничего не
+        // нашёл, показать его — честнее, чем «станции не найдены»: колонки у
+        // человека есть, просто они не в этой сети (или сеть режет mDNS —
+        // обычное дело в гостевых Wi-Fi и на некоторых роутерах).
+        val cloud = remember { mutableStateListOf<YandexQuasar.Device>() }
         LaunchedEffect(token) {
             scope.launch {
-                runCatching { YandexQuasar(token).deviceList() }.getOrDefault(emptyList())
-                    .forEach { names[it.id] = it.name }
+                val list = runCatching { YandexQuasar(token).deviceList() }.getOrDefault(emptyList())
+                list.forEach { names[it.id] = it.name }
+                cloud.clear(); cloud.addAll(list)
             }
         }
         DisposableEffect(token) {
@@ -88,7 +95,17 @@ fun YandexStationBlock() {
                     scanning = false
                 }
             }
-            onDispose { job.cancel(); conn?.close() }
+            // discover() — бесконечный callbackFlow: он НИКОГДА не завершается
+            // сам. Пока `scanning` снимался только по находке, экран без станций
+            // навсегда застревал на «Ищу станции…» — вечный спиннер вместо
+            // ответа, и ни строка «не найдены», ни облачный список ниже не
+            // показывались в принципе. Поиск не прекращаем (поздняя находка
+            // появится), но через дедлайн перестаём врать, будто ещё ищем.
+            val deadline = scope.launch {
+                kotlinx.coroutines.delay(8_000)
+                scanning = false
+            }
+            onDispose { job.cancel(); deadline.cancel(); conn?.close() }
         }
 
         if (found.isEmpty()) {
@@ -96,6 +113,28 @@ fun YandexStationBlock() {
                 tr(if (scanning) "cast.scanning" else "cast.none", lang),
                 style = TextStyle(color = c.text_tertiary, fontSize = 12.sp),
             )
+            // Найденных в сети нет, но в аккаунте колонки есть — покажем их.
+            // Нажать нельзя: играть на устройстве, до которого нет связи,
+            // мы не умеем, и притворяться, что умеем, — хуже пустоты.
+            if (!scanning && cloud.isNotEmpty()) {
+                Box(Modifier.height(6.dp))
+                cloud.forEach { d ->
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                    ) {
+                        BasicText(
+                            d.name.ifBlank { d.id },
+                            Modifier.weight(1f),
+                            style = TextStyle(color = c.text_tertiary, fontSize = 13.sp),
+                        )
+                        BasicText(
+                            tr("cast.not_on_network", lang),
+                            style = TextStyle(color = c.text_disabled, fontSize = 11.sp),
+                        )
+                    }
+                }
+            }
         }
 
         found.values.forEach { f ->

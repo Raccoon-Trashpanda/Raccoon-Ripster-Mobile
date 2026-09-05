@@ -111,6 +111,7 @@ private val STRINGS: Map<String, Row> = mapOf(
     ),
     "cast.scanning" to row("Ищу станции в сети…", "Scanning for stations…", "स्टेशन खोज रहा है…", "ステーションを検索中…", "正在搜索音箱…"),
     "cast.none" to row("Станции не найдены", "No stations found", "कोई स्टेशन नहीं मिला", "ステーションが見つかりません", "未找到音箱"),
+    "cast.not_on_network" to row("не в этой сети", "not on this network", "इस नेटवर्क में नहीं", "このネットワークにはありません", "不在此网络"),
     "cast.play" to row("Играть", "Play", "चलाएँ", "再生", "播放"),
     "cast.pause" to row("Пауза", "Pause", "रोकें", "一時停止", "暂停"),
     "cast.connected" to row("Подключено", "Connected", "कनेक्टेड", "接続済み", "已连接"),
