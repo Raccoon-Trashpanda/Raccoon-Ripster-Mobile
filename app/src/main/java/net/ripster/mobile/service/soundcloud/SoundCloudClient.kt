@@ -299,15 +299,13 @@ class SoundCloudClient(
             year = releaseYear,
             isrc = isrc ?: pm?.isrc,
             artworkUrl = bigArt(artworkUrl),
+            // Жанр, объявленный автором. Станции сверяют по нему, а не по
+            // названию плитки: слово в заголовке — совпадение, а не жанр.
+            genre = genre?.takeIf { it.isNotBlank() },
             raw = buildMap {
                 put("permalink", permalinkUrl)
                 put("scTrackId", id.toString())
                 if (user.id != 0L) put("artId", user.id.toString())
-                // Жанр, объявленный автором. Нужен станциям: у поджанров
-                // (synthwave, IDM) нет ни чарта, ни станции ротора, и без
-                // этой пометки «станция» превращается в текстовый поиск,
-                // который выдаёт что угодно.
-                genre?.takeIf { it.isNotBlank() }?.let { put("genre", it) }
             },
         )
     }

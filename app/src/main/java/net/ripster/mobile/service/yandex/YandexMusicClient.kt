@@ -433,16 +433,16 @@ class YandexMusicClient(
                 durationMs = durationMs.takeIf { it > 0 },
                 year = alb?.year,
                 artworkUrl = alb?.coverUri?.let { "https://" + it.removeSuffix("%%") + "400x400" },
+                // Жанр из метаданных — по нему станция решает, свой ли трек.
+                // Без него треки Яндекса проходили отбор насквозь.
+                genre = alb?.genre?.takeIf { it.isNotBlank() },
                 raw = mapOf(
                     "ymId" to (realId.ifBlank { id }),
                     "artId" to (artists.firstOrNull()?.id?.toString().orEmpty()),
                     // id альбома нужен, чтобы тап по треку из сборника открывал
                     // весь релиз (экран артиста, «участие»), и для каста на Станцию.
                     "albId" to (alb?.id?.takeIf { it > 0 }?.toString().orEmpty()),
-                    // Жанр из метаданных — по нему станция решает, свой ли это
-                    // трек. Без него треки Яндекса проходили отбор насквозь.
-                    "genre" to alb?.genre?.takeIf { it.isNotBlank() }.orEmpty(),
-                ).filterValues { it.isNotEmpty() },
+                ),
             )
         }
     }

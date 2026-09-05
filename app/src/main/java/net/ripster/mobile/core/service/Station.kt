@@ -12,16 +12,21 @@ import net.ripster.mobile.service.soundcloud.SoundCloudClient
 import net.ripster.mobile.service.yandex.YandexMusicClient
 
 /**
- * Автосборка жанровой станции — НЕ поиск, а конкретный курируемый плейлист.
+ * Автосборка жанровой станции — НЕ поиск, а собранный по жанру плейлист.
  *
- * Источник по приоритету:
- *  1. Чарт SoundCloud по жанру (`charts?kind=top&genre=…`) — работает без ПК,
- *     это уже готовый «топ по жанру», не выдача поиска.
- *  2. Если SoundCloud недоступен — слияние топ-N результатов по жанру из всех
- *     настроенных сервисов (свой простой алгоритм round-robin + дедуп по ISRC).
+ * Владелец 05.09.2026: «внедрены все сервисы, пусть строит через все сразу,
+ * просто использует алгоритм под все. Обращение идёт всегда через модуль
+ * определения жанра, но стучит во все сервисы, безошибочно».
  *
- * Дальше [StreamResolver] превращает треки в прямые стрим-URL — станция
- * играется потоком, без скачивания.
+ * Поэтому источники НЕ перебираются по очереди с выходом на первом удачном —
+ * опрашиваются ВСЕ разом и складываются:
+ *
+ *  * курируемые списки (станция Яндекс-ротора, чарт SoundCloud по жанру) —
+ *    их жанр задан самим сервисом, проверять его нечем и незачем;
+ *  * поиск по точному запросу у КАЖДОГО настроенного сервиса — его результат
+ *    обязан пройти через сверку жанра, иначе в станцию попадает что угодно.
+ *
+ * Отказ любого источника не мешает остальным: каждый обёрнут отдельно.
  */
 object StationBuilder {
 
@@ -35,18 +40,50 @@ object StationBuilder {
 
 
     /**
+     * Жанр, приведённый к сравнимому виду: только буквы и цифры в нижнем
+     * регистре.
+     *
+     * Одно и то же пишут по-разному: «Synth Wave» и «Synthwave», «Drum & Bass»
+     * и «drumbass», «Lo-Fi» и «lofi». Сравнение строк как есть уже стоило нам
+     * рабочей плитки: «Синтвейв» отказывался собираться, хотя треки с нужным
+     * жанром были — не совпал пробел.
+     */
+    private fun norm(s: String): String = s.lowercase().filter { it.isLetterOrDigit() }
+
+    /**
      * Слова, по которым трек считается принадлежащим жанру станции.
-     * Сравнивается с жанром, объявленным сервисом (SoundCloud его отдаёт).
+     * Сравнивается с жанром, объявленным сервисом.
      */
     private fun genreWords(query: String): List<String> =
         query.lowercase().split(' ', '-', '/').filter { it.length >= 3 }
 
-    /** Совпадает ли объявленный жанр трека с тем, что обещает станция. */
-    private fun onGenre(t: Track, words: List<String>): Boolean {
-        val g = t.raw["genre"]?.lowercase()?.trim().orEmpty()
+    /**
+     * Жанр, объявленный САМИМ сервисом. Одно поле на всех: Qobuz и Apple
+     * заполняли его и раньше, SoundCloud и Яндекс — теперь тоже. Deezer в
+     * поиске жанр не отдаёт (только отдельным запросом альбома), поэтому его
+     * треки идут как «жанр неизвестен», а не как «жанр не тот».
+     */
+    private fun declaredGenre(t: Track): String? =
+        (t.genre ?: t.raw["genre"])?.lowercase()?.trim()?.takeIf { it.isNotEmpty() }
+
+    /**
+     * Совпадает ли объявленный жанр трека с тем, что обещает станция.
+     *
+     * Проверяем в обе стороны. «Synth Wave» у трека и «synthwave» у станции —
+     * одно и то же. Трек, помеченный просто «Techno», станции «Dub Techno»
+     * подходит: точность даёт сам запрос, а жанр отсекает ЧУЖОЕ — поп и рэп,
+     * которые и приезжали вместо музыки.
+     */
+    private fun onGenre(t: Track, station: String, words: List<String>): Boolean {
+        val g = norm(declaredGenre(t) ?: return false)
         if (g.isEmpty()) return false
-        return words.any { w -> w in g }
+        val q = norm(station)
+        if (q.isNotEmpty() && (g.contains(q) || q.contains(g))) return true
+        return words.any { w -> norm(w).length >= 4 && g.contains(norm(w)) }
     }
+
+    /** Один опрошенный источник. [vetted] — список уже курируемый по жанру. */
+    private data class Pool(val tracks: List<Track>, val vetted: Boolean)
 
     suspend fun build(
         scGenreSlug: String,
@@ -54,34 +91,41 @@ object StationBuilder {
         yandexStationId: String? = null,
         size: Int = 30,
     ): List<Track> {
-        // 1. Яндекс rotor — родная «Моя волна» по жанру/настроению/активности.
-        if (!yandexStationId.isNullOrBlank()) {
-            (ServiceRegistry.get(Service.YANDEX) as? YandexMusicClient)?.let { ya ->
-                val t = runCatching { ya.station(yandexStationId, size) }.getOrDefault(emptyList())
-                if (t.size >= 5) { lastOutcome = Outcome.OK; return t }
-            }
-        }
-        // 2. Чарт SoundCloud по жанру.
-        if (scGenreSlug.isNotBlank()) {
-            (ServiceRegistry.get(Service.SOUNDCLOUD) as? SoundCloudClient)?.let { sc ->
-                val t = runCatching { sc.station(scGenreSlug, size) }.getOrDefault(emptyList())
-                if (t.size >= 5) { lastOutcome = Outcome.OK; return t }
-            }
-        }
         val clients = ServiceRegistry.configured()
-        if (clients.isEmpty()) { lastOutcome = Outcome.NOTHING_FOUND; return emptyList() }
-        val perClient: List<List<Track>> = coroutineScope {
-            clients.map { c ->
-                // Берём широко: дальше идёт отсев по объявленному жанру, и
-                // из двенадцати результатов своих может не остаться совсем.
-                async { runCatching { c.search(fallbackQuery).tracks.take(40) }.getOrDefault(emptyList()) }
+        val ya = ServiceRegistry.get(Service.YANDEX) as? YandexMusicClient
+        val sc = ServiceRegistry.get(Service.SOUNDCLOUD) as? SoundCloudClient
+
+        val pools: List<Pool> = coroutineScope {
+            buildList {
+                // Курируемые списки: жанр гарантирован сервисом.
+                if (!yandexStationId.isNullOrBlank() && ya != null) {
+                    add(async { Pool(runCatching { ya.station(yandexStationId, size) }.getOrDefault(emptyList()), true) })
+                }
+                if (scGenreSlug.isNotBlank() && sc != null) {
+                    add(async { Pool(runCatching { sc.station(scGenreSlug, size) }.getOrDefault(emptyList()), true) })
+                }
+                // Поиск у каждого сервиса. Берём широко: дальше отсев по жанру,
+                // и из десятка результатов своих может не остаться совсем.
+                clients.forEach { c ->
+                    add(async { Pool(runCatching { c.search(fallbackQuery).tracks.take(40) }.getOrDefault(emptyList()), false) })
+                }
             }.awaitAll()
         }
+        if (pools.isEmpty()) { lastOutcome = Outcome.NOTHING_FOUND; return emptyList() }
+
+        // Сверка жанра — общая для всех сервисов, ровно один модуль на всех.
+        val words = genreWords(fallbackQuery)
+        val kept = pools.map { pool ->
+            if (pool.vetted) pool.tracks else pool.tracks.filter { onGenre(it, fallbackQuery, words) }
+        }
+
+        // Слияние по кругу: станция получается из всех сервисов сразу, а не из
+        // того, кто первым ответил.
         val seen = HashSet<String>()
         val out = ArrayList<Track>()
         var i = 0
-        while (out.size < size && perClient.any { i < it.size }) {
-            for (list in perClient) {
+        while (out.size < size && kept.any { i < it.size }) {
+            for (list in kept) {
                 val tr = list.getOrNull(i) ?: continue
                 val key = (tr.isrc ?: (tr.title + "|" + tr.artist)).lowercase()
                 if (seen.add(key)) out.add(tr)
@@ -90,27 +134,24 @@ object StationBuilder {
             i++
         }
 
-        // ПОСЛЕДНИЙ ШАГ — отсев по объявленному жанру.
-        //
-        // Текстовый поиск по названию жанра станцией не является: на «idm»
-        // сервисы вернули шведский поп-ремикс, и плитка «IDM» его заиграла
-        // (проверено на эмуляторе 05.09.2026 — та же жалоба, что и про
-        // синтвейв). Если сервис сам говорит жанр трека, верим ему и берём
-        // только совпадающее. Осталось слишком мало — честно отдаём пусто:
-        // экран скажет «станция не собралась», а не подсунет чужую музыку.
-        val words = genreWords(fallbackQuery)
-        val onGenre = out.filter { onGenre(it, words) }
+        if (out.size >= 5) { lastOutcome = Outcome.OK; return out }
+
+        // Своего набралось мало. Либо искать было негде, либо всё найденное
+        // оказалось чужого жанра — это разные новости, и совет разный.
+        val anyFound = pools.any { it.tracks.isNotEmpty() }
+        val anyDeclared = pools.any { p -> p.tracks.any { declaredGenre(it) != null } }
         return when {
-            onGenre.size >= 5 -> { lastOutcome = Outcome.OK; onGenre }
-            // Никто из сервисов жанр не объявил — судить не по чему, отдаём
-            // как есть: это не подмена, а отсутствие сведений.
-            out.none { it.raw["genre"] != null } -> {
-                lastOutcome = if (out.isEmpty()) Outcome.NOTHING_FOUND else Outcome.OK
-                out
+            !anyFound -> { lastOutcome = Outcome.NOTHING_FOUND; emptyList() }
+            // Никто жанр не объявил — судить не по чему. Это отсутствие
+            // сведений, а не подмена: отдаём найденное как есть.
+            !anyDeclared -> {
+                lastOutcome = Outcome.OK
+                pools.flatMap { it.tracks }.distinctBy { (it.isrc ?: (it.title + "|" + it.artist)).lowercase() }.take(size)
             }
             else -> { lastOutcome = Outcome.OFF_GENRE; emptyList() }
         }
     }
+
 }
 
 /**

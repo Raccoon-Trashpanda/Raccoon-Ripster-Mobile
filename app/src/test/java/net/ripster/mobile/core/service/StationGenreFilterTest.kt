@@ -20,25 +20,33 @@ import org.junit.Test
  */
 class StationGenreFilterTest {
 
-    private fun t(title: String, genre: String? = null) = Track(
-        id = title,
-        title = title,
-        artist = "A",
-        service = Service.SOUNDCLOUD,
-        raw = if (genre == null) emptyMap() else mapOf("genre" to genre),
+    /** Жанр в модели — так его отдают Qobuz, Apple, SoundCloud, Яндекс. */
+    private fun t(title: String, genre: String? = null, service: Service = Service.SOUNDCLOUD) =
+        Track(id = title, title = title, artist = "A", service = service, genre = genre)
+
+    /** Жанр, положенный в raw — старый путь, он тоже должен читаться. */
+    private fun rawT(title: String, genre: String) = Track(
+        id = title, title = title, artist = "A", service = Service.QOBUZ,
+        raw = mapOf("genre" to genre),
     )
 
     /** Тот же отбор, что делает StationBuilder на последнем шаге. */
     private fun filter(found: List<Track>, query: String): List<Track> {
+        fun norm(x: String) = x.lowercase().filter { it.isLetterOrDigit() }
         val words = query.lowercase().split(' ', '-', '/').filter { it.length >= 3 }
+        fun declared(x: Track): String? =
+            (x.genre ?: x.raw["genre"])?.lowercase()?.trim()?.takeIf { it.isNotEmpty() }
         fun on(x: Track): Boolean {
-            val g = x.raw["genre"]?.lowercase()?.trim().orEmpty()
-            return g.isNotEmpty() && words.any { it in g }
+            val g = norm(declared(x) ?: return false)
+            if (g.isEmpty()) return false
+            val q = norm(query)
+            if (q.isNotEmpty() && (g.contains(q) || q.contains(g))) return true
+            return words.any { w -> norm(w).length >= 4 && g.contains(norm(w)) }
         }
         val hits = found.filter { on(it) }
         return when {
             hits.size >= 5 -> hits
-            found.none { it.raw["genre"] != null } -> found
+            found.none { declared(it) != null } -> found
             else -> emptyList()
         }
     }
@@ -90,5 +98,56 @@ class StationGenreFilterTest {
         или «of» совпали бы с чем угодно."""
         val found = (1..5).map { t("t$it", "Drum & Bass") }
         assertTrue(filter(found, "drum and bass").isNotEmpty())
+    }
+    @Test
+    fun theGenreIsReadFromAnyServiceTheSameWay() {
+        """Владелец: «должен смотреть жанры в ЛЮБОМ потоковом сервисе». Одно
+        поле модели на всех; старый путь через raw тоже понимается."""
+        val found = listOf(
+            t("a", "Techno", Service.QOBUZ),
+            t("b", "Techno", Service.YANDEX),
+            t("c", "Techno", Service.SOUNDCLOUD),
+            t("d", "Techno", Service.APPLE),
+            rawT("e", "Techno"),
+            t("z", "Pop", Service.TIDAL),
+        )
+        val out = filter(found, "techno")
+        assertEquals(5, out.size)
+        assertTrue(out.none { it.title == "z" })
+    }
+
+    @Test
+    fun aServiceWithoutGenresDoesNotSpoilTheStation() {
+        """Deezer в поиске жанр не отдаёт: его треки — «неизвестно», а не
+        «чужое». Пока хватает своих, станция собирается."""
+        val found = (1..5).map { t("ok$it", "Ambient") } + (1..3).map { t("dz$it", null, Service.DEEZER) }
+        val out = filter(found, "ambient")
+        assertEquals(5, out.size)
+    }
+
+
+    @Test
+    fun spellingOfTheGenreDoesNotMatter() {
+        """SoundCloud пишет «Synth Wave» через пробел, станция — «synthwave».
+        Из-за буквального сравнения плитка отказывалась собираться, хотя нужные
+        треки были."""
+        val found = (1..5).map { t("t$it", "Synth Wave") }
+        assertEquals(5, filter(found, "synthwave").size)
+        assertEquals(5, filter((1..5).map { t("x$it", "Lo-Fi") }, "lofi hip hop").size)
+        assertEquals(5, filter((1..5).map { t("y$it", "Drum & Bass") }, "drum and bass").size)
+    }
+
+    @Test
+    fun aParentGenreTagStillCountsForItsSubGenre() {
+        """Трек, помеченный просто «Techno», станции «Dub Techno» подходит:
+        точность даёт запрос, а жанр отсекает чужое."""
+        assertEquals(5, filter((1..5).map { t("t$it", "Techno") }, "dub techno").size)
+    }
+
+    @Test
+    fun popIsStillRejectedForEveryStation() {
+        for (q in listOf("synthwave", "dub techno", "idm", "lofi hip hop")) {
+            assertTrue(q, filter((1..8).map { t("p$it", "Pop") }, q).isEmpty())
+        }
     }
 }
