@@ -678,7 +678,11 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
             Box(Modifier.fillMaxWidth().glassBar(top = false)) {
                 DownloadStrip(
                     items = queue,
+                    nowPlaying = if (playback.hasItem)
+                        listOf(playback.title, playback.artist).filter { it.isNotBlank() }.joinToString(" — ")
+                    else "",
                     modifier = Modifier.align(Alignment.CenterStart).padding(start = 16.dp, end = 76.dp),
+                    onOpenPlayer = { userNavigated = true; dest = RipsterDestination.Player },
                 ) { userNavigated = true; dest = RipsterDestination.Downloads }
                 DownloadOrb(items = queue, modifier = Modifier.padding(bottom = 6.dp))
             }
@@ -722,7 +726,11 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                 // ремонтировался и мерцал. Орб живёт единственным — в оболочке.
                 DownloadStrip(
                     items = queue,
+                    // На экране поиска подсказывать «что играет» незачем: человек
+                    // ищет, а внизу и так живёт мини-плеер с тем же треком.
+                    nowPlaying = "",
                     modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp, top = 4.dp),
+                    onOpenPlayer = {},
                 ) { showSearch = false; userNavigated = true; dest = RipsterDestination.Downloads }
             }
         }
@@ -906,10 +914,35 @@ private fun rememberPalette(url: String?, path: String?): List<Color> {
 }
 
 @Composable
-private fun DownloadStrip(items: List<DownloadItem>, modifier: Modifier, onOpen: () -> Unit) {
-    if (items.isEmpty()) return
+private fun DownloadStrip(
+    items: List<DownloadItem>,
+    nowPlaying: String,
+    modifier: Modifier,
+    onOpenPlayer: () -> Unit,
+    onOpen: () -> Unit,
+) {
     val c = RipsterTheme.colors
     val lang = LocalAppLang.current
+    // Пустая очередь — не повод оставлять полосу пустой. Место рядом с
+    // кружком занимает половину ширины экрана и до сих пор простаивало в
+    // самом частом состоянии программы: когда ничего не качается. Показываем
+    // то, что играет, и тап ведёт в плеер, а не в загрузки.
+    if (items.isEmpty()) {
+        if (nowPlaying.isBlank()) return
+        androidx.compose.foundation.layout.Row(
+            modifier.clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null, onClick = onOpenPlayer,
+            ),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BasicText(
+                "♪  $nowPlaying", maxLines = 1, overflow = TextOverflow.Ellipsis,
+                style = TextStyle(color = c.text_tertiary, fontSize = 11.sp),
+            )
+        }
+        return
+    }
     val running = items.firstOrNull { it.state == DownloadState.RUNNING }
     val queued = items.count { it.state == DownloadState.QUEUED }
     val done = items.count { it.state == DownloadState.DONE }

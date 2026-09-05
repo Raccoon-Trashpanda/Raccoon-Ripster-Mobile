@@ -57,6 +57,8 @@ import net.ripster.mobile.ui.i18n.AppLang
 import net.ripster.mobile.ui.i18n.LocalAppLang
 import net.ripster.mobile.ui.i18n.tr
 import net.ripster.mobile.ui.screens.TidalLoginBlock
+import net.ripster.mobile.ui.components.SettingsGlyph
+import net.ripster.mobile.ui.components.SettingsIcon
 import net.ripster.mobile.ui.screens.cast.YandexStationBlock
 import net.ripster.mobile.ui.components.pressable
 import net.ripster.mobile.ui.theme.RipsterColors
@@ -161,27 +163,29 @@ private fun Header(title: String, c: RipsterColors, onBack: () -> Unit) {
 @Composable
 private fun RootList(lang: AppLang, c: RipsterColors, go: (Route) -> Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        NavRow(tr("set.accounts", lang), c) { go(Route.Accounts) }
-        NavRow(tr("set.quality", lang), c) { go(Route.Quality) }
-        NavRow(tr("set.storage", lang), c) { go(Route.Storage) }
-        NavRow(tr("set.network", lang), c) { go(Route.Network) }
-        NavRow(tr("set.app", lang), c) { go(Route.App) }
-        NavRow(tr("set.pairing", lang), c) { go(Route.Pairing) }
-        NavRow(tr("set.player", lang), c) { go(Route.Player) }
-        NavRow(tr("set.equalizer", lang), c) { go(Route.Equalizer) }
-        NavRow(tr("set.radar", lang), c) { go(Route.Radar) }
-        NavRow(tr("set.digs", lang), c) { go(Route.Digs) }
-        NavRow(tr("nav.tools", lang), c) { go(Route.Tools) }
-        NavRow(tr("set.about", lang), c) { go(Route.About) }
+        NavRow(tr("set.accounts", lang), c, SettingsGlyph.ACCOUNTS) { go(Route.Accounts) }
+        NavRow(tr("set.quality", lang), c, SettingsGlyph.QUALITY) { go(Route.Quality) }
+        NavRow(tr("set.storage", lang), c, SettingsGlyph.STORAGE) { go(Route.Storage) }
+        NavRow(tr("set.network", lang), c, SettingsGlyph.NETWORK) { go(Route.Network) }
+        NavRow(tr("set.app", lang), c, SettingsGlyph.APP) { go(Route.App) }
+        NavRow(tr("set.pairing", lang), c, SettingsGlyph.PAIRING) { go(Route.Pairing) }
+        NavRow(tr("set.player", lang), c, SettingsGlyph.PLAYER) { go(Route.Player) }
+        NavRow(tr("set.equalizer", lang), c, SettingsGlyph.EQUALIZER) { go(Route.Equalizer) }
+        NavRow(tr("set.radar", lang), c, SettingsGlyph.RADAR) { go(Route.Radar) }
+        NavRow(tr("set.digs", lang), c, SettingsGlyph.DIGS) { go(Route.Digs) }
+        NavRow(tr("nav.tools", lang), c, SettingsGlyph.TOOLS) { go(Route.Tools) }
+        NavRow(tr("set.about", lang), c, SettingsGlyph.ABOUT) { go(Route.About) }
     }
 }
 
 @Composable
-private fun NavRow(label: String, c: RipsterColors, onClick: () -> Unit) {
+private fun NavRow(label: String, c: RipsterColors, glyph: SettingsGlyph, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().pressable { onClick() }.padding(horizontal = 18.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        SettingsIcon(glyph, c.text_tertiary)
+        Box(Modifier.width(14.dp))
         BasicText(label, Modifier.weight(1f), style = TextStyle(color = c.text_primary, fontSize = 15.sp))
         BasicText("›", style = TextStyle(color = c.text_tertiary, fontSize = 16.sp))
     }
