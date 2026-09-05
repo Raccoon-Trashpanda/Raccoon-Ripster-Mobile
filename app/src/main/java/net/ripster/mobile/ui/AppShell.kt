@@ -170,6 +170,13 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
         net.ripster.mobile.core.library.LibraryGrouping.group(library)
     }
     var libraryByAlbum by remember { mutableStateOf(true) }
+    /**
+     * Строка поиска по библиотеке. Поле на экране было, а искать им было
+     * нельзя: `searchQuery = ""` и пустой обработчик — набранное просто
+     * никуда не шло. Контрол, который ничего не делает, — такой же обман, как
+     * контрол, который делает не то.
+     */
+    var libraryQuery by remember { mutableStateOf("") }
     val playback by app.player.state.collectAsState()
     val settings by app.settings.state.collectAsState()
 
@@ -537,10 +544,20 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                         onOpenPlayer = openPlayer,
                     )
                     RipsterDestination.Library -> LibraryScreen(
-                        items = if (libraryByAlbum) libraryGroups.map { (k, v) -> v.toGroupItem(k) }
-                                else library.map { it.toItem() },
-                        searchQuery = "",
-                        onSearchQueryChange = {},
+                        items = run {
+                            val all = if (libraryByAlbum) libraryGroups.map { (k, v) -> v.toGroupItem(k) }
+                                      else library.map { it.toItem() }
+                            val q = libraryQuery.trim()
+                            // Ищем и по названию, и по исполнителю: человек
+                            // одинаково часто помнит одно или другое.
+                            if (q.isEmpty()) all
+                            else all.filter {
+                                it.title.contains(q, ignoreCase = true) ||
+                                    it.artist.contains(q, ignoreCase = true)
+                            }
+                        },
+                        searchQuery = libraryQuery,
+                        onSearchQueryChange = { libraryQuery = it },
                         byAlbum = libraryByAlbum,
                         onModeChange = { libraryByAlbum = it },
                         onItemClick = { picked ->

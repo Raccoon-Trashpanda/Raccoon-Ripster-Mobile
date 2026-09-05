@@ -87,8 +87,48 @@ class PlayerController(context: Context) {
     // ── нативный движок (Oboe) для локального lossless ──
     /** Включён в настройках. Ставится из RipsterApp по AppSettings. */
     @Volatile var nativeEnabled: Boolean = false
-    private var nativeQueue: List<LibraryEntity> = emptyList()
-    private val nativeActive: Boolean get() = nativeQueue.isNotEmpty()
+    private var _nativeQueue: List<LibraryEntity> = emptyList()
+
+    /**
+     * Очередь нативного тракта. Через сеттер, а не поле: медиасессию нужно
+     * отдавать нативному игроку и возвращать ExoPlayer РОВНО тогда, когда
+     * очередь появляется и пропадает. Присваиваний в коде десяток, и помнить
+     * про подмену в каждом — верный способ однажды забыть.
+     */
+    private var nativeQueue: List<LibraryEntity>
+        get() = _nativeQueue
+        set(value) {
+            val was = _nativeQueue.isNotEmpty()
+            _nativeQueue = value
+            val now = value.isNotEmpty()
+            if (was != now) bindSession(now)
+        }
+
+    /**
+     * Игрок медиасессии на время работы нативного тракта. Пока его не было,
+     * система показывала прошлый трек ExoPlayer и его же кнопками управляла.
+     */
+    private val nativeSession: NativeSessionPlayer by lazy {
+        NativeSessionPlayer(
+            looper = android.os.Looper.getMainLooper(),
+            queue = { nativeQueue },
+            onPlay = { NativeAudioEngine.resume(); pushNativeState() },
+            onPause = { NativeAudioEngine.pause(); pushNativeState() },
+            onNext = { NativeAudioEngine.next(); pushNativeState() },
+            onPrevious = { NativeAudioEngine.previous(); pushNativeState() },
+            onSeek = { NativeAudioEngine.seekMs(it); pushNativeState() },
+            onStop = { stop() },
+        )
+    }
+
+    /** Отдать сессию нативному тракту или вернуть её ExoPlayer. */
+    private fun bindSession(toNative: Boolean) {
+        val svc = PlaybackService.live ?: return
+        scope.launch(kotlinx.coroutines.Dispatchers.Main) {
+            runCatching { svc.useSessionPlayer(if (toNative) nativeSession else null) }
+        }
+    }
+    private val nativeActive: Boolean get() = _nativeQueue.isNotEmpty()
     // Передача СЕТЕВОГО lossless-потока нативному движку: ExoPlayer играет сразу,
     // фоном тянем файлы во временные, готово → бесшовно уводим на Oboe.
     private var handoffJob: kotlinx.coroutines.Job? = null
@@ -574,6 +614,9 @@ class PlayerController(context: Context) {
     }
 
     private fun pushNativeState() {
+        // Заодно освежаем медиасессию: экран блокировки и Bluetooth читают её,
+        // а не наше состояние.
+        runCatching { nativeSession.refresh() }
         val it = nativeCurrent() ?: run { pushState(); return }
         val idx = NativeAudioEngine.index().coerceIn(0, (nativeQueue.size - 1).coerceAtLeast(0))
         logPlayIfNew(it.title, it.artist, it.album.orEmpty(), it.artworkUrl, it)

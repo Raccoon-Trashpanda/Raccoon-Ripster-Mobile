@@ -23,6 +23,14 @@ import androidx.media3.session.MediaSessionService
 class PlaybackService : MediaSessionService() {
 
     private var session: MediaSession? = null
+    private var exo: ExoPlayer? = null
+
+    companion object {
+        /** Живой сервис — сессия и приложение в одном процессе. */
+        @Volatile
+        var live: PlaybackService? = null
+            private set
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -64,7 +72,22 @@ class PlaybackService : MediaSessionService() {
             AudioEffects.bind(sid)
         }
 
+        exo = player
         session = MediaSession.Builder(this, player).build()
+        live = this
+    }
+
+    /**
+     * Подменить игрока сессии. Нужно нативному тракту: пока он звучит, ExoPlayer
+     * стоит, и сессия иначе показывает системе прошлый трек и управляет не тем
+     * (см. [net.ripster.mobile.player.NativeSessionPlayer]).
+     *
+     * `null` — вернуть обычного игрока.
+     */
+    fun useSessionPlayer(p: androidx.media3.common.Player?) {
+        val s = session ?: return
+        val target = p ?: exo ?: return
+        runCatching { s.player = target }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
@@ -76,6 +99,8 @@ class PlaybackService : MediaSessionService() {
             release()
         }
         session = null
+        exo = null
+        live = null
         super.onDestroy()
     }
 }
