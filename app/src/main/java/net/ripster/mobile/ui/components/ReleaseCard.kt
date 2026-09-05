@@ -99,11 +99,17 @@ fun ReleaseCard(
     }
 
     Column(modifier.clickable { onOpen() }) {
+        // Мягкая приподнятая поверхность — общая на всё приложение (Depth).
+        // Радиус и тень здесь не свои: разные скругления на соседних
+        // карточках читаются как небрежность, а не как разнообразие.
         Box(
-            Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(16.dp)).background(fallback)
-                .bufferingRing(active = buffering, palette = edgePalette, corner = 16.dp),
+            Modifier.fillMaxWidth().aspectRatio(1f)
+                .softSurface(radius = Depth.Radius, tint = Color.Transparent)
+                .background(fallback)
+                .bufferingRing(active = buffering, palette = edgePalette, corner = Depth.Radius),
         ) {
-            Cover(url = data.coverUrl, modifier = Modifier.fillMaxSize(), shape = RoundedCornerShape(16.dp))
+            Cover(url = data.coverUrl, modifier = Modifier.fillMaxSize(),
+                  shape = RoundedCornerShape(Depth.Radius))
 
             // сервис
             Row(

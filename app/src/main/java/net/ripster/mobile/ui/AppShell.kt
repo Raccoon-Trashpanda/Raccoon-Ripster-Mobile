@@ -306,9 +306,18 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
             // логотип 30.dp — около 50.dp полосы. Стало 4.dp и 24.dp, и сама
             // полоса полупрозрачная: подсветка под ней просвечивает, экран не
             // делится глухой линией.
+            Column(Modifier.fillMaxWidth().glassBar(top = true)) {
+            // Фиолетовая полоса загрузки. Означает ровно одно: ИДЁТ РАБОТА
+            // — что-то качается или подгружается прямо сейчас. Ни «связь
+            // есть», ни «всё хорошо»: для этого полоса не нужна, а лишний
+            // смысл на ней делает её нечитаемой.
+            net.ripster.mobile.ui.components.LoadingBar(
+                active = queue.any {
+                    it.state == DownloadState.RUNNING || it.state == DownloadState.QUEUED
+                },
+            )
             Row(
                 Modifier.fillMaxWidth()
-                    .glassBar(top = true)
                     .padding(horizontal = 16.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -354,6 +363,7 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                         ),
                     )
                 }
+            }
             }
 
             Box(Modifier.weight(1f)) {

@@ -44,6 +44,8 @@ import kotlinx.serialization.json.Json
 import net.ripster.mobile.RipsterApp
 import net.ripster.mobile.core.service.ServiceRegistry
 import net.ripster.mobile.ui.components.Cover
+import net.ripster.mobile.ui.components.Depth
+import net.ripster.mobile.ui.components.softSurface
 import net.ripster.mobile.ui.i18n.LocalAppLang
 import net.ripster.mobile.ui.i18n.engineErrorText
 import net.ripster.mobile.ui.i18n.tr
@@ -689,8 +691,12 @@ private fun WideCard(title: String, subtitle: String, art: String?, progress: Fl
 @Composable
 private fun SquareCard(title: String, subtitle: String, art: String?, downloaded: Boolean, c: RipsterColors, lang: net.ripster.mobile.ui.i18n.AppLang, onClick: () -> Unit) {
     Column(Modifier.width(120.dp).clickable { onClick() }) {
-        Box(Modifier.size(120.dp).clip(RoundedCornerShape(16.dp)).background(c.surface_active)) {
-            Cover(url = art, modifier = Modifier.fillMaxSize(), shape = RoundedCornerShape(16.dp))
+        Box(
+            Modifier.size(120.dp)
+                .softSurface(tint = c.surface_active),
+        ) {
+            Cover(url = art, modifier = Modifier.fillMaxSize(),
+                  shape = RoundedCornerShape(Depth.Radius))
             if (downloaded) {
                 Row(
                     Modifier.align(Alignment.TopStart).padding(6.dp).clip(RoundedCornerShape(999.dp))
