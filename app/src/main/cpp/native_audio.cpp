@@ -260,33 +260,66 @@ struct Decoder {
 };
 
 // ── кольцевой буфер float (SPSC) ──────────────────────────────────────────
+/**
+ * Кольцо между декодером и аудио-колбэком.
+ *
+ * Счётчики СКВОЗНЫЕ (никогда не сбрасываются по модулю), а по модулю берётся
+ * только адрес в буфере. Так было не всегда, и это стоило нам движка: раньше
+ * `r_`/`w_` хранили уже свёрнутые индексы, а свободное место считалось как
+ * `cap - 1 - ((w - r) % cap)`. На беззнаковых, когда `w` уходил за `r`,
+ * разность переполнялась, а `% cap` спасает только если `cap` — степень
+ * двойки. Ёмкость здесь `частота * каналы * 2` (176400 для 44.1/стерео),
+ * степенью двойки не является — и `writable()` возвращал произвольное число.
+ *
+ * Как это выглядело снаружи (A31, 05.09.2026): звук играл ровно две секунды и
+ * замолкал. Декодер, которому кольцо всё время сообщало «место есть»,
+ * проглатывал весь трек за пару секунд — в логе «decoder returned 0 after
+ * 8101333 frames» через 2.2 с после старта, — упирался в конец файла, движок
+ * поднимал «очередь кончилась», и плеер честно останавливался.
+ */
 class Ring {
 public:
     void reset(size_t floats) {
-        buf_.assign(floats, 0.0f);
-        cap_ = floats;
+        buf_.assign(floats ? floats : 1, 0.0f);
+        cap_ = floats ? floats : 1;
         r_.store(0); w_.store(0);
     }
+    /** Свободно под запись. Одну ячейку держим пустой, чтобы полное кольцо не
+     *  было неотличимо от пустого. */
     size_t writable() const {
-        size_t w = w_.load(std::memory_order_relaxed), r = r_.load(std::memory_order_acquire);
-        return cap_ - 1 - ((w - r) % cap_);
+        uint64_t w = w_.load(std::memory_order_relaxed), r = r_.load(std::memory_order_acquire);
+        size_t used = (size_t) (w - r);
+        return used >= cap_ - 1 ? 0 : cap_ - 1 - used;
     }
     size_t readable() const {
-        size_t w = w_.load(std::memory_order_acquire), r = r_.load(std::memory_order_relaxed);
-        return (w - r) % cap_;
+        uint64_t w = w_.load(std::memory_order_acquire), r = r_.load(std::memory_order_relaxed);
+        return (size_t) (w - r);
     }
+    /** Пишет не больше, чем есть места: ошибка производителя не должна
+     *  затирать ещё не сыгранное. */
     void push(const float* src, size_t n) {
-        size_t w = w_.load(std::memory_order_relaxed);
-        for (size_t i = 0; i < n; ++i) { buf_[w] = src[i]; w = (w + 1) % cap_; }
-        w_.store(w, std::memory_order_release);
+        size_t room = writable();
+        if (n > room) n = room;
+        if (n == 0) return;
+        uint64_t w = w_.load(std::memory_order_relaxed);
+        size_t idx = (size_t) (w % cap_);
+        for (size_t i = 0; i < n; ++i) {
+            buf_[idx] = src[i];
+            if (++idx == cap_) idx = 0;
+        }
+        w_.store(w + n, std::memory_order_release);
     }
-    // пишет тишину если данных мало
+    /** Пишет тишину, если данных не хватило: щелчок лучше мусора. */
     size_t pull(float* dst, size_t n) {
-        size_t r = r_.load(std::memory_order_relaxed);
         size_t avail = readable();
         size_t k = n < avail ? n : avail;
-        for (size_t i = 0; i < k; ++i) { dst[i] = buf_[r]; r = (r + 1) % cap_; }
-        r_.store(r, std::memory_order_release);
+        uint64_t r = r_.load(std::memory_order_relaxed);
+        size_t idx = (size_t) (r % cap_);
+        for (size_t i = 0; i < k; ++i) {
+            dst[i] = buf_[idx];
+            if (++idx == cap_) idx = 0;
+        }
+        r_.store(r + k, std::memory_order_release);
         for (size_t i = k; i < n; ++i) dst[i] = 0.0f;
         return k;
     }
@@ -294,7 +327,7 @@ public:
 private:
     std::vector<float> buf_;
     size_t cap_ = 1;
-    std::atomic<size_t> r_{0}, w_{0};
+    std::atomic<uint64_t> r_{0}, w_{0};
 };
 
 // ── движок ───────────────────────────────────────────────────────────────
@@ -459,7 +492,7 @@ void Engine::unload() {
 void Engine::worker() {
     Decoder dec;
     int di = decIdx_.load();
-    if (!openAt(di, dec)) { endedAll_.store(true); return; }
+    if (!openAt(di, dec)) { LOGW("ended: worker cannot open idx=%d", di); endedAll_.store(true); return; }
 
     // маркер для стартового трека
     {
@@ -468,6 +501,7 @@ void Engine::worker() {
                           dec.sampleRate != streamRate_});
     }
     int64_t producedOut = 0;   // сколько кадров выхода уже отдано в ring для ЭТОГО трека
+    bool eofLogged = false;    // «трек кончился» пишем один раз, а не на каждом обороте
     std::vector<float> tmp(4096 * channels_);
     std::vector<float> conv(8192 * channels_);
 
@@ -478,11 +512,11 @@ void Engine::worker() {
         if (jmp != 0) {
             int ni = di + jmp;
             if (ni < 0) ni = 0;
-            if (ni >= (int) fds_.size()) { endedAll_.store(true); ni = (int) fds_.size() - 1; }
+            if (ni >= (int) fds_.size()) { LOGW("ended: jump past end"); endedAll_.store(true); ni = (int) fds_.size() - 1; }
             if (ni != di) {
                 di = ni;
                 dec.close();
-                if (!openAt(di, dec)) { endedAll_.store(true); break; }
+                if (!openAt(di, dec)) { LOGW("ended: cannot open next idx=%d", di); endedAll_.store(true); break; }
                 ring_.clear();
                 // новый маркер: играть начнём с текущего outPos_
                 std::lock_guard<std::mutex> m(markMtx_);
@@ -509,18 +543,25 @@ void Engine::worker() {
 
         int64_t got = dec.read(tmp.data(), 1024);
         if (got <= 0) {
+            // Конец трека объявляем ОДИН раз: этот блок крутится, пока кольцо
+            // доигрывает, и без флага он заливал журнал сотней одинаковых строк.
+            if (!eofLogged) {
+                eofLogged = true;
+                LOGI("track done: %lld of %lld frames", (long long) producedOut, (long long) dec.totalFrames);
+            }
             // конец трека → следующий (гэплесс: маркер с точным startOut)
             int ni = di + 1;
             if (ni >= (int) fds_.size()) {
                 // очередь кончилась — дать ring доиграть, потом стоп
-                if (ring_.readable() == 0) { endedAll_.store(true); playing_.store(false); }
+                if (ring_.readable() == 0) { LOGW("ended: queue done, ring drained (produced=%lld)", (long long) producedOut); endedAll_.store(true); playing_.store(false); }
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 continue;
             }
             di = ni;
             dec.close();
-            if (!openAt(di, dec)) { endedAll_.store(true); break; }
+            if (!openAt(di, dec)) { LOGW("ended: cannot open next idx=%d", di); endedAll_.store(true); break; }
             decIdx_.store(di);
+            eofLogged = false;
             int64_t markStart = outPos_.load() + (int64_t) ring_.readable() / channels_;
             std::lock_guard<std::mutex> m(markMtx_);
             marks_.push_back({markStart, di, dec.totalFrames, dec.sampleRate, dec.bits,
