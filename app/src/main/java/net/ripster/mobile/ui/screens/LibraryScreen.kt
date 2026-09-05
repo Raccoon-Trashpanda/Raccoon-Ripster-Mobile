@@ -422,6 +422,7 @@ private fun EmptyLibraryMessage(
 @Composable
 private fun SettingsGearButton(onClick: () -> Unit) {
     val colors = RipsterTheme.colors
+    val lang = LocalAppLang.current
     Box(
         modifier = Modifier
             .size(MinTouchTarget)
@@ -431,7 +432,7 @@ private fun SettingsGearButton(onClick: () -> Unit) {
                 role = Role.Button,
                 onClick = onClick,
             )
-            .semantics { contentDescription = "settings" },
+            .semantics { contentDescription = tr("nav.settings", lang) },
         contentAlignment = Alignment.Center,
     ) {
         Canvas(modifier = Modifier.size(20.dp)) {

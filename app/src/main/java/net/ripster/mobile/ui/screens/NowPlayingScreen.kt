@@ -189,11 +189,11 @@ fun NowPlayingScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TransportIconButton(onClick = onPrevious, contentDescription = "Previous track") { c ->
+            TransportIconButton(onClick = onPrevious, contentDescription = net.ripster.mobile.ui.i18n.tr("a11y.prev", lang)) { c ->
                 drawPrevGlyph(c)
             }
             PlayPauseButton(isPlaying = state.isPlaying, onClick = onPlayPause)
-            TransportIconButton(onClick = onNext, contentDescription = "Next track") { c ->
+            TransportIconButton(onClick = onNext, contentDescription = net.ripster.mobile.ui.i18n.tr("a11y.next", lang)) { c ->
                 drawNextGlyph(c)
             }
         }
@@ -211,13 +211,13 @@ fun NowPlayingScreen(
             TransportIconButton(
                 onClick = onToggleShuffle,
                 active = state.shuffle,
-                contentDescription = "Shuffle",
+                contentDescription = net.ripster.mobile.ui.i18n.tr("a11y.shuffle", lang),
             ) { c -> drawShuffleGlyph(c) }
             Spacer(Modifier.width(spacing.xl))
             TransportIconButton(
                 onClick = onToggleRepeat,
                 active = state.repeat,
-                contentDescription = "Repeat",
+                contentDescription = net.ripster.mobile.ui.i18n.tr("a11y.repeat", lang),
             ) { c -> drawRepeatGlyph(c) }
         }
 

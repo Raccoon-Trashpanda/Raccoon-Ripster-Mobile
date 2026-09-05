@@ -97,6 +97,38 @@ class I18nAuditTest {
     }
 
     @Test
+    fun noHardcodedEnglishInLabelsThePhoneReadsAloud() {
+        // Кириллицу ловит проверка выше, но подпись для озвучки можно вшить и
+        // ПО-АНГЛИЙСКИ — словарь этого не заметит, а незрячий человек с русским
+        // интерфейсом услышит «Previous track» вместо «Предыдущий».
+        // Найдено 05.09.2026 в плеере (prev/next/shuffle/repeat) и у шестерёнки
+        // библиотеки — уже после того, как «подписи кнопок плеера» считались
+        // сделанными.
+        val root = sourceRoot()
+        val literal = Regex("""contentDescription\s*=\s*"([^"]{3,})"""")
+        val offenders = mutableListOf<String>()
+
+        root.walkTopDown().filter { it.isFile && it.extension == "kt" }.forEach { f ->
+            val rel = f.relativeTo(root).path.replace('\\', '/')
+            // Витрина компонентов из UI не открывается — см. allowed выше.
+            if (allowed.keys.any { rel.endsWith(it) }) return@forEach
+            literal.findAll(stripComments(f.readText())).forEach { m ->
+                val v = m.groupValues[1]
+                // Имя приложения и сервисов не переводится.
+                if (v in setOf("Ripster", "Tidal", "Qobuz", "Deezer", "Apple Music", "SoundCloud")) return@forEach
+                offenders += "$rel: contentDescription = \"$v\""
+            }
+        }
+
+        assertTrue(
+            "Подпись для озвучки задана строкой, а не через tr(): с русским " +
+                "интерфейсом её прочитают по-английски.\n" +
+                offenders.joinToString("\n"),
+            offenders.isEmpty(),
+        )
+    }
+
+    @Test
     fun everyEngineErrorMarkerHasATranslation() {
         val root = sourceRoot()
         val markers = Regex("\"__e\\.([a-z_]+)__\"")
