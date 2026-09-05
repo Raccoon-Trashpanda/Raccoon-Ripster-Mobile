@@ -404,6 +404,15 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                             isPlaying = playback.isPlaying,
                             shuffle = playback.shuffle,
                             repeat = playback.repeat,
+                            // Бейдж говорит РОВНО то, что известно.
+                            //
+                            // Здесь стоял `else -> Match`, то есть «обещанное
+                            // совпало» выдавалось всему, у чего непустая строка
+                            // формата — включая файлы из папки и потоки, где
+                            // обещания вообще не было. В бейдже, вся суть
+                            // которого не врать. Теперь «сдержано» ставится
+                            // только по факту qualityVerified, а измеренному
+                            // без обещания достаётся отдельное состояние.
                             quality = when {
                                 playback.fakeLossless -> QualityBadgeState.Fake(tr("badge.fake_lossless", lang))
                                 playback.qualityMismatch -> QualityBadgeState.Mismatch(
@@ -411,7 +420,8 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                                     actual = playback.format,
                                 )
                                 playback.format.isBlank() -> QualityBadgeState.NotMeasured
-                                else -> QualityBadgeState.Match
+                                playback.qualityVerified -> QualityBadgeState.Match
+                                else -> QualityBadgeState.Measured(playback.format)
                             },
                             // Пометка про bit-perfect собирается ЗДЕСЬ, а не в движке: раньше он
                             // возвращал её готовой русской строкой, и при английском интерфейсе

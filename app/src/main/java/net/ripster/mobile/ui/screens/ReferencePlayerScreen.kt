@@ -904,6 +904,9 @@ private fun QualityMark(
 ) {
     val (kind, col) = when (state) {
         QualityBadgeState.Match -> 0 to c.accent_text
+        // Измерено, но сверять не с чем — тот же нейтральный знак, что и у
+        // «не измеряли»: галочка означала бы сверку, которой не было.
+        is QualityBadgeState.Measured -> 1 to c.text_tertiary
         QualityBadgeState.NotMeasured -> 1 to c.text_tertiary
         is QualityBadgeState.Measuring -> 1 to c.text_tertiary
         is QualityBadgeState.Mismatch -> 2 to c.warning_text
@@ -941,6 +944,9 @@ private fun CompactQuality(
 ) {
     val (txt, col, warn) = when (state) {
         QualityBadgeState.Match -> Triple(tr("q.ok", lang), c.text_tertiary, false)
+        // Показываем сам факт («FLAC · 16-bit/44.1 kHz»), а не оценку: обещания
+        // не было, значит и говорить «как обещано» не о чем.
+        is QualityBadgeState.Measured -> Triple(state.what, c.text_tertiary, false)
         QualityBadgeState.NotMeasured -> Triple(tr("q.raw", lang), c.text_tertiary, false)
         is QualityBadgeState.Measuring -> Triple(tr("q.check", lang), c.text_tertiary, false)
         is QualityBadgeState.Mismatch -> Triple(tr("q.mismatch", lang), c.warning_text, true)

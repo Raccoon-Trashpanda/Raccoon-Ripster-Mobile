@@ -57,6 +57,20 @@ sealed interface QualityBadgeState {
     data object Match : QualityBadgeState
 
     /**
+     * Файл измерен, но СРАВНИВАТЬ НЕ С ЧЕМ: никто ничего не обещал.
+     *
+     * Так выглядит всё, что пришло не из нашей загрузки, — файлы из папки,
+     * потоки, старые записи без сохранённого запрошенного тира. Отдельное
+     * состояние понадобилось из-за живого бага 05.09.2026: в плеере стоял
+     * `Match` для любого трека с непустой строкой формата, то есть знак
+     * «обещанное совпало» выдавался там, где обещания вообще не было. Причём
+     * в бейдже, вся суть которого — не врать.
+     *
+     * Показываем ФАКТ без оценки: вот что это, а сверять не с чем.
+     */
+    data class Measured(val what: String) : QualityBadgeState
+
+    /**
      * Расхождение: обещано одно, отдано другое. Роль внимания.
      * Уровень утверждения — «источник»: только тот, кто добывает, вправе
      * сказать, что именно было обещано.
@@ -157,6 +171,24 @@ fun QualityBadge(
             ) {
                 CheckGlyph(color = colors.text_primary)
                 BasicText(matchLabel, style = textStyle.copy(color = colors.text_primary, fontWeight = Weights.Body))
+            }
+        }
+
+        is QualityBadgeState.Measured -> {
+            /*
+             * Ни галочки, ни цвета, ни рамки. Галочка означала бы «сверено», а
+             * тут сверять не с чем; цвет означал бы «что-то не так», а всё в
+             * порядке. Остаётся ровно то, что мы знаем: чем файл оказался.
+             */
+            Row(
+                modifier = modifier.then(pad),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(spacing.sm),
+            ) {
+                BasicText(
+                    state.what,
+                    style = textStyle.copy(color = colors.text_tertiary, fontWeight = Weights.Quiet),
+                )
             }
         }
 

@@ -48,6 +48,12 @@ class PlayerController(context: Context) {
         val repeat: Boolean = false,
         /** Запрашивали lossless-тир (FLAC/Hi-Res), но файл им не оказался. */
         val qualityMismatch: Boolean = false,
+        /**
+         * Обещание БЫЛО и оно сдержано: сохранён запрошенный тир, файл измерен,
+         * и класс совпал. `false` означает «сверять не с чем», а не «плохо» —
+         * у файла из папки или у потока обещания просто нет.
+         */
+        val qualityVerified: Boolean = false,
         /** Текущая очередь воспроизведения (для экрана «Трек-лист»). */
         val queue: List<QueueEntry> = emptyList(),
         val queueIndex: Int = 0,
@@ -649,6 +655,8 @@ class PlayerController(context: Context) {
             grantedRateHz = NativeAudioEngine.rateNote().second,
             lossless = it.lossless,
             fakeLossless = it.fakeLossless,
+            qualityMismatch = isQualityMismatch(it),
+            qualityVerified = isQualityVerified(it),
             currentPath = it.filePath,
             queue = nativeQueue.map { e ->
                 QueueEntry(e.id, e.title, e.artist, e.artworkUrl, e.durationSec, e.label, formatLine(e), e.lossless)
@@ -726,6 +734,25 @@ class PlayerController(context: Context) {
         fun isQualityMismatch(e: LibraryEntity): Boolean =
             requestedLossless(e.requestedQualityId) && !e.lossless && !e.fakeLossless &&
                 e.container.isNotBlank()
+
+        /**
+         * Обещание было и сдержано.
+         *
+         * Три условия, и все обязательны: тир запрашивали (иначе сверять не с
+         * чем), файл измерен (иначе нечем сверять), и КЛАСС совпал — просили
+         * lossless и получили lossless, либо просили lossy и получили lossy.
+         *
+         * Проверяем класс, а не точные цифры: обещание тира «FLAC» — это
+         * обещание не терять данные, а не обещание конкретной частоты.
+         * Утверждать большее было бы той же самонадеянностью, из-за которой у
+         * конкурента золотой Hi-Res висит над апскейлом.
+         */
+        fun isQualityVerified(e: LibraryEntity): Boolean {
+            val promised = e.requestedQualityId?.takeIf { it.isNotBlank() } ?: return false
+            if (e.container.isBlank()) return false      // не измеряли
+            if (e.fakeLossless) return false             // это отдельный разговор
+            return if (requestedLossless(promised)) e.lossless else !e.lossless
+        }
     }
 
     private fun pushState(positionOnly: Boolean = false) {
@@ -766,6 +793,7 @@ class PlayerController(context: Context) {
             shuffle = c.shuffleModeEnabled,
             repeat = c.repeatMode != Player.REPEAT_MODE_OFF,
             qualityMismatch = e?.let { isQualityMismatch(it) } ?: false,
+            qualityVerified = e?.let { isQualityVerified(it) } ?: false,
             queue = if (queueEntities.isNotEmpty()) queueEntities.map {
                 QueueEntry(
                     id = it.id,
