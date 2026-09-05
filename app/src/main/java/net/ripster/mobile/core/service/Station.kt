@@ -91,6 +91,12 @@ object StationBuilder {
         yandexStationId: String? = null,
         size: Int = 30,
         /**
+         * Жанр в чарте Apple. По нему станция узнаёт, кто в этом жанре сейчас
+         * на слуху, и поднимает таких артистов — играем при этом оттуда,
+         * откуда умеем. `null` — у Apple подходящего жанра нет.
+         */
+        appleGenreId: Int? = null,
+        /**
          * Чем отличается ЭТОТ заход от прошлого. Один и тот же seed даёт один и
          * тот же эфир (иначе список дёргался бы на каждой перерисовке), новый —
          * другой. Ноль означает «без ротации»: удобно в тестах.
@@ -125,10 +131,19 @@ object StationBuilder {
             if (pool.vetted) pool.tracks else pool.tracks.filter { onGenre(it, fallbackQuery, words) }
         }
 
+        // Кто в этом жанре на слуху по чарту Apple. Отказ чарта ничего не
+        // ломает: пустое множество просто ничего не поднимает.
+        val chart = if (appleGenreId != null) {
+            runCatching { AppleChart.topArtists(appleGenreId) }.getOrDefault(emptySet())
+        } else {
+            emptySet()
+        }
+        val boosted = kept.map { ChartBoost.apply(it, chart) }
+
         // Ротация внутри каждого источника: чем больше вещь слушают, тем выше
         // её шанс попасть в эфир, но шанс есть у каждой. Без этого станция —
         // один и тот же список из десяти имён на все времена.
-        val rotated = if (rotationSeed == 0L) kept else kept.mapIndexed { i, list ->
+        val rotated = if (rotationSeed == 0L) boosted else boosted.mapIndexed { i, list ->
             WaveRotation.pick(list, rotationSeed + i * 7919L, size)
         }
 

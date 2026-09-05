@@ -365,6 +365,7 @@ fun HomeScreen(
                                 val tracks = kotlinx.coroutines.withTimeoutOrNull(25_000) {
                                     net.ripster.mobile.core.service.StationBuilder.build(
                                         st.scSlug, st.query, st.ya,
+                                        appleGenreId = st.appleGenre,
                                         // Свой эфир на каждое нажатие: одна и та же
                                         // плитка не должна играть один и тот же список.
                                         rotationSeed = System.currentTimeMillis() / 1000L + st.id.hashCode(),

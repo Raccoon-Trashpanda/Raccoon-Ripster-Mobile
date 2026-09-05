@@ -34,6 +34,17 @@ data class WaveStation(
     val display: String = "",
     /** Либо ключ перевода (настроения и занятия). */
     val nameKey: String? = null,
+    /**
+     * Жанр в чарте Apple — по нему станция узнаёт, кто в этом жанре сейчас на
+     * слуху, и поднимает таких артистов в эфире. Идентификаторы ЗАМЕРЕНЫ
+     * живыми запросами 05.09.2026, а не взяты из головы: 5 — Classical,
+     * 7 — Electronic, 11 — Jazz, 17 — Dance/House.
+     *
+     * Пусто там, где у Apple подходящего жанра нет: у настроений («Фокус»,
+     * «Сон») жанрового чарта не бывает, и подставлять соседний — та же
+     * подмена, из-за которой синтвейв играл ликвид-фанк.
+     */
+    val appleGenre: Int? = null,
 )
 
 /**
@@ -45,24 +56,24 @@ data class WaveStation(
 val WAVE_STATIONS = listOf(
     // Точные совпадения: чарт SoundCloud и/или станция Яндекса называют ровно
     // этот жанр.
-    WaveStation("techno", "techno", "techno", "genre:techno", "Techno"),
-    WaveStation("trance", "trance", "trance", "genre:trance", "Trance"),
-    WaveStation("ambient", "ambient", "ambient", "genre:ambient", "Ambient"),
-    WaveStation("dnb", "drumbass", "drum and bass", "genre:dnb", "Drum & Bass"),
-    WaveStation("jazz", "jazzblues", "jazz", "genre:jazz", "Jazz"),
-    WaveStation("classical", "classical", "classical", "genre:classical", "Classical"),
+    WaveStation("techno", "techno", "techno", "genre:techno", "Techno", appleGenre = 7),
+    WaveStation("trance", "trance", "trance", "genre:trance", "Trance", appleGenre = 7),
+    WaveStation("ambient", "ambient", "ambient", "genre:ambient", "Ambient", appleGenre = 7),
+    WaveStation("dnb", "drumbass", "drum and bass", "genre:dnb", "Drum & Bass", appleGenre = 7),
+    WaveStation("jazz", "jazzblues", "jazz", "genre:jazz", "Jazz", appleGenre = 11),
+    WaveStation("classical", "classical", "classical", "genre:classical", "Classical", appleGenre = 5),
 
     // Поджанры: у Яндекса подходящей станции НЕТ (была бы «электроника вообще»
     // или «техно вообще»). Чарт SoundCloud берём только там, где слаг называет
     // именно этот поджанр.
-    WaveStation("deephouse", "deephouse", "deep house", null, "Deep House"),
-    WaveStation("proghouse", "", "progressive house", null, "Progressive House"),
-    WaveStation("meltech", "", "melodic techno", null, "Melodic Techno"),
-    WaveStation("dubtechno", "", "dub techno", null, "Dub Techno"),
-    WaveStation("downtempo", "", "downtempo", null, "Downtempo"),
-    WaveStation("synthwave", "", "synthwave", null, "Synthwave"),
-    WaveStation("idm", "", "idm", null, "IDM"),
-    WaveStation("lofi", "", "lofi hip hop", null, "Lo-Fi"),
+    WaveStation("deephouse", "deephouse", "deep house", null, "Deep House", appleGenre = 17),
+    WaveStation("proghouse", "", "progressive house", null, "Progressive House", appleGenre = 17),
+    WaveStation("meltech", "", "melodic techno", null, "Melodic Techno", appleGenre = 7),
+    WaveStation("dubtechno", "", "dub techno", null, "Dub Techno", appleGenre = 7),
+    WaveStation("downtempo", "", "downtempo", null, "Downtempo", appleGenre = 7),
+    WaveStation("synthwave", "", "synthwave", null, "Synthwave", appleGenre = 7),
+    WaveStation("idm", "", "idm", null, "IDM", appleGenre = 7),
+    WaveStation("lofi", "", "lofi hip hop", null, "Lo-Fi", appleGenre = 7),
 
     // Настроения и занятия: `mood:`/`activity:` — это ровно то, что обещано.
     WaveStation("focus", "", "focus concentration music", "activity:study", nameKey = "wave.focus"),
