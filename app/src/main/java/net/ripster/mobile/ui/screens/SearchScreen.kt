@@ -37,6 +37,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
@@ -124,6 +126,8 @@ fun SearchScreen(
     var result by remember { mutableStateOf<MediaSelection?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     val queued = remember { mutableStateMapOf<String, Boolean>() }
+    /** Что уже дописано в очередь ПЛЕЕРА — это не та очередь, что у загрузок. */
+    val inPlayQueue = remember { mutableStateMapOf<String, Boolean>() }
 
     // Фильтры поверх слитого результата — тоже запоминаются.
     var typeFilter by remember { mutableStateOf(settings.searchType) }   // 0 всё · 1 альбомы · 2 синглы/EP · 3 треки
@@ -493,6 +497,48 @@ fun SearchScreen(
             }
 
             val quality = settings.qualityFor(onWifi = true)
+
+            /**
+             * Найти поток для ОДНОГО трека. Возвращает найденное и — если не
+             * нашлось — готовый человеческий ответ почему.
+             *
+             * Порядок тот же, что ждёт нажавший на конкретную строку: сначала
+             * ЕГО сервис, потом ТОТ ЖЕ трек у тех, кто стримит (TrackMatch
+             * сверяет ISRC, а без него — название, исполнителя, пометку версии
+             * и длительность, чтобы не подсунуть кавер вместо оригинала).
+             *
+             * Общая на ▶ и ＋ намеренно. Разъехавшись, две соседние кнопки одной
+             * строки вели себя по-разному: ▶ играл трек, а ＋ на нём же отвечал
+             * «негде взять» — поймано вживую 05.09.2026, потому что «плюс»
+             * резолвил только свой сервис и не знал про подмену.
+             */
+            suspend fun resolveOne(
+                t: net.ripster.mobile.core.model.Track,
+            ): Pair<List<net.ripster.mobile.player.PlayerController.StreamItem>, String?> {
+                val own = net.ripster.mobile.core.service.StreamResolver
+                    .toStreamItems(listOf(t), quality, limit = 1)
+                // Причину запоминаем СРАЗУ: попытка с двойником ниже зовёт
+                // резолвер снова и затрёт её своей.
+                val ownWhy = net.ripster.mobile.core.service.StreamResolver.lastStreamError
+                val head = own.ifEmpty {
+                    val twin = net.ripster.mobile.core.service.TrackMatch.sameTrackElsewhere(t)
+                    if (twin != null) {
+                        net.ripster.mobile.core.service.StreamResolver
+                            .toStreamItems(listOf(twin), quality, limit = 1)
+                    } else {
+                        emptyList()
+                    }
+                }
+                if (head.isNotEmpty()) return head to null
+                val haveStream = net.ripster.mobile.core.service.ServiceRegistry.all()
+                    .any { it.service in setOf(Service.DEEZER, Service.QOBUZ, Service.TIDAL, Service.YANDEX) }
+                return emptyList<net.ripster.mobile.player.PlayerController.StreamItem>() to when {
+                    ownWhy != null -> humanNetError(ownWhy, lang)
+                    !haveStream -> tr("search.need_stream_svc", lang)
+                    else -> tr("search.download_to_listen", lang)
+                }
+            }
+
             LazyColumn(
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 120.dp),
             ) {
@@ -640,44 +686,12 @@ fun SearchScreen(
                                         // начинал играть не тот трек, по которому
                                         // нажали, и молча. Сначала — нажатый, и
                                         // только он.
-                                        val first = net.ripster.mobile.core.service.StreamResolver
-                                            .toStreamItems(listOf(t), quality, limit = 1)
-                                        // Причину запоминаем СРАЗУ: playSearch ниже
-                                        // сам зовёт резолвер и затрёт её своей.
-                                        val ownWhy = net.ripster.mobile.core.service.StreamResolver
-                                            .lastStreamError
-                                        val head = first.ifEmpty {
-                                            // Ищем ТОТ ЖЕ трек, а не «похожий по
-                                            // названию»: TrackMatch сверяет ISRC, а
-                                            // без него — название, исполнителя,
-                                            // пометку версии и длительность разом.
-                                            // Обычный текстовый поиск подсунул бы
-                                            // ремикс или кавер, и человек слушал бы
-                                            // не то, что нажал.
-                                            val twin = net.ripster.mobile.core.service.TrackMatch
-                                                .sameTrackElsewhere(t)
-                                            if (twin != null) {
-                                                net.ripster.mobile.core.service.StreamResolver
-                                                    .toStreamItems(listOf(twin), quality, limit = 1)
-                                            } else {
-                                                emptyList()
-                                            }
-                                        }
+                                        val (head, why) = resolveOne(t)
                                         if (head.isEmpty()) {
-                                            // Ни свой сервис, ни чужие. Если движок
-                                            // объяснил отказ — показываем ЕГО причину:
-                                            // она говорит, что делать. Иначе — общий
-                                            // ответ про скачивание.
-                                            val why = ownWhy
-                                            val haveStream = net.ripster.mobile.core.service.ServiceRegistry.all()
-                                                .any { it.service in setOf(Service.DEEZER, Service.QOBUZ, Service.TIDAL, Service.YANDEX) }
-                                            val text = when {
-                                                why != null -> humanNetError(why, lang)
-                                                !haveStream -> tr("search.need_stream_svc", lang)
-                                                else -> tr("search.download_to_listen", lang)
-                                            }
-                                            error = text
-                                            playNotice = text
+                                            // Ни свой сервис, ни чужие. Причина —
+                                            // от резолвера: она говорит, что делать.
+                                            error = why
+                                            playNotice = why
                                             return@launch
                                         }
                                         app.player.playStream(head)
@@ -707,6 +721,23 @@ fun SearchScreen(
                                 scope.launch {
                                     app.downloads.enqueue(t)
                                     queued["${t.service.id}:${t.id}"] = true
+                                }
+                            },
+                            addedToQueue = inPlayQueue["${t.service.id}:${t.id}"] == true,
+                            onAddToQueue = {
+                                scope.launch {
+                                    val key = "${t.service.id}:${t.id}"
+                                    val (items, why) = resolveOne(t)
+                                    if (items.isEmpty()) {
+                                        // Потока нет — молча «добавить» нельзя,
+                                        // человек решит, что очередь врёт.
+                                        error = why
+                                        playNotice = why
+                                    } else {
+                                        app.player.enqueue(items)
+                                        inPlayQueue[key] = true
+                                        playNotice = tr("queue.added", lang)
+                                    }
                                 }
                             },
                         )
@@ -836,6 +867,8 @@ private fun TrackRow(
     onArtist: () -> Unit,
     onPlay: () -> Unit,
     onQueue: () -> Unit,
+    addedToQueue: Boolean = false,
+    onAddToQueue: (() -> Unit)? = null,
 ) {
     val c = RipsterTheme.colors
     val lang = LocalAppLang.current
@@ -871,6 +904,7 @@ private fun TrackRow(
             }
         }
         PlayCircle(onPlay, c)
+        onAddToQueue?.let { AddToQueueCircle(added = addedToQueue, onClick = it, c = c, lang = lang) }
         DownloadPill(queued = queued, onClick = onQueue, c = c, lang = lang)
     }
 }
@@ -883,6 +917,37 @@ private fun PlayCircle(onClick: () -> Unit, c: net.ripster.mobile.ui.theme.Ripst
         contentAlignment = Alignment.Center,
     ) {
         BasicText("▶", style = TextStyle(color = c.text_primary, fontSize = 12.sp))
+    }
+}
+
+/**
+ * Кружок «＋» — добавить в конец того, что играет, не сбивая текущий трек.
+ *
+ * Стоит рядом с ▶ намеренно: ▶ ЗАМЕНЯЕТ очередь, ＋ дописывает. Двух разных
+ * действий одной кнопкой не выразить, а собрать список из разных мест —
+ * ровно то, ради чего это и просили.
+ */
+@Composable
+private fun AddToQueueCircle(
+    added: Boolean,
+    onClick: () -> Unit,
+    c: net.ripster.mobile.ui.theme.RipsterColors,
+    lang: AppLang,
+) {
+    Box(
+        Modifier.size(30.dp).clip(CircleShape)
+            .background(if (added) c.surface_sunken else c.surface_active)
+            .semantics { contentDescription = tr("queue.add", lang) }
+            .pressable { onClick() },
+        contentAlignment = Alignment.Center,
+    ) {
+        BasicText(
+            if (added) "✓" else "＋",
+            style = TextStyle(
+                color = if (added) c.success_text else c.text_primary,
+                fontSize = if (added) 12.sp else 14.sp,
+            ),
+        )
     }
 }
 

@@ -156,6 +156,7 @@ class PlayerController(context: Context) {
                 }
                 val c = controller
                 if (c?.isPlaying == true) { pushState(positionOnly = true); persistPosition(c) }
+                if (c?.isPlaying == true) maybeExtendQueue(c)
             }
         }
     }
@@ -382,6 +383,56 @@ class PlayerController(context: Context) {
     }
 
     /** Дорезолвить хвост станции и дописать в конец текущей очереди. */
+    // ── «Волна»: очередь не должна кончаться тишиной ──────────────────────
+    //
+    // Включив ОДИН трек, человек дослушивал его и попадал в тишину: продолжения
+    // не существовало вовсе — ни обработчика конца очереди, ни автодобора
+    // (жалоба владельца 04.09.2026: «включая 1 трек, он допел и всё встало»).
+    //
+    // Продолжение строится ОТ ТЕКУЩЕГО трека — по его исполнителю, через тот же
+    // StationBuilder, что собирает жанровые станции на Главной. Сеять случайным
+    // запросом нельзя: сегодня мы уже ловили подмену чужими треками, и «волна»
+    // из посторонних песен была бы той же ошибкой, только медленной.
+    @Volatile private var extending = false
+    @Volatile private var lastSeed = ""
+
+    private fun maybeExtendQueue(c: MediaController) {
+        if (extending) return
+        // Добираем заранее — на последнем треке, а не после тишины.
+        val left = c.mediaItemCount - c.currentMediaItemIndex - 1
+        if (left > 0) return
+        val md = c.mediaMetadata
+        val artist = (md.artist ?: "").toString().trim()
+        val title = (md.title ?: "").toString().trim()
+        if (artist.isBlank() && title.isBlank()) return
+        val seed = "$artist|$title"
+        if (seed == lastSeed) return          // по этому треку уже добирали
+        lastSeed = seed
+        extending = true
+        scope.launch {
+            try {
+                val more = net.ripster.mobile.core.service.StationBuilder.build(
+                    scGenreSlug = "",
+                    fallbackQuery = artist.ifBlank { title },
+                    size = 12,
+                )
+                // Сам текущий трек в продолжение не берём.
+                val fresh = more.filterNot {
+                    it.title.equals(title, true) && it.artist.equals(artist, true)
+                }
+                if (fresh.isEmpty()) return@launch
+                val items = net.ripster.mobile.core.service.StreamResolver
+                    .toStreamItems(fresh, quality = emptyList(), limit = 12)
+                if (items.isNotEmpty()) appendStream(items)
+            } catch (_: Throwable) {
+                // Молча: продолжение — удобство, а не обещание. Ошибка здесь не
+                // должна прерывать то, что уже играет.
+            } finally {
+                extending = false
+            }
+        }
+    }
+
     fun appendStream(items: List<StreamItem>) {
         val c = controller ?: return
         if (items.isEmpty()) return
@@ -398,6 +449,90 @@ class PlayerController(context: Context) {
                     .build()
             },
         )
+    }
+
+    /** Очередь пуста — добавлять некуда, надо просто начать играть. */
+    private fun queueIsEmpty(): Boolean =
+        nativeQueue.isEmpty() && (controller?.mediaItemCount ?: 0) == 0
+
+    /**
+     * Добавить в КОНЕЦ очереди, не сбивая то, что играет сейчас.
+     *
+     * Владелец: «в трек лист можно завести что угодно, даже трек из поиска, из
+     * плеера, из библиотеки». До этого ▶ на любой карточке ЗАМЕНЯЛ очередь
+     * целиком — собрать свой список из разных мест было нечем.
+     *
+     * Три случая, и в каждом кнопка обязана сделать что-то видимое:
+     *
+     *  * очередь пуста — добавлять некуда, просто начинаем играть добавленное;
+     *  * играет обычный тракт — дописываем в конец, текущий трек не трогаем;
+     *  * играет нативный движок — он умеет только локальные lossless-файлы по
+     *    файловым дескрипторам, поток в его очередь не встаёт. Тогда очередь
+     *    переезжает на обычный тракт с того же места и той же позиции: слышен
+     *    короткий стык, но воспроизведение продолжается — это честнее, чем
+     *    молча проглотить добавление или оборвать музыку.
+     */
+    fun enqueue(items: List<StreamItem>) {
+        if (items.isEmpty()) return
+        if (queueIsEmpty()) { playStream(items); return }
+        if (nativeActive) { handOffNativeToExo(); }
+        appendStream(items)
+    }
+
+    /**
+     * То же для записей библиотеки — «добавить в очередь» из своей коллекции.
+     *
+     * [queueEntities] держится в синхроне с очередью плеера: из него берутся
+     * строка формата и бейджи качества, и запись, добавленная мимо него,
+     * показывалась бы в списке без них.
+     */
+    fun enqueueLibrary(items: List<LibraryEntity>) {
+        if (items.isEmpty()) return
+        if (queueIsEmpty()) { playQueue(items, 0); return }
+        if (nativeActive) {
+            // Дописать в нативную очередь нельзя — nLoadQueue грузит её целиком.
+            // Локальный lossless перезагружаем нативно (движок остаётся), всё
+            // остальное уводим на обычный тракт.
+            if (items.all { isLocalLossless(it.filePath) }) { reloadNative(nativeQueue + items); return }
+            handOffNativeToExo()
+        }
+        val c = controller ?: return
+        queueEntities = queueEntities + items
+        c.addMediaItems(items.map { mediaItemOf(it) })
+    }
+
+    /** Перевести играющее с нативного тракта на Exo, сохранив место и позицию. */
+    private fun handOffNativeToExo() {
+        val c = controller ?: return
+        val items = nativeQueue
+        val idx = NativeAudioEngine.index().coerceIn(0, (items.size - 1).coerceAtLeast(0))
+        val pos = runCatching { NativeAudioEngine.positionMs() }.getOrDefault(0L)
+        runCatching { NativeAudioEngine.stop() }
+        nativeQueue = emptyList()
+        queueEntities = items
+        c.setMediaItems(items.map { mediaItemOf(it) }, idx, pos)
+        c.prepare()
+        c.play()
+    }
+
+    /** Перезагрузить нативную очередь целиком, вернувшись на то же место. */
+    private fun reloadNative(items: List<LibraryEntity>) {
+        val idx = NativeAudioEngine.index().coerceIn(0, (items.size - 1).coerceAtLeast(0))
+        val pos = runCatching { NativeAudioEngine.positionMs() }.getOrDefault(0L)
+        nativeQueue = items
+        scope.launch {
+            val r = NativeAudioEngine.playQueue(
+                appContext, items.map { Uri.parse(it.filePath) }, idx, requireAll = true,
+            )
+            if (r.isSuccess) {
+                runCatching { NativeAudioEngine.seekMs(pos) }
+                pushNativeState()
+            } else {
+                // Движок не принял расширенную очередь — не оставляем тишину.
+                nativeQueue = emptyList()
+                playQueue(items, idx)
+            }
+        }
     }
 
     fun togglePlay() {

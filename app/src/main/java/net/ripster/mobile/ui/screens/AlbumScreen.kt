@@ -302,6 +302,24 @@ fun AlbumScreen(
                             BasicText("▶", style = TextStyle(color = c.text_on_fill, fontSize = 13.sp, fontWeight = FontWeight.Bold))
                             BasicText(tr("album.listen", lang), style = TextStyle(color = c.text_on_fill, fontSize = 14.sp, fontWeight = FontWeight.Bold))
                         }
+                        // Дописать весь релиз в конец очереди, не сбивая то,
+                        // что играет сейчас (▶ выше — наоборот, заменяет).
+                        Box(
+                            Modifier.size(46.dp).clip(CircleShape)
+                                .border(1.dp, c.border_subtle, CircleShape)
+                                .semantics { contentDescription = tr("queue.add", lang) }
+                                .pressable(enabled = tracks.isNotEmpty()) {
+                                    scope.launch {
+                                        val q = app.settings.state.value.qualityFor(onWifi = true)
+                                        val items = StreamResolver.toStreamItems(tracks, q, limit = 40)
+                                        if (items.isEmpty()) playMsg = tr("album.no_stream", lang)
+                                        else { app.player.enqueue(items); playMsg = tr("queue.added", lang) }
+                                    }
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            BasicText("＋", style = TextStyle(color = c.text_secondary, fontSize = 18.sp))
+                        }
                         // Скачать
                         Row(
                             Modifier.clip(RoundedCornerShape(999.dp)).border(1.dp, c.border_subtle, RoundedCornerShape(999.dp))

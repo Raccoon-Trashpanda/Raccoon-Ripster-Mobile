@@ -210,6 +210,8 @@ private val STRINGS: Map<String, Row> = mapOf(
     "lib.kind.ep" to row("EP", "EP", "EP", "EP", "EP"),
     "lib.kind.album" to row("АЛЬБОМ", "ALBUM", "एलबम", "アルバム", "专辑"),
     "lib.kind.compilation" to row("СБОРНИК", "COMPILATION", "संकलन", "コンピレ", "合辑"),
+    "queue.added" to row("Добавлено в очередь", "Added to the queue", "कतार में जोड़ा गया", "キューに追加しました", "已加入队列"),
+    "queue.add" to row("В очередь", "Add to queue", "कतार में जोड़ें", "キューに追加", "加入队列"),
     "rel.share" to row("Поделиться", "Share", "शेयर करें", "共有", "分享"),
     "album.listen" to row("Слушать", "Listen", "सुनें", "再生", "播放"),
     "album.no_stream" to row("Не нашёл поток ни в одном сервисе — можно скачать кнопкой ↓", "No stream on any service — you can download with ↓", "किसी सेवा में स्ट्रीम नहीं — ↓ से डाउनलोड करें", "どのサービスにもストリームなし — ↓ でダウンロード可", "任何服务都无流 — 可用 ↓ 下载"),

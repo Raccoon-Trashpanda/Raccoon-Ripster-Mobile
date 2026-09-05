@@ -1,6 +1,7 @@
 package net.ripster.mobile.ui.screens
 
 import net.ripster.mobile.ui.i18n.AppLang
+import net.ripster.mobile.ui.components.pressable
 import net.ripster.mobile.ui.i18n.LocalAppLang
 import net.ripster.mobile.ui.i18n.tr
 import androidx.compose.foundation.Canvas
@@ -31,6 +32,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -93,6 +95,9 @@ fun LibraryScreen(
     // альбом, а не россыпь, и слушать его хотят целиком.
     byAlbum: Boolean = true,
     onModeChange: (Boolean) -> Unit = {},
+    // Кнопка «＋» у строки: дописать в конец очереди, а не заменить её.
+    // Необязательна: витрина экрана в MainActivity зовёт его без плеера.
+    onAddToQueue: ((LibraryItem) -> Unit)? = null,
 ) {
     val colors = RipsterTheme.colors
     val spacing = RipsterTheme.spacing
@@ -151,6 +156,7 @@ fun LibraryScreen(
                     LibraryItemRow(
                         item = item,
                         onClick = { onItemClick(item) },
+                        onAddToQueue = onAddToQueue?.let { add -> { add(item) } },
                     )
                     RipsterHairline()
                 }
@@ -213,6 +219,7 @@ private fun LibrarySearchField(
 private fun LibraryItemRow(
     item: LibraryItem,
     onClick: () -> Unit,
+    onAddToQueue: (() -> Unit)? = null,
 ) {
     val colors = RipsterTheme.colors
     val spacing = RipsterTheme.spacing
@@ -297,6 +304,17 @@ private fun LibraryItemRow(
                     fontFamily = FontFamily.Monospace,
                 ),
             )
+        }
+
+        onAddToQueue?.let { add ->
+            Box(
+                Modifier.size(30.dp).clip(CircleShape).background(colors.surface_active)
+                    .semantics { contentDescription = tr("queue.add", lang) }
+                    .pressable { add() },
+                contentAlignment = Alignment.Center,
+            ) {
+                BasicText("＋", style = TextStyle(color = colors.text_primary, fontSize = 14.sp))
+            }
         }
 
         if (item.trackCount > 1) TrackCountBadge(count = item.trackCount)

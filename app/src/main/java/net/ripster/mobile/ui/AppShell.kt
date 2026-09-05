@@ -544,6 +544,15 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                             }
                             openPlayer()
                         },
+                        onAddToQueue = { picked ->
+                            // ＋ дописывает в конец, ▶ (тап по строке) заменяет
+                            // очередь — из библиотеки список собирается так же,
+                            // как из поиска.
+                            val grp = libraryGroups[picked.id]
+                            if (grp != null && grp.isNotEmpty()) app.player.enqueueLibrary(grp)
+                            else library.firstOrNull { it.id == picked.id }
+                                ?.let { app.player.enqueueLibrary(listOf(it)) }
+                        },
                         onOpenSettings = { showSettings = true },
                         onOpenSearch = { userNavigated = true; dest = RipsterDestination.Search },
                     )
