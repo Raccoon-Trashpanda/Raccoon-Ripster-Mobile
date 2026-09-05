@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.ParcelFileDescriptor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.Locale
 
 /**
@@ -27,6 +28,12 @@ object NativeAudioEngine {
     @Volatile private var available = false
     private val openFds = ArrayList<ParcelFileDescriptor>()
     @Volatile private var streamRate = 44100
+
+    private const val TAG = "RipsterAudio"
+
+    /** Почему нативный тракт отказал в последний раз. Для диагностики. */
+    @Volatile var lastError: String? = null
+        private set
 
     init {
         available = runCatching { System.loadLibrary("ripster_audio") }.isSuccess
@@ -60,7 +67,7 @@ object NativeAudioEngine {
                     require(!requireAll) { "элемент не FLAC/WAV/ALAC — очередь целиком уходит на ExoPlayer" }
                     return@forEachIndexed
                 }
-                val pfd = context.contentResolver.openFileDescriptor(u, "r")
+                val pfd = openFd(context, u)
                 if (pfd == null) {
                     require(!requireAll) { "файл не открылся" }
                     return@forEachIndexed
@@ -74,7 +81,15 @@ object NativeAudioEngine {
             check(nLoadQueue(fds.toIntArray(), fmts.toIntArray(), newStart)) { "декодер/Oboe не открылись" }
             streamRate = nSampleRate().coerceAtLeast(1)
             check(nStart()) { "поток не стартовал" }
-        }.onFailure { releaseFds() }
+        }.onFailure {
+            releaseFds()
+            // Молчаливый откат на ExoPlayer — это ровно тот «мёртвый
+            // детектор», из-за которого движок годился только на веру.
+            // Причина должна быть хотя бы в логе. Текст английский:
+            // журнал читают инструментами, а не глазами пользователя.
+            lastError = it.toString()
+            android.util.Log.w(TAG, "native queue not opened, falling back to ExoPlayer", it)
+        }
     }
 
     /** Одиночный трек — частный случай очереди. */
@@ -99,24 +114,64 @@ object NativeAudioEngine {
     /** Частота ИСТОЧНИКА текущего трека (для перевода мс↔кадры). */
     private fun currentRate(): Int = nSampleRate().coerceAtLeast(1)
 
-    /** Строка формата для UI + честная пометка про bit-perfect / ресемпл. */
-    fun formatLine(): String {
-        if (!available) return "—"
+    /**
+     * Чем именно отдаётся звук: точь-в-точь как в файле, через ресемпл или на
+     * другой частоте устройства.
+     *
+     * Отдельно от текста намеренно. Раньше [formatLine] возвращал строку с
+     * русской пометкой «(ресемпл → … — не bit-perfect)», и она уезжала прямо в
+     * плеер — при английском интерфейсе человек видел русский. Движок не должен
+     * сочинять слова для экрана: он сообщает ЧТО произошло, переводит это
+     * `ui/i18n`. Это тот же случай, что уже разбирали с ошибками движков
+     * (маркеры `__e.<key>__` + один переводчик).
+     */
+    enum class RateNote { BIT_PERFECT, RESAMPLED, DEVICE_RATE }
+
+    /** Пометка и частота, которую реально дало устройство (Hz). */
+    fun rateNote(): Pair<RateNote, Int> {
+        if (!available) return RateNote.BIT_PERFECT to 0
         val r = nSampleRate()
         val granted = nGrantedRate()
-        val khz = "%.1f".format(Locale.US, r / 1000f).removeSuffix(".0")
-        val base = "${nBitDepth()}-bit · $khz kHz · ${nChannels()}ch"
         return when {
-            nResampled() -> "$base  (ресемпл → ${granted} Hz — не bit-perfect)"
-            granted in 1 until r || granted > r -> "$base  (устройство: $granted Hz)"
-            else -> "$base  · bit-perfect"
+            nResampled() -> RateNote.RESAMPLED to granted
+            granted in 1 until r || granted > r -> RateNote.DEVICE_RATE to granted
+            else -> RateNote.BIT_PERFECT to granted
         }
+    }
+
+    /** Техническая часть строки формата — цифры, одинаковые на любом языке. */
+    fun formatLine(): String {
+        if (!available) return "—"
+        val khz = "%.1f".format(Locale.US, nSampleRate() / 1000f).removeSuffix(".0")
+        return "${nBitDepth()}-bit · $khz kHz · ${nChannels()}ch"
     }
 
     private fun releaseFds() {
         openFds.forEach { runCatching { it.close() } }
         openFds.clear()
     }
+
+    /**
+     * Открыть файл под нативный декодер.
+     *
+     * Библиотека хранит СКАЧАННОЕ обычным путём файловой системы
+     * (`/storage/emulated/0/Android/data/.../x.flac`), а импортированное своей
+     * папкой — SAF-адресом `content://`. У первого нет схемы вообще, и
+     * `contentResolver.openFileDescriptor` на нём бросает.
+     *
+     * Из-за этого нативный тракт МОЛЧА падал на ExoPlayer на всём, что
+     * приложение скачало само: в настройках выбран «Нативный», играет обычный,
+     * и сказать об этом некому — исключение съедал `runCatching` вокруг всей
+     * очереди (поймано 05.09.2026 живьём: ни одной строки Oboe в логе и строка
+     * формата от Exo). Путь открываем напрямую, SAF-адрес — резолвером.
+     */
+    private fun openFd(context: Context, uri: Uri): ParcelFileDescriptor? = runCatching {
+        when (uri.scheme) {
+            null -> ParcelFileDescriptor.open(File(uri.toString()), ParcelFileDescriptor.MODE_READ_ONLY)
+            "file" -> ParcelFileDescriptor.open(File(uri.path!!), ParcelFileDescriptor.MODE_READ_ONLY)
+            else -> context.contentResolver.openFileDescriptor(uri, "r")
+        }
+    }.getOrNull()
 
     private fun detectFormat(context: Context, uri: Uri): Int {
         val name = (uri.lastPathSegment ?: "").lowercase()
@@ -137,7 +192,7 @@ object NativeAudioEngine {
     private fun isAlacContainer(context: Context, uri: Uri): Boolean = runCatching {
         val ex = android.media.MediaExtractor()
         try {
-            context.contentResolver.openFileDescriptor(uri, "r").use { pfd ->
+            openFd(context, uri).use { pfd ->
                 if (pfd == null) return false
                 ex.setDataSource(pfd.fileDescriptor)
                 for (i in 0 until ex.trackCount) {

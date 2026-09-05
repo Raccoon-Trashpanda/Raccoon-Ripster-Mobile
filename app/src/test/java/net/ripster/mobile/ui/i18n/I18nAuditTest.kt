@@ -39,6 +39,14 @@ class I18nAuditTest {
         "core/library/FolderImport.kt" to "распознавание имён папок, не UI",
         // Внутренние check()/require(): их текст уходит в лог и в ветку
         // фолбэка на ExoPlayer, на экран не попадает никогда.
+        //
+        // ЭТО ИСКЛЮЧЕНИЕ ОДНАЖДЫ УЖЕ СОЛГАЛО. Файл был освобождён целиком —
+        // и под прикрытием «это же внутренние проверки» в нём жил
+        // formatLine(), который возвращал готовую русскую строку прямо в
+        // плеер: при английском интерфейсе человек читал «(ресемпл → …)»
+        // (поймано 05.09.2026). Поэтому файл разрешён не целиком —
+        // построчно, и только там, где литерал стоит внутри check/require:
+        // см. theNativeEngineWritesNoWordsForTheScreen ниже.
         "player/NativeAudioEngine.kt" to "сообщения внутренних проверок, не UI",
     )
 
@@ -64,6 +72,25 @@ class I18nAuditTest {
             "Кириллица в строковых литералах боевого кода — язык интерфейса на неё " +
                 "не влияет. Заведи ключ в Strings.kt (все пять языков) и покажи через " +
                 "tr(), а для ошибок движка — маркер EngineErrors.\n" +
+                offenders.joinToString("\n"),
+            offenders.isEmpty(),
+        )
+    }
+
+    @Test
+    fun theNativeEngineWritesNoWordsForTheScreen() {
+        // Движок сообщает ФАКТ (RateNote + частота), слова подбирает ui/i18n.
+        // Разрешены только сообщения check()/require() — они уходят в лог.
+        val src = stripComments(File(sourceRoot(), "player/NativeAudioEngine.kt").readText())
+        val offenders = src.lines().withIndex().filter { (_, line) ->
+            cyrillic.containsMatchIn(line) &&
+                !line.contains("check(") && !line.contains("require(")
+        }.map { (i, line) -> "NativeAudioEngine.kt:${i + 1}: ${line.trim().take(80)}" }
+
+        assertTrue(
+            "Русский текст в аудио-движке вне check()/require() — он уедет на экран " +
+                "мимо выбранного языка, как это было с formatLine(). Верни факт " +
+                "(enum + число), а слова заведи в Strings.kt.\n" +
                 offenders.joinToString("\n"),
             offenders.isEmpty(),
         )

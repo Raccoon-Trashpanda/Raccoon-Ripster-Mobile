@@ -402,7 +402,18 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                                 playback.format.isBlank() -> QualityBadgeState.NotMeasured
                                 else -> QualityBadgeState.Match
                             },
-                            format = playback.format,
+                            // Пометка про bit-perfect собирается ЗДЕСЬ, а не в движке: раньше он
+                            // возвращал её готовой русской строкой, и при английском интерфейсе
+                            // в плеере всё равно светился русский.
+                            format = playback.format + when (playback.rateNote) {
+                                net.ripster.mobile.player.NativeAudioEngine.RateNote.RESAMPLED ->
+                                    "  " + tr("fmt.resampled", lang, playback.grantedRateHz.toString())
+                                net.ripster.mobile.player.NativeAudioEngine.RateNote.DEVICE_RATE ->
+                                    "  " + tr("fmt.device_rate", lang, playback.grantedRateHz.toString())
+                                net.ripster.mobile.player.NativeAudioEngine.RateNote.BIT_PERFECT ->
+                                    "  · " + tr("fmt.bit_perfect", lang)
+                                null -> ""
+                            },
                             artworkUrl = playback.artworkUrl,
                         )
                         val minimize = { userNavigated = true; dest = lastTab }

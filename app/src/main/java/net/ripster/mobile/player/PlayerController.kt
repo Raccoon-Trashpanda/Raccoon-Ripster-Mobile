@@ -53,6 +53,11 @@ class PlayerController(context: Context) {
         val queueIndex: Int = 0,
         /** Путь/URI текущего файла — для панели «Спектр». */
         val currentPath: String? = null,
+        /** Отдаётся ли звук точь-в-точь как в файле. `null` — играет не нативный тракт,
+         *  и сказать про bit-perfect нечего. Текст собирает UI — движок словами не говорит. */
+        val rateNote: NativeAudioEngine.RateNote? = null,
+        /** Частота, которую реально дало устройство, Hz. */
+        val grantedRateHz: Int = 0,
     )
 
     data class QueueEntry(
@@ -581,6 +586,8 @@ class PlayerController(context: Context) {
             durationMs = NativeAudioEngine.durationMs(),
             hasItem = true,
             format = NativeAudioEngine.formatLine(),
+            rateNote = NativeAudioEngine.rateNote().first,
+            grantedRateHz = NativeAudioEngine.rateNote().second,
             lossless = it.lossless,
             fakeLossless = it.fakeLossless,
             currentPath = it.filePath,
