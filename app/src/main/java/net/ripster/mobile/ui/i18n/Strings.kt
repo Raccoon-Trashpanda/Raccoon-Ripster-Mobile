@@ -656,6 +656,13 @@ private val STRINGS: Map<String, Row> = mapOf(
         "PC がタスクを拒否しました。",
         "电脑拒绝了该任务。",
     ),
+    "err.pc_already_queued" to row(
+        "ПК уже качает этот релиз — следи за ним в очереди ПК.",
+        "the PC is already downloading this release — follow it in the PC queue.",
+        "PC यह रिलीज़ पहले से डाउनलोड कर रहा है।",
+        "PC はすでにこのリリースをダウンロード中です。",
+        "电脑已在下载该专辑。",
+    ),
     "err.pc_incomplete" to row(
         "ПК не довёл задачу до конца.",
         "the PC didn’t finish the task.",

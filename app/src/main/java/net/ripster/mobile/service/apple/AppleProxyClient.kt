@@ -308,7 +308,13 @@ class AppleProxyClient(
 
         send(DownloadEvent.Log("Apple → PC ($q)"))
         val taskId = pc.appleFetch(url, q).getOrElse {
-            send(DownloadEvent.Error(EngineErrors.code(EngineErrors.PC_REJECTED, it.message)))
+            // Свой маркер отдаём как есть — «уже в очереди» это не отказ ПК,
+            // и оборачивать его в «ПК отклонил задачу» значило бы соврать.
+            val msg = it.message.orEmpty()
+            send(DownloadEvent.Error(
+                if (msg.startsWith("__e.")) msg
+                else EngineErrors.code(EngineErrors.PC_REJECTED, msg),
+            ))
             return@channelFlow
         }
 

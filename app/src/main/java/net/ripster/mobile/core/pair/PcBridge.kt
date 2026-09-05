@@ -344,6 +344,9 @@ class PcBridge(context: Context) {
         val note: String,
     )
 
+    /** ПК уже качает ровно это, но не назвал задачу — следить не за чем. */
+    class AlreadyQueued : IllegalStateException("__e.pc_already_queued__")
+
     /** Поставить Apple-ссылку в очередь ПК. Возвращает task_id. */
     suspend fun appleFetch(url: String, quality: String): Result<String> = withContext(Dispatchers.IO) {
         val tok = token ?: return@withContext Result.failure(IllegalStateException("not paired"))
@@ -355,9 +358,26 @@ class PcBridge(context: Context) {
                     .post(payload.toRequestBody(JSON_MEDIA)).build()
                 RipsterHttp.client.newCall(req).execute().use { r ->
                     val txt = r.body?.string().orEmpty()
-                    require(r.isSuccessful) { "HTTP ${r.code}: ${txt.take(180)}" }
-                    json.parseToJsonElement(txt).jsonObject["task_id"]?.jsonPrimitive?.contentOrNull
-                        ?: error("no task_id")
+                    if (!r.isSuccessful) {
+                        // Тело ответа — в журнал, не на экран. 05.09.2026 человек
+                        // получал в очереди строку «ПК отклонил задачу (HTTP 502:
+                        // {'ok': False, 'msg': 'Already in queue'…})» — сырой
+                        // python-словарь как объяснение. Причину читает разработчик
+                        // в logcat, человеку хватает кода ответа.
+                        android.util.Log.w("RipsterPair", "appleFetch HTTP ${r.code}: ${txt.take(400)}")
+                        error("HTTP ${r.code}")
+                    }
+                    val o = json.parseToJsonElement(txt).jsonObject
+                    val id = o["task_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                    // «Уже в очереди» — не отказ, ПК это качает. Обычно он вернёт
+                    // id той задачи, и дальше всё идёт как всегда. Если не вернул,
+                    // следить не за чем — но и врать про ошибку нельзя.
+                    if (id.isBlank()) {
+                        if (o["duplicate"]?.jsonPrimitive?.contentOrNull == "true")
+                            throw AlreadyQueued()
+                        error("no task_id")
+                    }
+                    id
                 }
             }
         }
