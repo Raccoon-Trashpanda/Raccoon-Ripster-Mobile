@@ -363,7 +363,12 @@ fun HomeScreen(
                             scope.launch {
                                 val q = app.settings.state.value.qualityFor(onWifi = true)
                                 val tracks = kotlinx.coroutines.withTimeoutOrNull(25_000) {
-                                    net.ripster.mobile.core.service.StationBuilder.build(st.scSlug, st.query, st.ya)
+                                    net.ripster.mobile.core.service.StationBuilder.build(
+                                        st.scSlug, st.query, st.ya,
+                                        // Свой эфир на каждое нажатие: одна и та же
+                                        // плитка не должна играть один и тот же список.
+                                        rotationSeed = System.currentTimeMillis() / 1000L + st.id.hashCode(),
+                                    )
                                 } ?: emptyList()
                                 // Первые 6 — быстро, чтобы сразу заиграло; остальное дорезолвим фоном.
                                 val head = net.ripster.mobile.core.service.StreamResolver

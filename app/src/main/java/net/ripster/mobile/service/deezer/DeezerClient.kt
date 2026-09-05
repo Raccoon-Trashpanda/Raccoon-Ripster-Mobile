@@ -349,6 +349,9 @@ class DeezerClient(
             id = id.toString(),
             title = title,
             artist = artist.name,
+            // `rank` Deezer — настоящая мера прослушиваемости, приходит прямо
+            // в поиске. Волна отбирает по ней, а не по порядку выдачи.
+            popularity = net.ripster.mobile.core.service.Popularity.fromDeezerRank(rank),
             service = Service.DEEZER,
             albumTitle = album?.title ?: albumFull?.title,
             albumArtist = albumFull?.artist?.name ?: artist.name,

@@ -302,6 +302,10 @@ class SoundCloudClient(
             // Жанр, объявленный автором. Станции сверяют по нему, а не по
             // названию плитки: слово в заголовке — совпадение, а не жанр.
             genre = genre?.takeIf { it.isNotBlank() },
+            // Настоящие счётчики SoundCloud — по ним волна решает, что в жанре
+            // действительно слушают, а не что просто нашлось.
+            popularity = net.ripster.mobile.core.service.Popularity
+                .fromSoundCloudCounts(playbackCount, likesCount),
             raw = buildMap {
                 put("permalink", permalinkUrl)
                 put("scTrackId", id.toString())

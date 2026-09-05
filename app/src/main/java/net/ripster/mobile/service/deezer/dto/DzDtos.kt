@@ -53,6 +53,8 @@ data class DzApiTrack(
     val artist: DzApiArtist = DzApiArtist(),
     val album: DzApiAlbum? = null,
     val type: String = "track",
+    /** Популярность Deezer, 0..1_000_000. Отдаётся прямо в поиске. */
+    val rank: Int? = null,
 )
 
 @Serializable

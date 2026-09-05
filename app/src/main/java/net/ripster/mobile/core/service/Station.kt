@@ -90,6 +90,12 @@ object StationBuilder {
         fallbackQuery: String,
         yandexStationId: String? = null,
         size: Int = 30,
+        /**
+         * Чем отличается ЭТОТ заход от прошлого. Один и тот же seed даёт один и
+         * тот же эфир (иначе список дёргался бы на каждой перерисовке), новый —
+         * другой. Ноль означает «без ротации»: удобно в тестах.
+         */
+        rotationSeed: Long = 0L,
     ): List<Track> {
         val clients = ServiceRegistry.configured()
         val ya = ServiceRegistry.get(Service.YANDEX) as? YandexMusicClient
@@ -119,13 +125,20 @@ object StationBuilder {
             if (pool.vetted) pool.tracks else pool.tracks.filter { onGenre(it, fallbackQuery, words) }
         }
 
+        // Ротация внутри каждого источника: чем больше вещь слушают, тем выше
+        // её шанс попасть в эфир, но шанс есть у каждой. Без этого станция —
+        // один и тот же список из десяти имён на все времена.
+        val rotated = if (rotationSeed == 0L) kept else kept.mapIndexed { i, list ->
+            WaveRotation.pick(list, rotationSeed + i * 7919L, size)
+        }
+
         // Слияние по кругу: станция получается из всех сервисов сразу, а не из
         // того, кто первым ответил.
         val seen = HashSet<String>()
         val out = ArrayList<Track>()
         var i = 0
-        while (out.size < size && kept.any { i < it.size }) {
-            for (list in kept) {
+        while (out.size < size && rotated.any { i < it.size }) {
+            for (list in rotated) {
                 val tr = list.getOrNull(i) ?: continue
                 val key = (tr.isrc ?: (tr.title + "|" + tr.artist)).lowercase()
                 if (seen.add(key)) out.add(tr)

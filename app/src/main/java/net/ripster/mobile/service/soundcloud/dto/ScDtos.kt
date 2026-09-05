@@ -55,6 +55,9 @@ data class ScTrack(
     val title: String = "",
     val duration: Long = 0,
     val genre: String? = null,
+    /** Сколько раз послушали и лайкнули — настоящие счётчики SoundCloud. */
+    @SerialName("playback_count") val playbackCount: Long? = null,
+    @SerialName("likes_count") val likesCount: Long? = null,
     val isrc: String? = null,
     @SerialName("release_year") val releaseYear: Int? = null,
     @SerialName("display_date") val displayDate: String? = null,
