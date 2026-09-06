@@ -235,6 +235,13 @@ private val STRINGS: Map<String, Row> = mapOf(
     "lib.hint_long_press" to row("Долгое нажатие — убрать", "Long-press to remove", "हटाने के लिए देर तक दबाएँ", "長押しで削除", "长按可移除"),
     "lib.removed" to row("Убрано из фонотеки", "Removed from library", "लाइब्रेरी से हटाया गया", "ライブラリから削除しました", "已从音乐库移除"),
     "lib.file_kept" to row("Файл удалить не удалось — запись убрана", "Could not delete the file — the entry is removed", "फ़ाइल हटाई नहीं जा सकी", "ファイルを削除できませんでした", "无法删除文件"),
+    "search.link_service_off" to row(
+        "Это ссылка {s}, а {s} не настроен. Заведите учётку в Настройках → Учётные записи.",
+        "This is a {s} link, but {s} is not set up. Add the account in Settings → Accounts.",
+        "यह {s} लिंक है, पर {s} सेट नहीं है।",
+        "{s} のリンクですが、{s} が未設定です。",
+        "这是 {s} 链接，但尚未配置 {s}。",
+    ),
     "up.about" to row("Об анонсе", "About this release", "रिलीज़ के बारे में", "リリースについて", "关于此发行"),
     "up.credits" to row("Авторство", "Credits", "क्रेडिट", "クレジット", "参与者"),
     "up.label" to row("Лейбл", "Label", "लेबल", "レーベル", "厂牌"),

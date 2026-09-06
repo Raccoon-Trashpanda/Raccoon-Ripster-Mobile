@@ -182,9 +182,38 @@ fun SearchScreen(
             try {
                 val isUrl = q.startsWith("http")
                 if (isUrl) {
-                    val merged = ready.firstNotNullOfOrNull { runCatching { it.resolve(q) }.getOrNull() }
+                    // Ссылку разбирает ТОТ сервис, которому она принадлежит.
+                    //
+                    // Раньше её пробовали только выбранные в поиске сервисы — и
+                    // ссылка Qobuz при выбранных Deezer и Tidal давала «Ничего
+                    // не найдено» (проверено 06.09.2026 на альбоме Nouvelle
+                    // Vague). Это неправда: релиз есть, просто спрашивали не у
+                    // того. Выбор сервисов относится к ПОИСКУ ПО СЛОВАМ; у
+                    // ссылки владелец известен из самого адреса.
+                    val svcId = net.ripster.mobile.core.service.UrlService.of(q)
+                    val owner = net.ripster.mobile.core.service.ServiceRegistry.all()
+                        .firstOrNull { it.service.id.equals(svcId, ignoreCase = true) }
+                    // Сперва владелец адреса, потом остальные настроенные — на
+                    // случай зеркал и коротких ссылок, где домен не говорит
+                    // ничего.
+                    val order = (listOfNotNull(owner) + ready).distinct()
+                    val merged = order.firstNotNullOfOrNull { runCatching { it.resolve(q) }.getOrNull() }
                     result = merged
-                    if (merged == null) error = tr("search.nothing", lang)
+                    if (merged == null) {
+                        // Разные причины — разный совет. «Ничего не найдено» на
+                        // ссылку, сервис которой просто не настроен, отправляет
+                        // человека искать несуществующую ошибку.
+                        //
+                        // Судим ПО АДРЕСУ, а не по наличию клиента: сервис без
+                        // учётки в реестре вообще не появляется (проверено
+                        // 06.09.2026 — ссылка Qobuz на устройстве без учётки
+                        // Qobuz давала «ничего не найдено»), и тогда сказать,
+                        // чья это ссылка, может только сам адрес.
+                        val known = net.ripster.mobile.core.model.Service.byId(svcId)
+                        error = if (known != null)
+                            tr("search.link_service_off", lang).replace("{s}", known.label)
+                        else tr("search.nothing", lang)
+                    }
                     return@launch
                 }
                 val targets = selectedServices.ifEmpty { ready.map { it.service } }
