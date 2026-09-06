@@ -32,4 +32,7 @@ data class DownloadItem(
     val filePath: String? = null,
     val errorReason: String? = null,
     val quality: QualityTier? = null,
+    /** Релиз, к которому относится задача. null — одиночный трек. */
+    val groupId: String? = null,
+    val groupTitle: String? = null,
 )

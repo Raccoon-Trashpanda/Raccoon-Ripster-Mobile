@@ -798,7 +798,7 @@ private fun Centered(text: String, c: net.ripster.mobile.ui.theme.RipsterColors)
 private suspend fun grabUrl(app: RipsterApp, url: String) {
     runCatching {
         val sel = ServiceRegistry.all().firstNotNullOfOrNull { it.resolve(url) } ?: return
-        sel.tracks.forEach { app.downloads.enqueue(it) }
+        app.downloads.enqueueRelease(sel.containerTitle.orEmpty(), sel.tracks)
     }
 }
 

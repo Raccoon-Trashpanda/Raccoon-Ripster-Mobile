@@ -734,7 +734,7 @@ fun SearchScreen(
                                         }
                                     }
                                     if (list.isNotEmpty()) {
-                                        list.forEach { app.downloads.enqueue(it) }
+                                        app.downloads.enqueueRelease(a.title, list)
                                         queued[akey] = true
                                         error = null
                                     } else {

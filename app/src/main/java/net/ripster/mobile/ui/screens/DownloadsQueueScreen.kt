@@ -29,6 +29,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -95,6 +97,9 @@ data class DownloadTask(
      * понять по строке, где именно протух токен, было нельзя.
      */
     val serviceLabel: String = "",
+    /** Релиз, к которому принадлежит задача. null — одиночный трек. */
+    val groupId: String? = null,
+    val groupTitle: String? = null,
 )
 
 @Composable
@@ -173,12 +178,136 @@ fun DownloadsQueueScreen(
                 )
             }
         } else {
+            // Раскрытые релизы. Помнит экран, а не задача: это состояние
+            // просмотра, и переживать перезапуск ему незачем.
+            val expanded = remember { mutableStateMapOf<String, Boolean>() }
+
+            // Порядок сохраняем исходный, только сшиваем соседей одного
+            // релиза. Сортировать группы отдельно нельзя: очередь читается
+            // как очередь, и релиз, уехавший наверх, врал бы про очерёдность.
+            val blocks: List<Pair<String?, List<DownloadTask>>> =
+                buildList {
+                    for (t in tasks) {
+                        val last = lastOrNull()
+                        if (t.groupId != null && last?.first == t.groupId) {
+                            set(size - 1, last.first to (last.second + t))
+                        } else {
+                            add(t.groupId to listOf(t))
+                        }
+                    }
+                }
+
             LazyColumn(modifier = Modifier.fillMaxSize()) {
-                items(tasks, key = { it.id }) { task ->
-                    DownloadTaskRow(task = task, onRetry = { onRetry(task) }, onCancel = { onCancel(task) })
-                    RipsterHairline()
+                for ((gid, group) in blocks) {
+                    if (gid == null || group.size < 2) {
+                        items(group, key = { it.id }) { task ->
+                            DownloadTaskRow(task = task, onRetry = { onRetry(task) }, onCancel = { onCancel(task) })
+                            RipsterHairline()
+                        }
+                    } else {
+                        item(key = "g_$gid") {
+                            ReleaseGroupRow(
+                                title = group.firstOrNull { !it.groupTitle.isNullOrBlank() }?.groupTitle
+                                    ?: group.first().artist,
+                                artist = group.first().artist,
+                                serviceLabel = group.first().serviceLabel,
+                                tasks = group,
+                                open = expanded[gid] == true,
+                                onToggle = { expanded[gid] = expanded[gid] != true },
+                            )
+                            RipsterHairline()
+                        }
+                        if (expanded[gid] == true) {
+                            items(group, key = { it.id }) { task ->
+                                Box(Modifier.padding(start = spacing.lg)) {
+                                    DownloadTaskRow(
+                                        task = task,
+                                        onRetry = { onRetry(task) },
+                                        onCancel = { onCancel(task) },
+                                    )
+                                }
+                                RipsterHairline()
+                            }
+                        }
+                    }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Релиз одной строкой: сколько готово из скольких, что качается сейчас,
+ * сколько упало. Раскрывается тапом.
+ *
+ * Прогресс группы считаем по ЗАВЕРШЁННЫМ трекам плюс доля текущего — то, что
+ * человек и называет «сколько альбома скачалось». Среднее по всем полоскам
+ * дало бы бодрое движение при нуле готовых файлов.
+ */
+@Composable
+private fun ReleaseGroupRow(
+    title: String,
+    artist: String,
+    serviceLabel: String,
+    tasks: List<DownloadTask>,
+    open: Boolean,
+    onToggle: () -> Unit,
+) {
+    val colors = RipsterTheme.colors
+    val spacing = RipsterTheme.spacing
+    val type = RipsterTheme.type
+    val lang = LocalAppLang.current
+
+    val total = tasks.size
+    val done = tasks.count { it.status == DownloadTaskStatus.Done }
+    val failed = tasks.count { it.status == DownloadTaskStatus.Failed }
+    val running = tasks.firstOrNull { it.status == DownloadTaskStatus.Downloading }
+    val fraction = ((done + (running?.progress ?: 0f)) / total).coerceIn(0f, 1f)
+
+    Column(
+        Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(vertical = spacing.sm),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                BasicText(
+                    text = title,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = TextStyle(
+                        color = colors.text_primary, fontSize = type.body,
+                        fontWeight = FontWeight.W600,
+                    ),
+                )
+                BasicText(
+                    text = buildString {
+                        append(artist)
+                        if (serviceLabel.isNotBlank()) append("  ·  ").append(serviceLabel)
+                        append("  ·  ").append(done).append("/").append(total)
+                        if (failed > 0) append("  ·  ").append(tr("dl.group_failed", lang))
+                            .append(" ").append(failed)
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = TextStyle(color = colors.text_tertiary, fontSize = type.label),
+                )
+            }
+            Spacer(Modifier.width(spacing.sm))
+            BasicText(
+                if (open) "⌃" else "⌄",
+                style = TextStyle(color = colors.text_tertiary, fontSize = type.body),
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        // Полоса релиза. Рисуем ТОЛЬКО измеренное: пока не готов ни один трек
+        // и ничего не качается, она честно пустая.
+        Box(
+            Modifier.fillMaxWidth().height(3.dp)
+                .background(colors.border_subtle, androidx.compose.foundation.shape.RoundedCornerShape(2.dp)),
+        ) {
+            Box(
+                Modifier.fillMaxWidth(fraction).height(3.dp)
+                    .background(colors.accent_text, androidx.compose.foundation.shape.RoundedCornerShape(2.dp)),
+            )
         }
     }
 }

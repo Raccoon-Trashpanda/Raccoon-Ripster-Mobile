@@ -189,7 +189,8 @@ fun ArtistScreen(
                                         runCatching {
                                             val sel = ServiceRegistry.all()
                                                 .firstNotNullOfOrNull { it.resolve(r.url) }
-                                            sel?.tracks?.forEach { app.downloads.enqueue(it) }
+                                            if (sel != null) app.downloads.enqueueRelease(
+                                                sel.containerTitle ?: r.title, sel.tracks)
                                         }
                                     }
                                 }
@@ -312,7 +313,8 @@ fun ArtistScreen(
                                 scope.launch {
                                     runCatching {
                                         val sel = ServiceRegistry.all().firstNotNullOfOrNull { it.resolve(r.url) }
-                                        sel?.tracks?.forEach { app.downloads.enqueue(it) }
+                                        if (sel != null) app.downloads.enqueueRelease(
+                                            sel.containerTitle ?: r.title, sel.tracks)
                                     }
                                 }
                             }

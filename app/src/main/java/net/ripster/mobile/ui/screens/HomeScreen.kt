@@ -828,6 +828,6 @@ private suspend fun grabBbc(app: net.ripster.mobile.RipsterApp, url: String) {
     runCatching {
         val sel = net.ripster.mobile.core.service.ServiceRegistry.all()
             .firstNotNullOfOrNull { it.resolve(url) }
-        sel?.tracks?.forEach { app.downloads.enqueue(it) }
+        if (sel != null) app.downloads.enqueueRelease(sel.containerTitle.orEmpty(), sel.tracks)
     }
 }

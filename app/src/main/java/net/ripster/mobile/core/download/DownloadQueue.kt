@@ -52,7 +52,36 @@ class DownloadQueue(
         kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO,
     )
 
-    suspend fun enqueue(track: Track, forcedQualityId: String? = null): String = enqueueLock.withLock {
+    /**
+     * Поставить весь релиз ОДНОЙ группой.
+     *
+     * Треки идут теми же задачами, что и одиночные, — просто с общим
+     * [groupId]. Очередь показывает их одной сворачиваемой строкой, а
+     * качаются они по очереди (см. [DownloadWorker.gate]): тринадцать
+     * параллельных загрузок на слабом телефоне — это не быстрее, это лаги.
+     *
+     * Возвращает id группы, либо null, если ставить было нечего.
+     */
+    suspend fun enqueueRelease(
+        title: String,
+        tracks: List<Track>,
+        forcedQualityId: String? = null,
+    ): String? {
+        if (tracks.isEmpty()) return null
+        // Одинокий трек группой не оформляем: строка «релиз из одного трека»
+        // ничего не сообщает, только прячет сам трек за раскрытием.
+        if (tracks.size == 1) { enqueue(tracks.first(), forcedQualityId); return null }
+        val gid = UUID.randomUUID().toString()
+        tracks.forEach { enqueue(it, forcedQualityId, gid, title) }
+        return gid
+    }
+
+    suspend fun enqueue(
+        track: Track,
+        forcedQualityId: String? = null,
+        groupId: String? = null,
+        groupTitle: String? = null,
+    ): String = enqueueLock.withLock {
         // Дедуп: повторный тап «Скачать» по тому же треку (или трек альбома,
         // уже стоящий в очереди) не должен плодить вторую строку.
         dao.findActive(track.service.id, track.title, track.artist)?.let { return@withLock it.id }
@@ -75,6 +104,8 @@ class DownloadQueue(
                 forcedQualityId = forcedQualityId,
                 createdAt = nowTs,
                 updatedAt = nowTs,
+                groupId = groupId,
+                groupTitle = groupTitle,
             )
         )
 
@@ -168,7 +199,9 @@ class DownloadQueue(
         val row = dao.get(id) ?: return null
         val track = runCatching { json.decodeFromString(Track.serializer(), row.trackJson) }.getOrNull() ?: return null
         dao.delete(id)
-        return enqueue(track, row.forcedQualityId)
+        // Повтор возвращает трек В ЕГО релиз: иначе один упавший трек альбома
+        // после повтора выпадал из группы отдельной строкой.
+        return enqueue(track, row.forcedQualityId, row.groupId, row.groupTitle)
     }
 
     suspend fun clearFinished() = dao.clearFinished()
@@ -193,6 +226,8 @@ class DownloadQueue(
             filePath = filePath,
             errorReason = errorReason,
             quality = qualityId?.let { QualityTier(it, it, lossless = false, container = "") },
+            groupId = groupId,
+            groupTitle = groupTitle,
         )
     }
 

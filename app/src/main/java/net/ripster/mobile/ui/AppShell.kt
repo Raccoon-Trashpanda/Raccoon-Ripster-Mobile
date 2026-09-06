@@ -535,7 +535,10 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                                     if (tracks.isEmpty()) {
                                         albumDlMsg = tr("np.dl_album_failed", lang)
                                     } else {
-                                        tracks.forEach { app.downloads.enqueue(it) }
+                                        app.downloads.enqueueRelease(
+                                            sel?.containerTitle.orEmpty(),
+                                            tracks,
+                                        )
                                         albumDlMsg = tr("np.dl_album_queued", lang, tracks.size.toString())
                                     }
                                 }
@@ -1157,6 +1160,8 @@ private fun DownloadItem.toTask() = DownloadTask(
     progress = fraction,
     errorReason = errorReason,
     serviceLabel = track.service.label,
+    groupId = groupId,
+    groupTitle = groupTitle,
 )
 
 /** Группа записей → карточка релиза. Исполнителя показываем общего, а если в

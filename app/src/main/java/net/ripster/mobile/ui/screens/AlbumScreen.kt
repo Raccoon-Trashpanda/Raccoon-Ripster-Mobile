@@ -393,7 +393,13 @@ fun AlbumScreen(
                         Row(
                             Modifier.clip(RoundedCornerShape(999.dp)).border(1.dp, c.border_subtle, RoundedCornerShape(999.dp))
                                 .pressable(enabled = tracks.isNotEmpty()) {
-                                    scope.launch { tracks.forEach { app.downloads.enqueue(it); queued[it.id] = true } }
+                                    scope.launch {
+                                        // Релиз ставим ОДНОЙ группой: тринадцать
+                                        // одинаковых строк в очереди — это не список,
+                                        // это стена (владелец 06.09.2026).
+                                        app.downloads.enqueueRelease(title, tracks)
+                                        tracks.forEach { queued[it.id] = true }
+                                    }
                                 }
                                 .padding(horizontal = 18.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,

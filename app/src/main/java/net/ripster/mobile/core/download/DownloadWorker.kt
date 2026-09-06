@@ -70,6 +70,21 @@ class DownloadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         }
 
         setForeground(foregroundInfo(track.title))
+
+        // ОЧЕРЕДЬ, А НЕ ТОЛПА.
+        //
+        // WorkManager с радостью запускает столько воркеров, сколько потоков в
+        // его пуле, и альбом из тринадцати треков уходил качаться разом.
+        // На A31 это выглядело так: тринадцать полосок ползут по 20 %,
+        // интерфейс лагает, готового трека нет ни одного (замер 06.09.2026,
+        // владелец: «устанешь смотреть, как лагает на маломощном телефоне»).
+        //
+        // Ворота пропускают [PARALLEL] задач. Ждём НЕ блокируя поток —
+        // CoroutineWorker для того и корутинный; строка в это время честно
+        // числится QUEUED, а не «RUNNING 0 %», которое ничего не качает.
+        gate.acquire()
+        try {
+
         dao.setState(id, DownloadState.RUNNING.name, now())
 
         // Ставится из ветки временного отказа внутри collect: из лямбды выйти
@@ -218,12 +233,37 @@ class DownloadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
             // обрыва сети было нечем. Пишем в лог полностью — там не UI, там
             // диагностика.
             android.util.Log.w("RipsterDownload", "task $id failed: ${t.javaClass.name}", t)
-            dao.markFailed(id, t.message ?: t.javaClass.simpleName, now())
+            val reason = t.message ?: t.javaClass.simpleName
+            // ТО ЖЕ ПРАВИЛО, ЧТО И ДЛЯ СОБЫТИЙ ОШИБКИ.
+            //
+            // Правило «сейчас не вышло ≠ не выйдет никогда» жило только в
+            // ветке DownloadEvent.Error, а БРОШЕННОЕ исключение шло мимо и
+            // сразу становилось окончательным отказом. Замер на A31
+            // 06.09.2026: альбом Daft Punk, один трек из тринадцати упал с
+            // «unexpected end of stream» — обрыв канала на середине файла,
+            // ровно та помеха, которая проходит сама. Строка при этом
+            // покраснела навсегда.
+            if (TransientFailure.shouldRetry(reason, runAttemptCount)) {
+                dao.setState(id, DownloadState.QUEUED.name, now())
+                android.util.Log.i(
+                    "RipsterDownloads",
+                    "retry ${runAttemptCount + 1}/${TransientFailure.MAX_ATTEMPTS} after throw: $reason",
+                )
+                return Result.retry()
+            }
+            dao.markFailed(id, reason, now())
             return Result.failure()
         }
 
         if (retryLater) return Result.retry()
         return if (dao.get(id)?.state == DownloadState.DONE.name) Result.success() else Result.failure()
+
+        } finally {
+            // Освобождаем в finally: отмена и падение обязаны пропустить
+            // следующего. Иначе одна сорвавшаяся задача навсегда затыкает
+            // очередь — отказ, который выглядит как «зависло».
+            gate.release()
+        }
     }
 
     private fun foregroundInfo(title: String): ForegroundInfo {
@@ -255,6 +295,20 @@ class DownloadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
     }
 
     companion object {
+
+        /**
+         * Сколько загрузок идёт одновременно.
+         *
+         * Один — намеренно. Две параллельные загрузки не быстрее одной на том
+         * же канале, зато вдвое дольше держат первый трек недокачанным, и на
+         * слабом телефоне заметно едят отрисовку. Значение здесь, а не в
+         * настройках: это не вкус, а поведение по умолчанию, которое должно
+         * быть верным без настройки.
+         */
+        private const val PARALLEL = 1
+
+        /** Общие для процесса ворота: воркеров много, ворота одни. */
+        private val gate = kotlinx.coroutines.sync.Semaphore(PARALLEL)
         const val KEY_ID = "download_id"
         private const val CHANNEL = "downloads"
         private const val NOTIF_ID = 4711
