@@ -28,7 +28,7 @@ import androidx.compose.ui.unit.dp
  */
 enum class SettingsGlyph {
     ACCOUNTS, QUALITY, STORAGE, NETWORK, APP, PAIRING,
-    PLAYER, EQUALIZER, RADAR, DIGS, TOOLS, ABOUT,
+    PLAYER, EQUALIZER, RADAR, DIGS, TOOLS, DIAGNOSTICS, ABOUT,
 }
 
 @Composable
@@ -120,6 +120,17 @@ fun SettingsIcon(kind: SettingsGlyph, tint: Color, modifier: Modifier = Modifier
             SettingsGlyph.TOOLS -> {
                 arc(tint, s, Rect(Offset(0.14f * w, 0.14f * w), Size(0.40f * w, 0.40f * w)), 120f, 260f)
                 line(0.46f, 0.46f, 0.82f, 0.82f)
+            }
+            // Лист с загнутым углом и строками — «отчёт», а не «жучок»:
+            // человек отправляет ТЕКСТ, и значок обещает ровно это.
+            SettingsGlyph.DIAGNOSTICS -> {
+                line(0.24f, 0.14f, 0.62f, 0.14f)
+                line(0.24f, 0.14f, 0.24f, 0.86f)
+                line(0.24f, 0.86f, 0.78f, 0.86f)
+                line(0.78f, 0.86f, 0.78f, 0.32f)
+                line(0.62f, 0.14f, 0.78f, 0.32f)
+                line(0.38f, 0.46f, 0.66f, 0.46f)
+                line(0.38f, 0.62f, 0.66f, 0.62f)
             }
             SettingsGlyph.ABOUT -> {
                 circle(0.5f, 0.5f, 0.34f)

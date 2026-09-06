@@ -85,6 +85,7 @@ private sealed interface Route {
     data object Radar : Route
     data object Digs : Route
     data object Tools : Route
+    data object Diagnostics : Route
     data object About : Route
 }
 
@@ -116,6 +117,7 @@ fun SettingsHost(onExit: () -> Unit, openAccounts: Boolean = false) {
         Route.Radar -> "set.radar"
         Route.Digs -> "set.digs"
         Route.Tools -> "nav.tools"
+        Route.Diagnostics -> "diag.title"
         Route.About -> "set.about"
     }
     val accountService = (stack.last() as? Route.Account)?.service
@@ -139,6 +141,7 @@ fun SettingsHost(onExit: () -> Unit, openAccounts: Boolean = false) {
                 Route.Player -> PlayerSection(lang, c)
                 Route.Equalizer -> EqualizerSection(lang, c)
                 Route.Radar -> RadarSettingsSection(lang, c)
+                Route.Diagnostics -> DiagnosticsSection(lang, c)
                 Route.About -> AboutSection(lang, c)
                 Route.Digs -> Soon(lang, c)
                 Route.Tools -> net.ripster.mobile.ui.screens.ToolsScreen()
@@ -174,6 +177,7 @@ private fun RootList(lang: AppLang, c: RipsterColors, go: (Route) -> Unit) {
         NavRow(tr("set.radar", lang), c, SettingsGlyph.RADAR) { go(Route.Radar) }
         NavRow(tr("set.digs", lang), c, SettingsGlyph.DIGS) { go(Route.Digs) }
         NavRow(tr("nav.tools", lang), c, SettingsGlyph.TOOLS) { go(Route.Tools) }
+        NavRow(tr("diag.title", lang), c, SettingsGlyph.DIAGNOSTICS) { go(Route.Diagnostics) }
         NavRow(tr("set.about", lang), c, SettingsGlyph.ABOUT) { go(Route.About) }
     }
 }
@@ -654,7 +658,8 @@ private fun PairingSection(lang: AppLang, c: RipsterColors) {
                     if (working) return@Btn
                     working = true; msg = null
                     scope.launch {
-                        val r = bridge.syncCredentials(app.credentials)
+                        // Явное действие человека — оно и перекрывает ручной ввод.
+                        val r = bridge.syncCredentials(app.credentials, force = true)
                         working = false
                         r.onSuccess { n ->
                             app.registerClients()

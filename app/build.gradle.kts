@@ -17,8 +17,8 @@ android {
         // 26 влезает в обе и не тянет за собой поддержку доисторических версий.
         minSdk = 26
         targetSdk = 34
-        versionCode = 31
-        versionName = "0.36"
+        versionCode = 32
+        versionName = "0.37"
 
         // Нативный аудиодвижок (фаза 1): Oboe + FLAC/WAV декод. x86_64 — для
         // эмулятора; arm — для реальных устройств. armeabi-v7a пока не тащим.

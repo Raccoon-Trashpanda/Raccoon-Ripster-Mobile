@@ -187,6 +187,24 @@ class CredentialStore(context: Context) {
 
     fun isRejected(key: Key): Boolean = prefs.getBoolean("${key.id}\$dead", false)
 
+    /**
+     * Пары «настоящее значение → чем его заменить» для вычистки диагностики.
+     *
+     * Шаблоны («что-то длинное и похожее на токен») ловят не всё и режут
+     * лишнее. Свои секреты мы ЗНАЕМ — значит можем вырезать их дословно, и
+     * это единственный способ гарантировать, что они не уедут в чужой чат.
+     * Наружу список не показывается и не логируется: он живёт ровно столько,
+     * сколько собирается отчёт.
+     *
+     * Короткие значения (меньше 6 символов) пропускаем: подстрока вроде «12»
+     * встречается в любом тексте, и замена изуродовала бы весь лог.
+     */
+    fun redactionPairs(): List<Pair<String, String>> =
+        Key.entries.mapNotNull { k ->
+            val v = get(k) ?: return@mapNotNull null
+            if (v.length < 6) null else v to "<${k.id}>"
+        }.sortedByDescending { it.first.length }
+
     fun clearAll() {
         edit { clear() }
     }
