@@ -210,9 +210,22 @@ fun SearchScreen(
                         // Qobuz давала «ничего не найдено»), и тогда сказать,
                         // чья это ссылка, может только сам адрес.
                         val known = net.ripster.mobile.core.model.Service.byId(svcId)
-                        error = if (known != null)
-                            tr("search.link_service_off", lang).replace("{s}", known.label)
-                        else tr("search.nothing", lang)
+                        val setUp = known != null &&
+                            ready.any { it.service.id.equals(svcId, ignoreCase = true) }
+                        error = when {
+                            // Сервис ссылки не настроен — тогда и совет понятен.
+                            known != null && !setUp ->
+                                tr("search.link_service_off", lang).replace("{s}", known.label)
+                            // Настроен, но ссылку не разобрал. Причина другая, и
+                            // говорить «не настроен» здесь НЕЛЬЗЯ: на экране
+                            // учётных записей написано «подключён», и человек
+                            // будет чинить то, что не сломано. Я сам на это
+                            // наступил 06.09.2026, когда сделал сообщение
+                            // безусловным.
+                            known != null ->
+                                tr("search.link_unresolved", lang).replace("{s}", known.label)
+                            else -> tr("search.nothing", lang)
+                        }
                     }
                     return@launch
                 }

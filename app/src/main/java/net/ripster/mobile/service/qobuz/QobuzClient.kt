@@ -68,8 +68,11 @@ class QobuzClient(
     }
 
     override suspend fun resolve(url: String): MediaSelection? {
-        val m = Regex("""(?:open|play|www)\.qobuz\.com/.*?(album|track)/([a-z0-9]+)""").find(url) ?: return null
-        val (kind, id) = m.destructured
+        // Разбор вынесен в QobuzUrl — его можно проверить тестом, а тихую
+        // ошибку разбора иначе не увидеть: клиент просто «ничего не находит».
+        val ref = QobuzUrl.parse(url) ?: return null
+        val kind = ref.kind
+        val id = ref.id
         return when (kind) {
             "track" -> MediaSelection(kind = MediaKind.TRACK, tracks = listOf(api.track(id).toTrack()))
             "album" -> {

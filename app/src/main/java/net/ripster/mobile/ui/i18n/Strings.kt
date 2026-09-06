@@ -235,6 +235,13 @@ private val STRINGS: Map<String, Row> = mapOf(
     "lib.hint_long_press" to row("Долгое нажатие — убрать", "Long-press to remove", "हटाने के लिए देर तक दबाएँ", "長押しで削除", "长按可移除"),
     "lib.removed" to row("Убрано из фонотеки", "Removed from library", "लाइब्रेरी से हटाया गया", "ライブラリから削除しました", "已从音乐库移除"),
     "lib.file_kept" to row("Файл удалить не удалось — запись убрана", "Could not delete the file — the entry is removed", "फ़ाइल हटाई नहीं जा सकी", "ファイルを削除できませんでした", "无法删除文件"),
+    "search.link_unresolved" to row(
+        "{s} не открыл эту ссылку. Релиз может быть недоступен в регионе учётки или снят с витрины.",
+        "{s} could not open this link. The release may be unavailable in your account's region, or pulled from the catalogue.",
+        "{s} इस लिंक को नहीं खोल सका।",
+        "{s} はこのリンクを開けませんでした。",
+        "{s} 无法打开此链接。",
+    ),
     "search.link_service_off" to row(
         "Это ссылка {s}, а {s} не настроен. Заведите учётку в Настройках → Учётные записи.",
         "This is a {s} link, but {s} is not set up. Add the account in Settings → Accounts.",
