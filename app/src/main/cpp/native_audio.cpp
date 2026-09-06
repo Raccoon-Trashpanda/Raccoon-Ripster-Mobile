@@ -34,6 +34,7 @@
 #include "dr_wav.h"
 #include "wavpack.h"
 #include "dsd.h"
+#include "resampler.h"
 #include "alac/ALACDecoder.h"
 #include "alac/ALACBitUtilities.h"
 
@@ -538,6 +539,13 @@ private:
     std::shared_ptr<oboe::AudioStream> stream_;
     int channels_   = 2;
     int streamRate_ = 44100;
+    // Ресемплер живёт МЕЖДУ блоками: в нём хвост входа и дробная позиция.
+    // Пересоздаём только при смене частоты или числа каналов — пересоздание
+    // посреди дорожки обнулило бы хвост и вернуло бы тот самый щелчок.
+    rsmp::Resampler rs_;
+    int  rsIn_ = 0;
+    int  rsCh_ = 0;
+    bool rsReady_ = false;
     int grantedRate_ = 0;
 
     Ring ring_;
@@ -645,6 +653,7 @@ void Engine::unload() {
     idx_.store(-1); decIdx_.store(-1);
     outPos_.store(0); trackStartOut_.store(0); curTotal_.store(0);
     endedAll_.store(false); resampled_.store(false);
+    rsReady_ = false;
     jump_.store(0); seekTo_.store(-1);
     grantedRate_ = 0;
     { std::lock_guard<std::mutex> m(markMtx_); marks_.clear(); }
@@ -732,26 +741,32 @@ void Engine::worker() {
             continue;
         }
 
-        // ресемпл в частоту потока, если надо (линейный — зачаток a5)
+        // Пересчёт частоты — полифазный windowed-sinc (пункт a5).
+        //
+        // Здесь стоял линейный, и он был плох дважды. Во-первых качеством: при
+        // 96 → 48 всё, что выше новой границы, заворачивалось обратно в
+        // слышимую полосу. Во-вторых — и это хуже — он НЕ ПЕРЕНОСИЛ ПОЗИЦИЮ
+        // МЕЖДУ БЛОКАМИ: `srcPos` начинался с нуля на каждом блоке декодера, а
+        // последний отсчёт дублировался, то есть на каждой границе был разрыв.
+        // Ровно «щелчки на границах» из каталога чужих ошибок, только свои.
+        //
+        // Ресемплер держит хвост входа и позицию сам, поэтому границ блоков в
+        // звуке нет вовсе — проверено `resampler_selftest.cpp`: тот же сигнал,
+        // поданный одним куском и блоками по 137 кадров, совпадает до 2e-6.
         if (dec.sampleRate == streamRate_) {
             ring_.push(tmp.data(), (size_t) got * channels_);
             producedOut += got;
         } else {
-            double ratio = (double) streamRate_ / dec.sampleRate;
-            int outN = (int) (got * ratio);
-            if (outN > (int) conv.size() / channels_) outN = (int) conv.size() / channels_;
-            for (int o = 0; o < outN; ++o) {
-                double srcPos = o / ratio;
-                int i0 = (int) srcPos;
-                double f = srcPos - i0;
-                int i1 = i0 + 1 < got ? i0 + 1 : (int) got - 1;
-                for (int ch = 0; ch < channels_; ++ch) {
-                    float a = tmp[i0 * channels_ + ch], b = tmp[i1 * channels_ + ch];
-                    conv[o * channels_ + ch] = a + (float) f * (b - a);
-                }
+            if (!rsReady_ || rsIn_ != dec.sampleRate || rsCh_ != channels_) {
+                rs_.reset(channels_, (double) dec.sampleRate, (double) streamRate_);
+                rsIn_ = dec.sampleRate; rsCh_ = channels_; rsReady_ = true;
             }
-            ring_.push(conv.data(), (size_t) outN * channels_);
-            producedOut += outN;
+            const int64_t cap = (int64_t) conv.size() / channels_;
+            const int64_t outN = rs_.process(tmp.data(), got, conv.data(), cap);
+            if (outN > 0) {
+                ring_.push(conv.data(), (size_t) outN * channels_);
+                producedOut += outN;
+            }
         }
     }
     dec.close();
