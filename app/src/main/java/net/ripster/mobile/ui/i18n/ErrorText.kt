@@ -26,15 +26,11 @@ fun errorText(e: Throwable?, lang: AppLang): String {
     if (e == null) return tr("err.unknown", lang)
     engineErrorText(e.message, lang)?.let { return it }
     val m = (e.message ?: e.javaClass.simpleName).lowercase()
+    markerText(m, lang)?.let { return it }
     return when {
-        "__qobuz_stale_appid__" in m -> tr("search.qobuz_stale_appid", lang)
-        "__qobuz_bad_token__" in m -> tr("search.qobuz_bad_token", lang)
-        m == "__timeout__" || e is java.net.SocketTimeoutException ||
-            "timeout" in m || "timed out" in m -> tr("search.svc_timeout", lang)
+        e is java.net.SocketTimeoutException -> tr("search.svc_timeout", lang)
         e is java.net.UnknownHostException || e is java.net.ConnectException ||
-            e is java.net.SocketException || "connection abort" in m ||
-            "connection reset" in m || "unreachable" in m ||
-            "failed to connect" in m -> tr("search.svc_neterr", lang)
+            e is java.net.SocketException -> tr("search.svc_neterr", lang)
         // Вызывающий уже подписывает «<Сервис>: » — снимаем такой же префикс из
         // текста самого движка, иначе он удваивается.
         else -> (e.message ?: e.javaClass.simpleName)
@@ -42,8 +38,39 @@ fun errorText(e: Throwable?, lang: AppLang): String {
     }
 }
 
-/** То же для строки, а не исключения: очередь загрузок хранит причину текстом. */
+/**
+ * То же для строки, а не исключения: очередь загрузок хранит причину текстом.
+ *
+ * Раньше здесь разбирались ТОЛЬКО маркеры движков, а служебные — нет, и на
+ * экран загрузок утекало «__qobuz_bad_token__» как есть (A31, 06.09.2026).
+ * Человеку показывали внутреннее имя ошибки вместо причины: это не сообщение,
+ * это сор из избы.
+ *
+ * Разбор теперь ОДИН на обе версии — иначе они снова разойдутся.
+ */
 fun errorText(raw: String?, lang: AppLang): String {
     if (raw.isNullOrBlank()) return tr("err.unknown", lang)
-    return engineErrorText(raw, lang) ?: raw
+    engineErrorText(raw, lang)?.let { return it }
+    markerText(raw, lang)?.let { return it }
+    return raw.replace(
+        Regex("^(Qobuz|Tidal|Deezer|Yandex|Beatport|SoundCloud|Spotify|Apple|BBC):\\s*"), "",
+    )
+}
+
+/**
+ * Служебные маркеры — в человеческие слова.
+ *
+ * Общий разбор для строки и исключения. Пустой ответ значит «этот текст не
+ * маркер», а не «ошибки нет».
+ */
+private fun markerText(raw: String, lang: AppLang): String? {
+    val m = raw.lowercase()
+    return when {
+        "__qobuz_stale_appid__" in m -> tr("search.qobuz_stale_appid", lang)
+        "__qobuz_bad_token__" in m -> tr("search.qobuz_bad_token", lang)
+        m == "__timeout__" || "timed out" in m || "timeout" in m -> tr("search.svc_timeout", lang)
+        "unknownhost" in m || "connection abort" in m || "connection reset" in m ||
+            "unreachable" in m || "failed to connect" in m -> tr("search.svc_neterr", lang)
+        else -> null
+    }
 }
