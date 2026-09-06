@@ -161,19 +161,72 @@ class PlayerController(context: Context) {
      */
     private fun playNative(items: List<LibraryEntity>, startIndex: Int, exoFallback: () -> Unit): Boolean {
         if (!nativeEnabled || !NativeAudioEngine.isAvailable) return false
-        if (items.any { !isLocalLossless(it.filePath) } || items.isEmpty()) return false
+        if (items.isEmpty()) return false
+
+        // Раньше здесь стояло: «в очереди есть хоть один НЕ lossless — значит
+        // нативный тракт не наш случай, всю очередь на ExoPlayer». И это
+        // ломало ровно то, ради чего движок писался.
+        //
+        // Живой случай 06.09.2026. Человек нажимает трек в фонотеке, очередь —
+        // ВСЯ фонотека, а в ней есть mp3 и m4a-AAC. Значит вся очередь уходит
+        // на ExoPlayer. А нажат был ALAC, которого системный декодер на этом
+        // устройстве НЕ ЧИТАЕТ. Итог: state=0, тишина и пустой плеер с надписью
+        // «выберите трек в библиотеке» — при том что наш собственный декодер
+        // этот файл открывает без затруднений («decoder ok: 44100Hz 2ch 16bit»).
+        //
+        // Теперь решает НАЖАТЫЙ трек. По силам нативному — играем нативно ту
+        // часть очереди, которая ему по силам. Это осознанный размен: очередь
+        // становится короче списка на экране. Молчание вместо музыки — хуже.
+        val wanted = items.getOrNull(startIndex.coerceIn(0, items.size - 1))
+        if (wanted == null || !isLocalLossless(wanted.filePath)) return false
+
+        val playable = items.filter { isLocalLossless(it.filePath) }
+        val skipped = items.size - playable.size
+        if (skipped > 0) {
+            android.util.Log.i(
+                "RipsterPlayer",
+                "native queue: $skipped of ${items.size} item(s) skipped (not local lossless); " +
+                    "playing the ${playable.size} the native engine can decode",
+            )
+        }
         runCatching { controller?.stop() }
         queueEntities = emptyList()
-        nativeQueue = items
-        val start = startIndex.coerceIn(0, items.size - 1)
+        nativeQueue = playable
+        val items = playable
+        val start = items.indexOfFirst { it.id == wanted.id }.coerceAtLeast(0)
         scope.launch {
             val r = NativeAudioEngine.playQueue(
-                appContext, items.map { Uri.parse(it.filePath) }, start, requireAll = true,
+                appContext, items.map { Uri.parse(it.filePath) }, start,
+                // Смешанная очередь — пусть отбирает САМ движок.
+                //
+                // Отбор по расширению и настоящая проверка формата расходятся:
+                // .m4a бывает и ALAC (наш случай), и AAC (не наш). Первый отсев
+                // по пути их не различает, а движок смотрит в содержимое — вот
+                // он и есть источник правды. При requireAll=true один AAC внутри
+                // .m4a снова отправлял ВСЮ очередь на ExoPlayer, и ALAC опять
+                // оставался неиграбельным.
+                requireAll = skipped == 0,
             )
-            if (r.isSuccess) {
+            // Не вышло строго — пробуем «играть то, что движок РЕАЛЬНО читает».
+            //
+            // Отбор по пути не различает ALAC и AAC внутри .m4a, поэтому
+            // «пропущенных» может оказаться ноль, режим останется строгим, и
+            // один AAC снова отправит всю очередь на ExoPlayer — а там ALAC не
+            // читается. Второй заход отдаёт отбор самому движку: он смотрит в
+            // содержимое, это единственная надёжная проверка.
+            val ok = if (r.isSuccess) r else NativeAudioEngine.playQueue(
+                appContext, items.map { Uri.parse(it.filePath) }, start, requireAll = false,
+            )
+            android.util.Log.i(
+                "RipsterPlayer",
+                "native route: strict=${r.isSuccess} relaxed=${ok.isSuccess} items=${items.size} start=$start",
+            )
+            if (ok.isSuccess) {
                 items.getOrNull(start)?.let { logPlayIfNew(it.title, it.artist, it.album.orEmpty(), it.artworkUrl, it) }
                 pushNativeState()
             } else {
+                // Обе попытки мимо — значит нативному тракту эта очередь и
+                // правда не по силам. Уходим на ExoPlayer, как и раньше.
                 nativeQueue = emptyList()
                 exoFallback()
             }

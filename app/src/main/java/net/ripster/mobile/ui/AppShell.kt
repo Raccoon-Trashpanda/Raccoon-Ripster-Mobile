@@ -23,6 +23,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -195,6 +196,11 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
     // отсюда слой перекрывает и шапку, и нижнюю навигацию — иначе картинка
     // остаётся зажатой между двумя серыми полосами.
     var coverStage by remember { mutableStateOf(false) }
+    // Что человек выбрал к удалению из фонотеки. Удаления не было вовсе —
+    // ни запроса в базе, ни действия на экране (владелец 06.09.2026).
+    var pendingDelete by remember {
+        mutableStateOf<net.ripster.mobile.ui.screens.LibraryItem?>(null)
+    }
     androidx.compose.runtime.LaunchedEffect(pendingPlayer, playback.hasItem) {
         if (!pendingPlayer) return@LaunchedEffect
         if (playback.hasItem) {
@@ -654,6 +660,7 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                         onSearchQueryChange = { libraryQuery = it },
                         byAlbum = libraryByAlbum,
                         onModeChange = { libraryByAlbum = it },
+                        onItemLongPress = { picked -> pendingDelete = picked },
                         onItemClick = { picked ->
                             // Релиз играем ЦЕЛИКОМ и только его: очередь — треки
                             // этого альбома, а не вся библиотека с найденного места.
@@ -828,6 +835,86 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
         }
 
         // ── обложка во весь экран, поверх ВСЕГО (шапка и навигация тоже) ──
+        // ── Удаление из фонотеки ────────────────────────────────────────────
+        pendingDelete?.let { victim ->
+            val rows = libraryGroups[victim.id] ?: library.filter { it.id == victim.id }
+            androidx.activity.compose.BackHandler(enabled = true) { pendingDelete = null }
+            Box(
+                Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.62f))
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() },
+                    ) { pendingDelete = null },
+                contentAlignment = Alignment.BottomCenter,
+            ) {
+                Box(
+                    Modifier.clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() },
+                    ) {},
+                ) {
+                    net.ripster.mobile.ui.components.RipsterSheet {
+                        Column(Modifier.fillMaxWidth()) {
+                            net.ripster.mobile.ui.components.RipsterSheetHandle(
+                                Modifier.align(Alignment.CenterHorizontally),
+                            )
+                            Spacer(Modifier.height(14.dp))
+                            BasicText(
+                                tr("lib.remove_title", lang),
+                                style = TextStyle(color = c.text_primary, fontSize = 16.sp, fontWeight = FontWeight.W700),
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            BasicText(
+                                victim.title + "  ·  " + victim.artist,
+                                style = TextStyle(color = c.text_tertiary, fontSize = 12.sp),
+                            )
+                            Spacer(Modifier.height(18.dp))
+
+                            // Два ОТДЕЛЬНЫХ действия, а не одно «удалить».
+                            // Сказать «удалено», оставив файл на диске, — ложь;
+                            // стереть файл, когда просили убрать из списка, —
+                            // потеря чужих гигабайтов. Человек выбирает сам.
+                            DeleteChoice(
+                                title = tr("lib.remove_entry", lang),
+                                note = tr("lib.remove_entry_note", lang),
+                                danger = false, c = c,
+                            ) {
+                                scope.launch {
+                                    rows.forEach { app.db.library().deleteById(it.id) }
+                                    pendingDelete = null
+                                }
+                            }
+                            Spacer(Modifier.height(10.dp))
+                            DeleteChoice(
+                                title = tr("lib.delete_file", lang),
+                                note = tr("lib.delete_file_note", lang),
+                                danger = true, c = c,
+                            ) {
+                                scope.launch {
+                                    var allGone = true
+                                    rows.forEach { row ->
+                                        val f = row.filePath?.let { java.io.File(it) }
+                                        // Файла может не быть — тогда «удалять»
+                                        // нечего, и это не ошибка. Ошибка — если
+                                        // он есть и стереть не вышло: тогда так
+                                        // и скажем, а не отрапортуем успех.
+                                        if (f != null && f.exists() && !f.delete()) allGone = false
+                                        app.db.library().deleteById(row.id)
+                                    }
+                                    pendingDelete = null
+                                    if (!allGone) android.util.Log.w(
+                                        "RipsterLibrary",
+                                        "file delete failed; entry removed anyway",
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(8.dp))
+                        }
+                    }
+                }
+            }
+        }
+
         if (coverStage) {
             androidx.activity.compose.BackHandler(enabled = true) { coverStage = false }
             net.ripster.mobile.ui.components.CoverStage(
@@ -955,26 +1042,17 @@ private fun DownloadStrip(
 ) {
     val c = RipsterTheme.colors
     val lang = LocalAppLang.current
-    // Пустая очередь — не повод оставлять полосу пустой. Место рядом с
-    // кружком занимает половину ширины экрана и до сих пор простаивало в
-    // самом частом состоянии программы: когда ничего не качается. Показываем
-    // то, что играет, и тап ведёт в плеер, а не в загрузки.
-    if (items.isEmpty()) {
-        if (nowPlaying.isBlank()) return
-        androidx.compose.foundation.layout.Row(
-            modifier.clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null, onClick = onOpenPlayer,
-            ),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            BasicText(
-                "♪  $nowPlaying", maxLines = 1, overflow = TextOverflow.Ellipsis,
-                style = TextStyle(color = c.text_tertiary, fontSize = 11.sp),
-            )
-        }
-        return
-    }
+    // Пустая очередь — пустая полоса, и это правильно.
+    //
+    // Здесь показывалось «♪ трек — артист»: место рядом с кружком загрузок
+    // простаивало, и его заняли тем, что играет. Владелец 06.09.2026: «этот
+    // текст песни чуть выше плеера убрать надо, чё он там делает вообще».
+    //
+    // И он прав: строка дублировала мини-плеер, который и так виден, а полоса
+    // загрузок должна говорить о ЗАГРУЗКАХ. Занять пустое место — не повод
+    // ставить туда чужой смысл: у одного элемента должно быть одно значение,
+    // иначе человек перестаёт понимать, о чём он вообще ему сообщает.
+    if (items.isEmpty()) return
     val running = items.firstOrNull { it.state == DownloadState.RUNNING }
     val queued = items.count { it.state == DownloadState.QUEUED }
     val done = items.count { it.state == DownloadState.DONE }
@@ -1119,4 +1197,33 @@ private fun DrawScope.drawBackGlyph(color: Color) {
     val h = size.height
     drawLine(color, Offset(w * 0.6f, h * 0.15f), Offset(w * 0.2f, h * 0.5f), strokeWidth = w * 0.13f)
     drawLine(color, Offset(w * 0.2f, h * 0.5f), Offset(w * 0.6f, h * 0.85f), strokeWidth = w * 0.13f)
+}
+
+
+/** Пункт выбора в листе удаления: что произойдёт и насколько это необратимо. */
+@Composable
+private fun DeleteChoice(
+    title: String,
+    note: String,
+    danger: Boolean,
+    c: net.ripster.mobile.ui.theme.RipsterColors,
+    onClick: () -> Unit,
+) {
+    Column(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .border(1.dp, if (danger) c.danger_text.copy(alpha = 0.5f) else c.border_subtle, RoundedCornerShape(14.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+    ) {
+        BasicText(
+            title,
+            style = TextStyle(
+                color = if (danger) c.danger_text else c.text_primary,
+                fontSize = 14.sp, fontWeight = FontWeight.W600,
+            ),
+        )
+        Spacer(Modifier.height(2.dp))
+        BasicText(note, style = TextStyle(color = c.text_tertiary, fontSize = 11.sp))
+    }
 }
