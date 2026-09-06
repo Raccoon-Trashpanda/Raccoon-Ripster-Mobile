@@ -98,6 +98,19 @@ interface LibraryDao {
     @Query("SELECT filePath FROM library")
     suspend fun allPaths(): List<String>
 
+    /**
+     * Убрать запись из фонотеки. Сам файл НЕ трогает.
+     *
+     * Владелец 06.09.2026: «в библиотеке нет возможности удалять что-либо».
+     * И правда не было — ни запроса в базе, ни кнопки на экране.
+     *
+     * Удаление записи и удаление файла разведены намеренно: это разные вещи, и
+     * человек вправе выбрать. Сказать «удалено», оставив файл на диске, было бы
+     * ложью; стереть файл, когда просили убрать из списка, — потерей данных.
+     */
+    @Query("DELETE FROM library WHERE id = :id")
+    suspend fun deleteById(id: String)
+
     /** Забыть запись: файла по этому адресу больше нет. */
     @Query("DELETE FROM library WHERE filePath = :path")
     suspend fun forgetPath(path: String)

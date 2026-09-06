@@ -7,7 +7,9 @@ import net.ripster.mobile.ui.i18n.tr
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -78,12 +80,21 @@ data class LibraryItem(
     val kind: net.ripster.mobile.core.library.LibraryGrouping.ReleaseKind? = null,
 )
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun LibraryScreen(
     items: List<LibraryItem>,
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     onItemClick: (LibraryItem) -> Unit,
+    /**
+     * Долгое нажатие по строке. Удаления в фонотеке не было вовсе — ни на
+     * экране, ни в базе (владелец 06.09.2026: «нет возможности удалять что
+     * либо»). Долгое нажатие, а не кнопка в строке: удаление здесь редкое
+     * действие, и постоянная мишень рядом с воспроизведением приглашала бы
+     * промахнуться.
+     */
+    onItemLongPress: ((LibraryItem) -> Unit)? = null,
     modifier: Modifier = Modifier,
     // Заголовок отдаёт настройки БЕЗ добавления пятого пункта в BottomNav —
     // тот зафиксирован ровно на 4 назначениях (см. BottomNav.kt). Шестерёнка
@@ -156,6 +167,7 @@ fun LibraryScreen(
                     LibraryItemRow(
                         item = item,
                         onClick = { onItemClick(item) },
+                        onLongPress = onItemLongPress?.let { lp -> { lp(item) } },
                         onAddToQueue = onAddToQueue?.let { add -> { add(item) } },
                     )
                     RipsterHairline()
@@ -216,9 +228,11 @@ private fun LibrarySearchField(
 }
 
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 private fun LibraryItemRow(
     item: LibraryItem,
     onClick: () -> Unit,
+    onLongPress: (() -> Unit)? = null,
     onAddToQueue: (() -> Unit)? = null,
 ) {
     val colors = RipsterTheme.colors
@@ -230,7 +244,10 @@ private fun LibraryItemRow(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = MinTouchTarget)
-            .clickable(onClick = onClick)
+            .then(
+                if (onLongPress == null) Modifier.clickable(onClick = onClick)
+                else Modifier.combinedClickable(onClick = onClick, onLongClick = onLongPress)
+            )
             .padding(vertical = spacing.sm),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(spacing.sm),
