@@ -57,7 +57,11 @@ fun LoadingBar(active: Boolean, modifier: Modifier = Modifier) {
         p
     }
 
-    Canvas(modifier.fillMaxWidth().height(4.dp)) {
+    // Высота. Было четыре точки — владелец 06.09.2026: «не вижу полосу».
+    // На плотном экране четыре точки под системной строкой состояния глазом не
+    // ловятся, тем более через удалённый рабочий стол. Семь — уже видно, и это
+    // всё ещё полоска, а не панель.
+    Canvas(modifier.fillMaxWidth().height(7.dp)) {
         if (visible <= 0.01f) return@Canvas
         val w = size.width
         val h = size.height
@@ -80,6 +84,22 @@ fun LoadingBar(active: Boolean, modifier: Modifier = Modifier) {
                 h,
             ),
         )
+        // СВЕЧЕНИЕ вокруг отрезка — то, чем ПК-полоса и берёт (там это
+        // box-shadow вокруг бегущего отрезка). Без него полоса на тёмной шапке
+        // сливается с фоном: сама она есть, а глаз её не находит.
+        //
+        // Рисуем несколькими всё более широкими и всё более прозрачными
+        // прямоугольниками: на семи точках высоты это дешевле и предсказуемее
+        // настоящего размытия, которого на Android 11 (A31) всё равно нет.
+        for (i in 3 downTo 1) {
+            val grow = segment * 0.18f * i
+            val gx = (x - grow).coerceAtLeast(0f)
+            drawRect(
+                color = PURPLE.copy(alpha = (0.14f / i) * visible),
+                topLeft = Offset(gx, 0f),
+                size = Size((segment + grow * 2f).coerceAtMost(w - gx), h),
+            )
+        }
         // Неоновый след: тот же отрезок, шире и полупрозрачнее.
         drawRect(
             color = PURPLE.copy(alpha = 0.30f * visible),

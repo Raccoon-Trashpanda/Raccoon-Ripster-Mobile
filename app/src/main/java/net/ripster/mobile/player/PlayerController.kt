@@ -515,9 +515,11 @@ class PlayerController(context: Context) {
                     // могла сработать.
                     lastSeed = seed
                 } else {
+                    // По-английски: это журнал, а не текст для человека —
+                    // сторож i18n прав, что ловит кириллицу в боевом коде.
                     android.util.Log.i(
                         "RipsterPlayer",
-                        "продолжение эфира пусто: ни один из ${fresh.size} треков не отдал поток",
+                        "queue extend: none of ${fresh.size} candidate tracks returned a stream",
                     )
                 }
             } catch (_: Throwable) {
