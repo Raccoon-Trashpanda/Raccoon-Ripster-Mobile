@@ -801,8 +801,14 @@ private val WAVE_PALETTE = listOf(
 @Composable
 private fun WaveTile(name: String, seed: String, c: RipsterColors, loading: Boolean, onClick: () -> Unit) {
     val h = kotlin.math.abs(seed.hashCode())
-    val a = WAVE_PALETTE[h % WAVE_PALETTE.size]
-    val b = WAVE_PALETTE[(h / 7 + 3) % WAVE_PALETTE.size]
+    val i = h % WAVE_PALETTE.size
+    // Совпали индексы — градиента нет, плитка выходит плоской заливкой. На
+    // наших тридцати станциях так случалось у трёх (Drum & Bass, Lo-Fi и
+    // соседи); сдвиг на один цвет это снимает, остальных не трогая. Та же
+    // страховка стоит в ПК-версии — вид у плиток общий.
+    val j = ((h / 7 + 3) % WAVE_PALETTE.size).let { if (it == i) (it + 1) % WAVE_PALETTE.size else it }
+    val a = WAVE_PALETTE[i]
+    val b = WAVE_PALETTE[j]
     Box(
         Modifier.width(150.dp).height(88.dp).clip(RoundedCornerShape(16.dp))
             .background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(a.copy(alpha = 0.9f), b.copy(alpha = 0.55f))))
