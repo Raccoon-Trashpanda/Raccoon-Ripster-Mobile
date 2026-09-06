@@ -32,6 +32,9 @@
         android:hardwareAccelerated="true"
         android:largeHeap="true"
         android:networkSecurityConfig="@xml/network_security_config"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/backup_rules"
         android:theme="@style/Theme.RipsterBoot">
         <activity
             android:name=".MainActivity"

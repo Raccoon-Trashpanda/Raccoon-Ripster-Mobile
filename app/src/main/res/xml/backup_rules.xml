@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Из приложения не выгружается НИЧЕГО.
+
+  На устройстве лежат токены и пароли стриминговых сервисов (Deezer ARL, токен
+  Qobuz, sp_dc Spotify, OAuth Яндекса) и база фонотеки. Секреты хранятся в
+  EncryptedSharedPreferences, ключ — в Android Keystore и с устройства НЕ
+  уезжает; значит выгруженный на другое устройство файл всё равно не
+  расшифруется. Но у CredentialStore есть осознанный запасной путь: если
+  Keystore на устройстве неисправен, стор открывается обычным (файл остаётся в
+  приватной песочнице). В этом случае бэкап увёз бы секреты в читаемом виде.
+
+  Плюс сама база: что человек слушает и качает — это его дело, а не облака.
+
+  Разбор APK сторонним аудитором 06.09.2026 отметил ровно это: правило бэкапа
+  не было задано, и действовало умолчание «выгружать можно».
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="file" />
+        <exclude domain="external" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="file" />
+        <exclude domain="external" />
+    </device-transfer>
+</data-extraction-rules>
