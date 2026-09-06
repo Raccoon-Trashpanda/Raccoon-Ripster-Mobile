@@ -33,6 +33,7 @@
 #include "dr_flac.h"
 #include "dr_wav.h"
 #include "wavpack.h"
+#include "dsd.h"
 #include "alac/ALACDecoder.h"
 #include "alac/ALACBitUtilities.h"
 
@@ -138,6 +139,12 @@ struct Decoder {
     float            wvScale = 1.0f;  // делитель к float по разрядности файла
     char             wvErr[80] = {0};
 
+    // ── DSD (.dsf/.dff) ──
+    dsd::Ctx  dsdCtx{};
+    FdSource  dsdSrc{};
+    bool      dsdOpen = false;
+    char      dsdErr[96] = {0};
+
     AMediaExtractor* ex     = nullptr;
     ALACDecoder*     alac   = nullptr;
     uint32_t         aFrameLen = 4096;
@@ -151,6 +158,7 @@ struct Decoder {
         fmt = f;
         if (f == 2) return openAlac(fd);
         if (f == 3) return openWavPack(fd);
+        if (f == 4) return openDsd(fd);
         src.fd = ::dup(fd);
         src.pos = 0;
         { struct stat st{}; src.size = (::fstat(src.fd, &st) == 0) ? (int64_t) st.st_size : 0; }
@@ -227,6 +235,39 @@ struct Decoder {
         return channels > 0 && sampleRate > 0;
     }
 
+    // DSD. Разбор и децимация — в dsd.h, здесь только дескриптор и отчёт.
+    //
+    // Файл читается тем же приёмом, что и остальными декодерами (pread по
+    // своему fd), поэтому dsd.h ничего не знает ни про Android, ни про наш
+    // проигрыватель: тот же заголовок собирается и в ПК-версии.
+    bool openDsd(int fd) {
+        dsdSrc.fd = ::dup(fd);
+        dsdSrc.pos = 0;
+        { struct stat st{}; dsdSrc.size = (::fstat(dsdSrc.fd, &st) == 0) ? (int64_t) st.st_size : 0; }
+        dsdErr[0] = 0;
+        auto readAt = [](void* user, int64_t off, void* out, size_t bytes) -> bool {
+            auto* s2 = static_cast<FdSource*>(user);
+            return ::pread(s2->fd, out, bytes, off) == (ssize_t) bytes;
+        };
+        if (!dsd::parse(dsdCtx, readAt, &dsdSrc, dsdSrc.size, dsdErr, sizeof dsdErr)) {
+            LOGW("dsd: %s (size=%lld)", dsdErr[0] ? dsdErr : "unknown", (long long) dsdSrc.size);
+            close();
+            return false;
+        }
+        channels    = dsdCtx.channels;
+        sampleRate  = dsd::kOutRate;
+        // Разрядность у DSD одна — один бит. Наружу отдаём разрядность ТОГО,
+        // что реально уходит в звук, иначе строка «1-bit» обещала бы
+        // невозможное: однобитного тракта у нас нет.
+        bits        = 24;
+        totalFrames = dsdCtx.totalFrames;
+        dsdOpen = true;
+        LOGI("dsd ok: %lldHz 1-bit %dch → %dHz PCM (децимация %d), кадров=%lld",
+             (long long) dsdCtx.dsdRate, channels, sampleRate, dsdCtx.decim,
+             (long long) totalFrames);
+        return channels > 0;
+    }
+
     bool openAlac(int fd) {
         struct stat st{};
         if (::fstat(fd, &st) != 0 || st.st_size <= 0) return false;
@@ -285,6 +326,9 @@ struct Decoder {
         // переход в очереди.
         if (wv) { WavpackCloseFile(wv); wv = nullptr; }
         if (wvSrc.fd >= 0) { ::close(wvSrc.fd); wvSrc.fd = -1; }
+        if (dsdSrc.fd >= 0) { ::close(dsdSrc.fd); dsdSrc.fd = -1; }
+        dsdCtx = dsd::Ctx{};
+        dsdOpen = false;
         wvBuf.clear();
         if (src.fd >= 0) { ::close(src.fd); src.fd = -1; }
         aStage.clear(); aStagePos = 0; aEos = false;
@@ -328,6 +372,13 @@ struct Decoder {
     int64_t read(float* out, int64_t frames) {
         if (fmt == 0 && flac) return (int64_t) drflac_read_pcm_frames_f32(flac, (drflac_uint64) frames, out);
         if (fmt == 1 && wavOpen) return (int64_t) drwav_read_pcm_frames_f32(&wav, (drwav_uint64) frames, out);
+        if (fmt == 4 && dsdOpen) {
+            auto readAt = [](void* user, int64_t off, void* out, size_t bytes) -> bool {
+                auto* s2 = static_cast<FdSource*>(user);
+                return ::pread(s2->fd, out, bytes, off) == (ssize_t) bytes;
+            };
+            return dsd::decode(dsdCtx, readAt, &dsdSrc, out, frames);
+        }
         if (fmt == 3 && wv) {
             const size_t need = (size_t) frames * (size_t) channels;
             if (wvBuf.size() < need) wvBuf.resize(need);
@@ -357,6 +408,7 @@ struct Decoder {
     bool seek(int64_t frame) {
         if (fmt == 0 && flac) return drflac_seek_to_pcm_frame(flac, (drflac_uint64) frame) == DRFLAC_TRUE;
         if (fmt == 1 && wavOpen) return drwav_seek_to_pcm_frame(&wav, (drwav_uint64) frame) == DRWAV_TRUE;
+        if (fmt == 4 && dsdOpen) return dsd::seek(dsdCtx, frame);
         if (fmt == 3 && wv) return WavpackSeekSample64(wv, (int64_t) frame) != 0;
         if (fmt == 2 && ex) {
             int64_t us = sampleRate > 0 ? frame * 1000000 / sampleRate : 0;

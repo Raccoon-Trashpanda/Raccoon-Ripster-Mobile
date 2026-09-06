@@ -180,7 +180,10 @@ class PlayerController(context: Context) {
         val local = p.startsWith("content://") || p.startsWith("file://") || p.startsWith("/")
         return local && (p.endsWith(".flac") || p.endsWith(".wav") ||
             p.endsWith(".m4a") || p.endsWith(".alac") || p.endsWith(".m4b") ||
-            p.endsWith(".mp4") || p.endsWith(".wv"))
+            p.endsWith(".mp4") || p.endsWith(".wv") ||
+            // DSD: системный декодер его не читает вовсе, поэтому нативный
+            // тракт для него не «лучше», а единственный.
+            p.endsWith(".dsf") || p.endsWith(".dff"))
     }
 
     /**

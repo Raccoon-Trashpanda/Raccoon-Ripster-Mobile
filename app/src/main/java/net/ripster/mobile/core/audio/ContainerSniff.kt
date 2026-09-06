@@ -24,10 +24,11 @@ import java.io.File
 object ContainerSniff {
 
     /** Сколько байт достаточно: самая дальняя проверяемая сигнатура — `ftyp` на 4..8. */
+    // 16 байт: самая дальняя проверяемая сигнатура — тип формы DSDIFF на 12..16.
     const val HEAD_BYTES = 16
 
     /**
-     * Контейнер по сигнатуре: `flac`, `wav`, `m4a`, `ogg`, `mp3`, `dsf`, `aiff`.
+     * Контейнер по сигнатуре: `flac`, `wav`, `m4a`, `ogg`, `mp3`, `dsf`, `dff`, `aiff`.
      * `null` — не опознан; тогда врать не надо, оставляем что было.
      */
     fun of(head: ByteArray): String? {
@@ -50,6 +51,9 @@ object ContainerSniff {
             ascii(0, "wvpk") -> "wv"
             ascii(0, "OggS") -> "ogg"
             ascii(0, "DSD ") -> "dsf"
+            // DSDIFF (.dff). Сигнатура `FRM8`, а не `FORM`, поэтому с AIFF
+            // выше не путается — у того ровно `FORM`.
+            ascii(0, "FRM8") && ascii(12, "DSD ") -> "dff"
             ascii(0, "ID3") -> "mp3"
             // Кадр MPEG без ID3-тега: 11 бит синхронизации.
             (head[0].toInt() and 0xFF) == 0xFF &&

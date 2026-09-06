@@ -205,14 +205,20 @@ object NativeAudioEngine {
             // означал бы тишину.
             "wv" -> return 3
             "m4a" -> return if (isAlacContainer(context, uri)) 2 else -1
+            // DSD (.dsf/.dff) — тоже ЕДИНСТВЕННЫЙ путь: системный декодер
+            // Android его не читает, и на ExoPlayer это была бы тишина.
+            // Наружу отдаём PCM 88.2 кГц (децимация в dsd.h) — однобитного
+            // тракта на телефоне нет, и обещать его было бы враньём.
+            "dsf", "dff" -> return 4
             // Опознали что-то заведомо чужое (mp3/ogg) — нативный тракт не про них.
-            "mp3", "ogg", "dsf", "aiff" -> return -1
+            "mp3", "ogg", "aiff" -> return -1
         }
 
         when {
             name.endsWith(".flac") || "flac" in mime -> return 0
             name.endsWith(".wav") || "wav" in mime || "x-wav" in mime -> return 1
             name.endsWith(".wv") -> return 3
+            name.endsWith(".dsf") || name.endsWith(".dff") -> return 4
         }
         // .m4a / .alac / .mp4 — только если внутри реально ALAC (не AAC).
         if (name.endsWith(".m4a") || name.endsWith(".alac") || name.endsWith(".mp4") ||
