@@ -158,13 +158,24 @@ class TidalClient(
 
     private sealed interface TdStream {
         data class Direct(val tier: QualityTier, val url: String) : TdStream
-        data class Dash(val tier: QualityTier, val initUrl: String, val mediaUrls: List<String>) : TdStream
+        /** [quality] — тот `audioquality`, которым манифест ЗАПРОШЕН. Нужен,
+         *  чтобы при отказе CDN исключить именно его и спуститься ниже. */
+        data class Dash(
+            val tier: QualityTier,
+            val initUrl: String,
+            val mediaUrls: List<String>,
+            val quality: String = "",
+        ) : TdStream
     }
 
     override fun download(request: DownloadRequest): Flow<DownloadEvent> = flow {
         val id = request.track.raw["tdId"] ?: throw IOException("Tidal: no track id")
         val preference = request.forcedQualityId?.let { listOf(it) } ?: request.qualityPreference
-        when (val s = resolveStream(id, preference)) {
+        // Что уже отказало на уровне CDN. Пустое при первом заходе.
+        val refused = mutableSetOf<String>()
+        var attempt = resolveStream(id, preference)
+        while (true) {
+        when (val s = attempt) {
             is TdStream.Direct -> {
                 emit(DownloadEvent.Log("Tidal: ${s.tier.label}"))
                 val out = File(cacheDir, "td_$id.${s.tier.container}")
@@ -178,16 +189,70 @@ class TidalClient(
                 // на диске здесь всё равно MP4-контейнер).
                 emit(DownloadEvent.Log("Tidal: ${s.tier.label} (DASH, ${s.mediaUrls.size} segments)"))
                 val out = File(cacheDir, "td_$id.m4a")
+
+                // ССЫЛКИ НА СЕГМЕНТЫ ПОДПИСАНЫ И ЖИВУТ НЕДОЛГО.
+                //
+                // Раньше первый же 403 убивал загрузку целиком и печатал
+                // «Tidal: segment -> HTTP 403» — сырой строкой, мимо переводов.
+                // Жалобы тестеров 06.09.2026 читались как «у меня Tidal не
+                // работает», хотя манифест мы получили, то есть доступ БЫЛ:
+                // отказ приходил уже на кусках, и в длинном треке на медленном
+                // канале подпись успевала протухнуть.
+                //
+                // Просроченная подпись — помеха: берём свежий манифест и
+                // продолжаем с того же места. Отказ ПОСЛЕ обновления — это уже
+                // про доступ, и так и скажем.
+                var urls = s.mediaUrls
+                var refreshed = false
+                var denied = false
                 out.outputStream().buffered().use { sink ->
                     streamAppend(s.initUrl, sink)
-                    s.mediaUrls.forEachIndexed { i, u ->
+                    var i = 0
+                    while (i < urls.size) {
                         currentCoroutineContext().ensureActive()
-                        streamAppend(u, sink)
-                        emit(DownloadEvent.Progress((i + 1).toFloat() / s.mediaUrls.size, (i + 1).toLong(), s.mediaUrls.size.toLong()))
+                        try {
+                            streamAppend(urls[i], sink)
+                        } catch (d: SegmentDenied) {
+                            if (refreshed) { denied = true; break }
+                            refreshed = true
+                            // Свежий манифест обязан описывать ТУ ЖЕ нарезку —
+                            // иначе склеим куски от двух разных потоков и
+                            // получим битый файл, который выглядит целым.
+                            val fresh = (resolveStream(id, preference, refused) as? TdStream.Dash)
+                                ?.takeIf { it.mediaUrls.size == urls.size }
+                            if (fresh == null) { denied = true; break }
+                            urls = fresh.mediaUrls
+                            android.util.Log.i(
+                                "RipsterTidal",
+                                "segment ${'$'}i denied (HTTP ${'$'}{d.code}) — refreshed manifest, continuing",
+                            )
+                            continue
+                        }
+                        i++
+                        emit(DownloadEvent.Progress(i.toFloat() / urls.size, i.toLong(), urls.size.toLong()))
                     }
+                }
+                if (denied) {
+                    // СПУСКАЕМСЯ НА КАЧЕСТВО НИЖЕ, А НЕ СДАЁМСЯ.
+                    //
+                    // Владелец 06.09.2026: «поток на кнопке play работает,
+                    // скачивание нет». Это и есть подсказка: доступ у учётки
+                    // ЕСТЬ, нет его к запрошенному тиру. Tidal отдаёт манифест
+                    // HI_RES даже там, где подписка его не покрывает, а
+                    // отказывает уже CDN — на кусках. Плеер при этом играет,
+                    // потому что берёт качество попроще.
+                    out.delete()
+                    refused += s.quality
+                    val next = runCatching { resolveStream(id, preference, refused) }.getOrNull()
+                        ?: throw IOException(EngineErrors.TIDAL_SEGMENT_DENIED)
+                    emit(DownloadEvent.Log("Tidal: ${'$'}{s.tier.label} refused by CDN, falling back"))
+                    attempt = next
+                    continue
                 }
                 emit(DownloadEvent.Done(out.absolutePath, s.tier, out.length()))
             }
+        }
+        return@flow
         }
     }.flowOn(Dispatchers.IO)
 
@@ -210,11 +275,17 @@ class TidalClient(
         }
     }
 
+    /** CDN отказал в сегменте. Отдельный тип: 403/410 лечится свежей ссылкой. */
+    private class SegmentDenied(val code: Int) : IOException("tidal segment HTTP $code")
+
     private fun streamAppend(url: String, sink: java.io.OutputStream) {
         val req = Request.Builder().url(url).header("User-Agent", "RipsterMobile/0.1").build()
         RipsterHttp.client.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) throw IOException("Tidal: segment -> HTTP ${resp.code}")
-            resp.body?.byteStream()?.use { it.copyTo(sink) } ?: throw IOException("Tidal: empty segment")
+            if (resp.code == 403 || resp.code == 410) throw SegmentDenied(resp.code)
+            if (!resp.isSuccessful) {
+                throw IOException(EngineErrors.code(EngineErrors.HTTP, "${resp.code} tidal segment"))
+            }
+            resp.body?.byteStream()?.use { it.copyTo(sink) } ?: throw IOException(EngineErrors.EMPTY_STREAM)
         }
     }
 
@@ -266,7 +337,12 @@ class TidalClient(
     // но кодек FLAC → в подписи качества это FLAC, а не «M4A».
     private val hires = QualityTier("flac_24", "FLAC Hi-Res", lossless = true, container = "flac", bitDepth = 24)
 
-    private suspend fun resolveStream(id: String, preference: List<String>): TdStream {
+    private suspend fun resolveStream(
+        id: String,
+        preference: List<String>,
+        /** Качества, которые уже подвели на уровне CDN. Пустое — обычный путь. */
+        exclude: Set<String> = emptySet(),
+    ): TdStream {
         if (!ensureToken()) throw IOException(EngineErrors.TOKEN_INVALID)
         val order = buildList {
             for (p in preference) when {
@@ -278,7 +354,8 @@ class TidalClient(
                 p == "mp3_128" -> add("LOW" to low)
             }
             if (isEmpty()) { add("HI_RES_LOSSLESS" to hires); add("LOSSLESS" to flac); add("HIGH" to aac) }
-        }.distinctBy { it.first }
+        }.distinctBy { it.first }.filterNot { it.first in exclude }
+        if (order.isEmpty()) throw IOException(EngineErrors.TIDAL_SEGMENT_DENIED)
 
         // Последняя реальная причина отказа — чтобы финальная ошибка называла
         // ЧТО случилось (401 / 403 / 404 / регион), а не молчаливое «не удалось».
@@ -326,7 +403,7 @@ class TidalClient(
                 }
                 pb.manifestMimeType == "application/dash+xml" || decoded.contains("<MPD") -> {
                     val dash = parseDash(decoded) ?: continue
-                    return TdStream.Dash(tierFor(), dash.first, dash.second)
+                    return TdStream.Dash(tierFor(), dash.first, dash.second, q)
                 }
             }
         }

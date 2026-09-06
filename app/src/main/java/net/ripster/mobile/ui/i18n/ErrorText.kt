@@ -68,6 +68,7 @@ private fun markerText(raw: String, lang: AppLang): String? {
     return when {
         "__qobuz_stale_appid__" in m -> tr("search.qobuz_stale_appid", lang)
         "__qobuz_bad_token__" in m -> tr("search.qobuz_bad_token", lang)
+        net.ripster.mobile.core.errors.EngineErrors.TIDAL_SEGMENT_DENIED in m -> tr("err.tidal_segment_denied", lang)
         net.ripster.mobile.core.errors.EngineErrors.QOBUZ_PURCHASE_ONLY in m -> tr("err.qobuz_purchase_only", lang)
         net.ripster.mobile.core.errors.EngineErrors.QOBUZ_RIGHTS_BLOCKED in m -> tr("err.qobuz_rights_blocked", lang)
         net.ripster.mobile.core.errors.EngineErrors.QOBUZ_RESTRICTED in m ->

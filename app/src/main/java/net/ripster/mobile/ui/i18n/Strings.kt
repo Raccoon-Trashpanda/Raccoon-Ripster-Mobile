@@ -677,6 +677,13 @@ private val STRINGS: Map<String, Row> = mapOf(
         "Qobuz はリンクを返さず、理由を示しました",
         "Qobuz 未返回链接，并给出了原因",
     ),
+    "err.tidal_segment_denied" to row(
+        "Tidal не отдал куски трека даже по свежей ссылке — учётка не имеет доступа к нему в этом регионе.",
+        "Tidal refused the track’s segments even with a fresh link — this account has no access to it in this region.",
+        "नई लिंक पर भी Tidal ने ट्रैक के हिस्से नहीं दिए — इस क्षेत्र में इस खाते को पहुँच नहीं है।",
+        "新しいリンクでも Tidal はセグメントを返しませんでした — この地域でこのアカウントには権限がありません。",
+        "即使使用新链接，Tidal 仍拒绝返回分片 — 该账户在此区域无权访问。",
+    ),
     "err.empty_stream" to row(
         "сервис вернул пустой ответ.",
         "the service returned an empty response.",
