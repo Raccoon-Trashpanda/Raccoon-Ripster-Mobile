@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.text.BasicText
@@ -380,6 +381,21 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
             Box(Modifier.weight(1f)) {
               // Переход между вкладками — со скольжением+растворением. Плеер
               // «разворачивается» снизу, назад к списку — «сворачивается» вниз.
+              // Держатель состояния экранов.
+              //
+              // Тестер 06.09.2026: «если ввести название песни, воспроизвести её,
+              // а потом вернуться к поиску — название исчезает из строки поиска».
+              // И дальше по делу: «иначе придётся искать заново ради каждой
+              // композиции».
+              //
+              // Причина: AnimatedContent при смене вкладки уносит прежний экран
+              // ИЗ КОМПОЗИЦИИ целиком, и rememberSaveable внутри него не спасает —
+              // сохранённое выбрасывается вместе с экраном. Держатель хранит это
+              // состояние по ключу вкладки и возвращает при возврате.
+              //
+              // Лечит не только строку поиска: так же переживают позиции
+              // прокрутки и прочее сохраняемое состояние каждого экрана.
+              val screenState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
               androidx.compose.animation.AnimatedContent(
                 targetState = dest,
                 transitionSpec = {
@@ -413,6 +429,7 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                 },
                 label = "tab-switch",
               ) { d ->
+                screenState.SaveableStateProvider(d) {
                 when (d) {
                     RipsterDestination.Player -> if (playback.hasItem) {
                         val npState = NowPlayingState(
@@ -708,6 +725,7 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                     )
                     RipsterDestination.Tools -> net.ripster.mobile.ui.screens.ToolsScreen()
                 }
+                }
               }
             }
 
@@ -848,10 +866,19 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                 contentAlignment = Alignment.BottomCenter,
             ) {
                 Box(
-                    Modifier.clickable(
-                        indication = null,
-                        interactionSource = remember { MutableInteractionSource() },
-                    ) {},
+                    // Отступ под системную панель навигации.
+                    //
+                    // Лист живёт в КОРНЕ экрана, снаружи общего отступа под
+                    // системные панели, — и уезжал под кнопки Android: на
+                    // снимке 06.09.2026 у пункта «удалить файл» срезало низ
+                    // вместе с подписью «действие необратимо». Именно ту
+                    // подпись, ради которой пункт и разделён надвое.
+                    Modifier
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() },
+                        ) {},
                 ) {
                     net.ripster.mobile.ui.components.RipsterSheet {
                         Column(Modifier.fillMaxWidth()) {

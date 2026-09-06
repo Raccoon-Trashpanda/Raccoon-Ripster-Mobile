@@ -2,7 +2,9 @@ package net.ripster.mobile.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -77,6 +79,7 @@ import net.ripster.mobile.ui.components.busyHalo
 /** Сервисы без текстового поиска — только по ссылке (search() у них пуст). */
 private val LINK_ONLY = setOf(Service.SPOTIFY, Service.BBC)
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SearchScreen(
     modifier: Modifier = Modifier,
@@ -122,6 +125,12 @@ fun SearchScreen(
     val focusManager = LocalFocusManager.current
 
     var query by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    // Недавние и частые запросы. Показываем, пока поле пустое: под набранным
+    // текстом они мешали бы читать выдачу.
+    var recent by remember {
+        mutableStateOf(net.ripster.mobile.core.search.RecentQueries.suggestions(ctx))
+    }
     var running by remember { mutableStateOf(false) }
     var result by remember { mutableStateOf<MediaSelection?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -163,6 +172,9 @@ fun SearchScreen(
         val q = query.trim()
         if (q.isEmpty() || running) return
         keyboard?.hide(); focusManager.clearFocus()
+        // Запоминаем ДО запроса: подсказка нужна и тогда, когда сеть подвела.
+        net.ripster.mobile.core.search.RecentQueries.remember(ctx, q)
+        recent = net.ripster.mobile.core.search.RecentQueries.suggestions(ctx)
         running = true; error = null; result = null
         // IO-диспетчер: не полагаемся на то, что КАЖДЫЙ клиент сам ушёл с Main
         // (Яндекс, напр., этого не делал → NetworkOnMainThreadException).
@@ -394,6 +406,42 @@ fun SearchScreen(
                         fontSize = 14.sp, fontWeight = FontWeight.Bold,
                     ),
                 )
+            }
+        }
+
+        // ── недавнее и частое ──
+        //
+        // Показываем, только пока поле ПУСТОЕ и выдачи ещё нет: под набранным
+        // текстом подсказки спорили бы с результатом за внимание. Тап
+        // подставляет запрос и сразу ищет — иначе это не подсказка, а лишний
+        // шаг.
+        //
+        // Долгое нажатие забывает запрос. Список, из которого нельзя убрать
+        // случайно набранное, со временем начинает врать о вкусах человека.
+        if (query.isBlank() && result == null && recent.isNotEmpty()) {
+            Box(Modifier.height(10.dp))
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                recent.forEach { r ->
+                    Box(
+                        Modifier.clip(RoundedCornerShape(16.dp))
+                            .background(c.surface_raised)
+                            .border(1.dp, c.border_subtle, RoundedCornerShape(16.dp))
+                            .combinedClickable(
+                                onClick = { query = r; pickerOpen = false; go() },
+                                onLongClick = {
+                                    net.ripster.mobile.core.search.RecentQueries.forget(ctx, r)
+                                    recent = net.ripster.mobile.core.search.RecentQueries.suggestions(ctx)
+                                },
+                            )
+                            .padding(horizontal = 12.dp, vertical = 7.dp),
+                    ) {
+                        BasicText(r, style = TextStyle(color = c.text_secondary, fontSize = 12.sp))
+                    }
+                }
             }
         }
 

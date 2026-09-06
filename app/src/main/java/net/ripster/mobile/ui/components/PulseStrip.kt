@@ -1,7 +1,6 @@
 package net.ripster.mobile.ui.components
 
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
@@ -80,22 +79,22 @@ fun LoadingBar(active: Boolean, modifier: Modifier = Modifier) {
             animationSpec = infiniteRepeatable(
                 // Быстро — как и просили. Полный проход меньше секунды.
                 //
-                // РОВНАЯ скорость, без сглаживания. Я попробовал ease-in-out
-                // «как на ПК» — и владелец сразу увидел то, что этот режим и
-                // делает: «дёргается с проседанием по скорости до нуля где-то
-                // посередине». Так и есть: ease-in-out тормозит у концов
-                // прохода, а для БЕСКОНЕЧНОГО бегунка это неверно — у него нет
-                // ни начала, ни конца, которые стоило бы подчеркнуть.
+                // Кривая — ТА ЖЕ, что у ПК-полосы, буквально.
                 //
-                // На ПК тот же ease работает потому, что там отрезок проходит
-                // путь вчетверо длиннее экрана: замедление приходится на часть,
-                // которой не видно. Здесь путь ровно на ширину экрана плюс
-                // отрезок, и торможение оказывается прямо на виду.
+                // Я дважды промахнулся здесь. Сначала поставил линейное
+                // движение — владелец сказал «не доезжает». Потом взял
+                // андроидную FastOutSlowIn «как ease-in-out на ПК» — и он сразу
+                // увидел, что это НЕ она: «дёргается с проседанием по скорости
+                // до нуля где-то посередине».
                 //
-                // Перезапуск при линейном ходе невидим: к моменту сброса
-                // отрезок уже ПОЛНОСТЬЮ вышел за правую кромку (замер по
-                // кадрам: 1192→1199 при ширине 1200), а новый ещё не вошёл.
-                animation = tween(1100, easing = LinearEasing),
+                // Так и есть. У CSS `ease-in-out` кривая СИММЕТРИЧНАЯ
+                // (0.42, 0, 0.58, 1): разгон и торможение одинаковые, середина
+                // быстрая. У FastOutSlowIn (0.4, 0, 0.2, 1) торможение занимает
+                // почти весь путь — оно и читается как остановка.
+                //
+                // Здесь именно CSS-кривая и та же длительность, что в
+                // static/css/main.css у #net-progress: 1.1 с.
+                animation = tween(1100, easing = CubicBezierEasing(0.42f, 0f, 0.58f, 1f)),
                 repeatMode = RepeatMode.Restart,
             ),
             label = "loading-shift",

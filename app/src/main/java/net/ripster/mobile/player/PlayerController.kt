@@ -27,6 +27,16 @@ import net.ripster.mobile.core.db.LibraryEntity
  * отдаёт наружу [state] (`StateFlow`) для UI (MiniPlayer / экран Now
  * Playing) и принимает команды play/pause/seek.
  */
+
+/** Длиннее этого — «длинная вещь»: микс, сет, эфир. Владелец назвал 15 минут. */
+private const val LONG_TRACK_MS = 15 * 60 * 1000L
+
+/** Раньше этого возвращать некуда: человек только начал. */
+private const val RESUME_MIN_MS = 60 * 1000L
+
+/** Ближе этого к концу считаем, что дослушал. */
+private const val RESUME_TAIL_MS = 60 * 1000L
+
 class PlayerController(context: Context) {
 
     data class State(
@@ -147,6 +157,24 @@ class PlayerController(context: Context) {
     private fun nativeCurrent(): LibraryEntity? =
         nativeQueue.getOrNull(NativeAudioEngine.index().coerceIn(0, (nativeQueue.size - 1).coerceAtLeast(0)))
 
+    /**
+     * Путь → Uri. Ровно один способ на весь класс.
+     *
+     * Стояло `Uri.parse(path)`, и оно разваливалось на обычном имени папки:
+     * «/…/Music/Navjaxx, Staarz/moths/moths.flac» — из-за пробела разбор
+     * обрывался, `lastPathSegment` становился «Navjaxx,», проверка расширения
+     * не срабатывала, и настоящий FLAC уезжал на ExoPlayer как «не наш формат»
+     * (поймано 06.09.2026 по строке «native gate: lossless=true» рядом с
+     * «элемент не FLAC/WAV/ALAC» — противоречие, которого не должно быть).
+     *
+     * Для файлового пути правильный конструктор — fromFile: он экранирует
+     * пробелы и запятые сам.
+     */
+    private fun uriOf(path: String?): Uri {
+        val p = path.orEmpty()
+        return if (p.startsWith("/")) Uri.fromFile(java.io.File(p)) else Uri.parse(p)
+    }
+
     private fun isLocalLossless(path: String?): Boolean {
         val p = path?.lowercase() ?: return false
         val local = p.startsWith("content://") || p.startsWith("file://") || p.startsWith("/")
@@ -202,7 +230,7 @@ class PlayerController(context: Context) {
         val start = items.indexOfFirst { it.id == wanted.id }.coerceAtLeast(0)
         scope.launch {
             val r = NativeAudioEngine.playQueue(
-                appContext, items.map { Uri.parse(it.filePath) }, start,
+                appContext, items.map { uriOf(it.filePath) }, start,
                 // Смешанная очередь — пусть отбирает САМ движок.
                 //
                 // Отбор по расширению и настоящая проверка формата расходятся:
@@ -221,7 +249,7 @@ class PlayerController(context: Context) {
             // читается. Второй заход отдаёт отбор самому движку: он смотрит в
             // содержимое, это единственная надёжная проверка.
             val ok = if (r.isSuccess) r else NativeAudioEngine.playQueue(
-                appContext, items.map { Uri.parse(it.filePath) }, start, requireAll = false,
+                appContext, items.map { uriOf(it.filePath) }, start, requireAll = false,
             )
             android.util.Log.i(
                 "RipsterPlayer",
@@ -346,7 +374,42 @@ class PlayerController(context: Context) {
         prefs.edit().putString("ids", ids.joinToString(",")).putInt("idx", index).putLong("pos", 0L).apply()
     }
 
+    /**
+     * Где человек остановился в ДЛИННОЙ вещи.
+     *
+     * Просьба владельца 06.09.2026: «у миксов и длинных треков, как правило
+     * длиннее 15 минут, нужно уметь запоминать позицию — например, в BBC удобно
+     * будет слушать, продолжив».
+     *
+     * Порог обязателен. Возвращать на середину трёхминутную песню — навязчиво:
+     * её слушают целиком и с начала. А час микса переслушивать заново — потеря
+     * времени, и именно ради этого случая всё и делается.
+     */
+    private fun rememberSpot(key: String?, posMs: Long, durMs: Long) {
+        val k = key?.takeIf { it.isNotBlank() } ?: return
+        if (durMs < LONG_TRACK_MS) return
+        // У самого конца не запоминаем: человек дослушал, и «продолжить» вернуло
+        // бы его к финальным секундам вместо начала.
+        if (posMs < RESUME_MIN_MS || posMs > durMs - RESUME_TAIL_MS) {
+            prefs.edit().remove("spot:" + k).apply()
+            return
+        }
+        prefs.edit().putLong("spot:" + k, posMs).apply()
+    }
+
+    /** Сохранённая позиция для этой вещи, или 0 — «начинать сначала». */
+    private fun savedSpot(key: String?): Long {
+        val k = key?.takeIf { it.isNotBlank() } ?: return 0L
+        return prefs.getLong("spot:" + k, 0L)
+    }
+
     private fun persistPosition(c: MediaController) {
+        // Заодно запоминаем место в длинной вещи — тем же тактом, что и общее
+        // состояние, чтобы не заводить второй таймер.
+        rememberSpot(
+            c.currentMediaItem?.localConfiguration?.uri?.toString(),
+            c.currentPosition, c.duration,
+        )
         prefs.edit().putInt("idx", c.currentMediaItemIndex).putLong("pos", c.currentPosition.coerceAtLeast(0)).apply()
     }
 
@@ -422,7 +485,11 @@ class PlayerController(context: Context) {
     private fun playExoQueue(items: List<LibraryEntity>, idx: Int) {
         val c = controller ?: return
         queueEntities = items
-        c.setMediaItems(items.map { mediaItemOf(it) }, idx.coerceIn(0, items.size - 1), 0L)
+        val at = idx.coerceIn(0, items.size - 1)
+        // Продолжаем с того места, где остановились в ДЛИННОЙ вещи. Для коротких
+        // сохранённого места просто нет (см. rememberSpot), и они начнутся с нуля.
+        val spot = savedSpot(items.getOrNull(at)?.filePath?.let { uriOf(it).toString() })
+        c.setMediaItems(items.map { mediaItemOf(it) }, at, spot)
         c.prepare()
         c.play()
     }
@@ -679,7 +746,7 @@ class PlayerController(context: Context) {
         nativeQueue = items
         scope.launch {
             val r = NativeAudioEngine.playQueue(
-                appContext, items.map { Uri.parse(it.filePath) }, idx, requireAll = true,
+                appContext, items.map { uriOf(it.filePath) }, idx, requireAll = true,
             )
             if (r.isSuccess) {
                 runCatching { NativeAudioEngine.seekMs(pos) }
