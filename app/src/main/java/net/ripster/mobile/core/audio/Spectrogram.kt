@@ -77,6 +77,19 @@ object Spectrogram {
         /** Найдена ли резкая «кирпичная стена» на срезе (признак транскода). */
         val brickwall: Boolean,
         val sampleRateHz: Int,
+        /** Пиковый уровень, дБFS. 0.0 значит «упирается в потолок». */
+        val peakDb: Float,
+        /**
+         * Крест-фактор, дБ: насколько пик выше среднего уровня.
+         *
+         * Это НЕ официальный DR (TT-DR) — тот считается иначе, и называть эту
+         * величину его именем значило бы соврать точной цифрой. Но вопрос, ради
+         * которого её смотрят, она отвечает: у зажатого «под громкость»
+         * мастеринга крест-фактор мал, у живой динамики — велик.
+         */
+        val crestDb: Float,
+        /** Сколько отсчётов упёрлось в потолок: признак срезанных пиков. */
+        val clipped: Int,
     )
 
     private const val TAG = "Spectrogram"
@@ -264,7 +277,11 @@ object Spectrogram {
 
         val analyzedSec = pcm.size.toFloat() / dec.sampleRateHz.coerceAtLeast(1)
         val framed = frame(bmp, nyquist, analyzedSec)
-        return Result(framed, verdict, cutoffKHz, brickwall, dec.sampleRateHz)
+        // Динамика и клиппинг — один проход по уже разобранному PCM.
+        val dyn = Dynamics.of(pcm)
+
+        return Result(framed, verdict, cutoffKHz, brickwall, dec.sampleRateHz,
+                      dyn.peakDb, dyn.crestDb, dyn.clipped)
     }
 
     // ── рамка с осями — калька ПК (`spectrogram.py` `_generate_spectrogram`) ──

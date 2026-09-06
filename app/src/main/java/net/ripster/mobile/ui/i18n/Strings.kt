@@ -504,6 +504,10 @@ private val STRINGS: Map<String, Row> = mapOf(
     "common.yes" to row("да", "yes", "हाँ", "はい", "是"),
     "common.no" to row("нет", "no", "नहीं", "いいえ", "否"),
     "spec.cutoff" to row("Срез", "Cutoff", "कटऑफ़", "カットオフ", "截止频率"),
+    "spec.peak" to row("Пиковый уровень", "Peak level", "पीक स्तर", "ピークレベル", "峰值电平"),
+    "spec.crest" to row("Крест-фактор", "Crest factor", "क्रेस्ट फ़ैक्टर", "クレストファクター", "波峰因数"),
+    "spec.clipped" to row("Срезанные пики", "Clipped peaks", "कटे शिखर", "クリップ", "削波"),
+    "spec.clipped_none" to row("нет", "none", "नहीं", "なし", "无"),
     "spec.brickwall" to row("Кирпичная стена", "Brick wall", "ब्रिक-वॉल", "ブリックウォール", "砖墙滤波"),
     "badge.fake_lossless" to row(
         "lossless-контейнер, lossy-поток",

@@ -771,6 +771,26 @@ private fun StreamInfoPanel(
                     BasicText(tr("spec.brickwall", lang), Modifier.width(120.dp), style = TextStyle(color = c.text_tertiary, fontSize = 12.sp))
                     BasicText(if (r.brickwall) tr("common.yes", lang) else tr("common.no", lang), style = TextStyle(color = c.text_primary, fontSize = 12.sp))
                 }
+                // Что сделали с записью при мастеринге. Срез и кирпичная стена
+                // выше говорят, ЧЕМ файл закодирован; эти три строки — что там
+                // внутри самой музыки.
+                Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                    BasicText(tr("spec.peak", lang), Modifier.width(120.dp), style = TextStyle(color = c.text_tertiary, fontSize = 12.sp))
+                    BasicText("%.1f dBFS".format(r.peakDb), style = TextStyle(color = c.text_primary, fontSize = 12.sp))
+                }
+                Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                    BasicText(tr("spec.crest", lang), Modifier.width(120.dp), style = TextStyle(color = c.text_tertiary, fontSize = 12.sp))
+                    BasicText("%.1f dB".format(r.crestDb), style = TextStyle(color = c.text_primary, fontSize = 12.sp))
+                }
+                Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                    BasicText(tr("spec.clipped", lang), Modifier.width(120.dp), style = TextStyle(color = c.text_tertiary, fontSize = 12.sp))
+                    // Ноль пишем словом, а не «0»: «нет» читается сразу, а ноль
+                    // рядом с числами приходится сравнивать.
+                    BasicText(
+                        if (r.clipped == 0) tr("spec.clipped_none", lang) else r.clipped.toString(),
+                        style = TextStyle(color = if (r.clipped > 0) c.danger_text else c.text_primary, fontSize = 12.sp),
+                    )
+                }
             }
         }
         Spacer(Modifier.height(14.dp))
