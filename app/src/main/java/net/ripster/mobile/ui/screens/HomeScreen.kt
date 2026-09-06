@@ -147,8 +147,15 @@ fun HomeScreen(
         Showcase.spread(library.sortedByDescending { it.addedAt }, take = 10) { it.artist }
     }
     // Витрина коллекции — случайная выборка на этот заход, не первые 12.
-    val collectionShow = remember(library, visitSeed) {
-        Showcase.spread(library.shuffled(kotlin.random.Random(visitSeed)), take = 12) { it.artist }
+    // Уступает «недавнему»: та полка показывает ФАКТ (что пришло последним),
+    // а эта — свободный показ, и ей есть из чего выбрать. Поэтому она обходит
+    // то, что уже стоит рядом.
+    val collectionShow = remember(library, visitSeed, recentlyAdded) {
+        val shown = recentlyAdded.map { it.id }.toSet()
+        Showcase.spread(
+            library.shuffled(kotlin.random.Random(visitSeed)), take = 12,
+            avoid = shown, keyOf = { it.id },
+        ) { it.artist }
     }
     // Жанровые станции — крутим 10 из полного набора за заход.
     val waveShow = remember(visitSeed) {

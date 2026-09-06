@@ -25,26 +25,60 @@ object Showcase {
         s.lowercase().substringBefore(",").substringBefore(" feat").trim()
 
     /**
+     * ВСЕ, кто указан в строке артистов, а не только первый.
+     *
+     * Потолок считал артиста по первому имени — и «Das Kabinett, Massive
+     * Attack» проходил как посторонний. На снимке 06.09.2026 полка коллекции
+     * из-за этого оказалась целиком в Massive Attack при формально соблюдённом
+     * потолке: три обложки, три «разных» артиста, а глазом — один.
+     *
+     * Полка врала не человеку, а сама себе: она считала то, чего он не видит.
+     */
+    private fun credited(s: String): List<String> =
+        s.split(",", "&", " feat", " x ", " vs ")
+            .map { it.trim().lowercase() }
+            .filter { it.isNotBlank() }
+            .ifEmpty { listOf(norm(s)) }
+
+    /**
      * [take] вещей, не больше [maxPerArtist] от одного артиста.
      *
      * @param artistOf как достать артиста — витрина не знает типа строки.
+     * @param avoid ключи вещей, уже стоящих на СОСЕДНЕЙ полке.
+     * @param keyOf как достать ключ вещи; нужен только вместе с [avoid].
      */
     fun <T> spread(
         rows: List<T>,
         take: Int,
         maxPerArtist: Int = MAX_PER_ARTIST,
+        avoid: Set<String> = emptySet(),
+        keyOf: (T) -> String = { "" },
         artistOf: (T) -> String,
     ): List<T> {
         if (take <= 0 || rows.isEmpty()) return emptyList()
+        // Полки должны знать друг о друге. Потолок на артиста действовал
+        // ВНУТРИ полки, а между полками не действовал ничего — и на снимке
+        // 06.09.2026 «Sour Times» и «Teardrop» стояли в «Из вашей коллекции»
+        // и в «Недавно добавленном» одновременно. Две полки, показывающие
+        // одно и то же, — это одна полка и одно пустое место.
+        //
+        // Занятое соседкой не выбрасываем, а отодвигаем в конец очереди: у
+        // человека может быть ровно три альбома, и тогда пустая полка хуже
+        // повтора. Сначала показываем то, чего ещё не видно нигде.
+        val ordered = if (avoid.isEmpty()) rows else {
+            val (seen, fresh) = rows.partition { keyOf(it) in avoid }
+            fresh + seen
+        }
         val used = HashMap<String, Int>()
         val picked = ArrayList<T>(take)
         val rest = ArrayList<T>()
-        for (r in rows) {
+        for (r in ordered) {
             if (picked.size >= take) break
-            val k = norm(artistOf(r))
-            val n = used[k] ?: 0
-            if (n < maxPerArtist) {
-                used[k] = n + 1
+            // Занял место — засчитывается КАЖДОМУ, кто указан в строке.
+            // Иначе достаточно приписать соавтора, чтобы обойти потолок.
+            val names = credited(artistOf(r))
+            if (names.none { (used[it] ?: 0) >= maxPerArtist }) {
+                names.forEach { used[it] = (used[it] ?: 0) + 1 }
                 picked += r
             } else {
                 rest += r
