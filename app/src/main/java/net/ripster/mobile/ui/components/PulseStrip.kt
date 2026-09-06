@@ -1,5 +1,6 @@
 package net.ripster.mobile.ui.components
 
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -12,6 +13,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -35,8 +40,33 @@ import androidx.compose.ui.unit.dp
  * Когда работы нет, полоса ГАСНЕТ, а не замирает: остановившийся отрезок
  * читался бы как «зависло».
  */
+/** Сколько полоса держится на экране минимум — чтобы её успели заметить. */
+private const val MIN_VISIBLE_MS = 900L
+
 @Composable
 fun LoadingBar(active: Boolean, modifier: Modifier = Modifier) {
+    // Полосу надо УСПЕТЬ УВИДЕТЬ.
+    //
+    // Владелец 06.09.2026 дважды сказал «не вижу полосу», хотя пиксельный замер
+    // показывал, что она есть. Разгадка во времени: подгрузка радара занимает
+    // меньше секунды, полоса вспыхивает и гаснет прежде, чем взгляд дойдёт до
+    // верха экрана. Мелькание короче четверти секунды не сообщает ничего —
+    // это шум, а не признак.
+    //
+    // Поэтому включённое состояние удерживается не меньше MIN_VISIBLE_MS. Да,
+    // последние доли секунды полоса горит уже после конца работы — это
+    // сознательная условность показа, а не утверждение о состоянии: она и
+    // означает «только что шла работа», а не «прямо сейчас идёт байт».
+    var held by remember { mutableStateOf(false) }
+    LaunchedEffect(active) {
+        if (active) {
+            held = true
+        } else {
+            kotlinx.coroutines.delay(MIN_VISIBLE_MS)
+            held = false
+        }
+    }
+    @Suppress("NAME_SHADOWING") val active = active || held
     // Плавное появление и угасание: мгновенный скачок читается как сбой
     // отрисовки, а не как смена состояния.
     val visible by animateFloatAsState(
@@ -49,7 +79,13 @@ fun LoadingBar(active: Boolean, modifier: Modifier = Modifier) {
             initialValue = 0f, targetValue = 1f,
             animationSpec = infiniteRepeatable(
                 // Быстро — как и просили. Полный проход меньше секунды.
-                animation = tween(900, easing = LinearEasing),
+                //
+                // Сглаживание, а не линейность: на ПК полоса идёт ease-in-out,
+                // и владелец 06.09.2026 сказал про мобильную «не доезжает до
+                // конца, мы такое уже побеждали в пк версии». Линейный проход
+                // на коротком отрезке читается как рывок и обрыв — глаз ловит
+                // момент перезапуска и достраивает «не доехала».
+                animation = tween(1100, easing = FastOutSlowInEasing),
                 repeatMode = RepeatMode.Restart,
             ),
             label = "loading-shift",
