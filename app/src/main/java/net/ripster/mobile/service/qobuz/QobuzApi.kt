@@ -120,7 +120,17 @@ class QobuzApi(
         ensureAuth()
         return json.decodeFromString(
             QbAlbumFull.serializer(),
-            get("album/get") { it.addQueryParameter("album_id", id); it.addQueryParameter("extra", "tracks") },
+            // БЕЗ `extra=tracks`. Qobuz такого значения не знает и отвечает
+            // «400 Invalid argument: extra (accepted values are
+            // albumsFromSameArtist, focus, focusAll, …)». Треки он и так кладёт
+            // в ответ album/get — проверено запросом 06.09.2026: тринадцать
+            // штук без единого extra.
+            //
+            // Из-за этого параметра ломались ВСЕ ссылки Qobuz: 400 внизу
+            // трактовался как «протух app_id», код лез перескрейпить ключи, не
+            // мог — и человек читал «введи app_id и app_secret вручную». Тестер
+            // вводил, ключи были верные, и ничего не менялось.
+            get("album/get") { it.addQueryParameter("album_id", id) },
         )
     }
 
@@ -250,7 +260,23 @@ class QobuzApi(
                 // 400 у Qobuz на /catalog/search почти всегда = «Invalid or missing
                 // app_id» (протух/пустой app_id), а не проблема самого запроса.
                 // get() ловит это и один раз пере-скрейпит bundle.js.
-                if (r.code == 400) throw StaleAppId()
+                // 400 — НЕ синоним «протух app_id».
+                //
+                // Так было записано, и на этом всё и держалось: любой наш
+                // неверный запрос объявлялся смертью ключей, код лез
+                // перескрейпить bundle.js, не мог — и печатал человеку «введи
+                // app_id и app_secret вручную». Тестер вводил ВЕРНЫЕ ключи, и
+                // ничего не менялось, потому что чинили не то (06.09.2026).
+                //
+                // Читаем, что сказал сервис. Про app_id — верим и обновляем;
+                // «Invalid argument» — это наша ошибка в запросе, и прятать её
+                // за чужой причиной нельзя.
+                if (r.code == 400) {
+                    val body = runCatching { r.peekBody(2048).string() }.getOrDefault("")
+                    val aboutAppId = "app_id" in body.lowercase()
+                    if (aboutAppId) throw StaleAppId()
+                    throw IOException(EngineErrors.code(EngineErrors.HTTP, "400 " + body.take(160)))
+                }
                 if (!r.isSuccessful) throw IOException(EngineErrors.code(EngineErrors.HTTP, "${r.code} ${url.encodedPath.substringAfterLast('/')}"))
                 r.body?.string() ?: throw IOException(EngineErrors.EMPTY_STREAM)
             }
