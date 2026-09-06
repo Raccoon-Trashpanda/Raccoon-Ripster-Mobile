@@ -6,6 +6,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
@@ -114,6 +115,13 @@ fun RadarScreen(
     // Грядущее: объявлено в прессе, но ещё не вышло. Отдельно от ленты —
     // это принципиально другой список: там то, что появилось, здесь то, чего
     // ещё нет ни в одном каталоге.
+    // Открытый анонс. Владелец 06.09.2026: «по нажатию я не вижу сам релиз,
+    // описание к нему или что-то ещё, открывается лишь карточка артиста».
+    // Так и было: тап вёл к артисту, потому что у анонса нет ссылки на релиз —
+    // релиза ещё не существует. Но СВЕДЕНИЯ о нём есть, и часть из них
+    // (авторство, жанры, кто написал) не показывалась вообще нигде.
+    var openUp by remember { mutableStateOf<PcBridge.UpcomingItem?>(null) }
+
     val upcoming by produceState<List<PcBridge.UpcomingItem>>(emptyList(), bridge.paired) {
         value = if (bridge.paired) bridge.upcoming().getOrDefault(emptyList()) else emptyList()
     }
@@ -253,7 +261,7 @@ fun RadarScreen(
                                                         coverUrl = u.artwork.takeIf { it.isNotBlank() },
                                                         trackCount = u.trackCount.takeIf { it > 0 },
                                                         label = u.label.takeIf { it.isNotBlank() },
-                                                        dateText = u.date.ifBlank { tr("radar.date_unknown", lang) },
+                                                        dateText = u.date.ifBlank { tr("radar.date_unannounced", lang) },
                                                     ),
                                                     modifier = Modifier.width(160.dp),
                                                     queued = waiting[key] == true,
@@ -261,7 +269,7 @@ fun RadarScreen(
                                                     // артиста в вишлист, и релиз поймают, как только
                                                     // он появится.
                                                     actionGlyph = "☆",
-                                                    onOpen = { onOpenArtist(u.artist, "", "") },
+                                                    onOpen = { openUp = u },
                                                     onArtist = { onOpenArtist(u.artist, "", "") },
                                                     onDownload = {
                                                         scope.launch {
@@ -439,6 +447,128 @@ fun RadarScreen(
                             }
                         }
                         Box(Modifier.fillMaxWidth().height(1.dp).background(c.border_subtle))
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Карточка анонса ─────────────────────────────────────────────────────
+    openUp?.let { u ->
+        val upKey = u.artist + "|" + u.title
+        Box(
+            Modifier.fillMaxSize()
+                // Тап мимо листа закрывает. Без ripple: вспышка на затемнении
+                // читается как отдельный элемент, которого тут нет.
+                .background(Color.Black.copy(alpha = 0.62f))
+                .clickable(
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() },
+                ) { openUp = null },
+            contentAlignment = Alignment.BottomCenter,
+        ) {
+            // Клики самого листа перехватываем: иначе тап по нему уходил бы
+            // в подложку и закрывал то, что человек только что открыл.
+            Box(
+                Modifier.clickable(
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() },
+                ) {},
+            ) {
+                net.ripster.mobile.ui.components.RipsterSheet {
+                    Column(Modifier.fillMaxWidth()) {
+                        net.ripster.mobile.ui.components.RipsterSheetHandle(
+                            Modifier.align(Alignment.CenterHorizontally),
+                        )
+                        Spacer(Modifier.height(14.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            net.ripster.mobile.ui.components.Cover(
+                                url = u.artwork.takeIf { it.isNotBlank() },
+                                modifier = Modifier.size(96.dp),
+                                shape = RoundedCornerShape(10.dp),
+                            )
+                            Column(Modifier.weight(1f)) {
+                                BasicText(
+                                    u.title.ifBlank { tr("radar.untitled_release", lang) },
+                                    style = TextStyle(color = c.text_primary, fontSize = 17.sp, fontWeight = FontWeight.W700),
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                BasicText(
+                                    u.artist,
+                                    Modifier.clickable { openUp = null; onOpenArtist(u.artist, "", "") },
+                                    style = TextStyle(color = c.accent_text, fontSize = 13.sp),
+                                )
+                                Spacer(Modifier.height(6.dp))
+                                BasicText(
+                                    u.kind.uppercase(),
+                                    style = TextStyle(color = c.text_tertiary, fontSize = 11.sp, letterSpacing = 1.sp),
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(16.dp))
+
+                        // Строка показывается ТОЛЬКО когда данные есть. Пустое
+                        // поле с прочерком читается как «мы проверили, и там
+                        // ничего нет», а на деле мы просто не знаем.
+                        UpRow(tr("up.date", lang), u.date.ifBlank { tr("radar.date_unannounced", lang) }, c)
+                        if (u.credits.isNotBlank() && u.credits != u.artist) UpRow(tr("up.credits", lang), u.credits, c)
+                        if (u.label.isNotBlank()) UpRow(tr("up.label", lang), u.label, c)
+                        if (u.trackCount > 0) UpRow(tr("up.tracks", lang), u.trackCount.toString(), c)
+                        if (u.genres.isNotEmpty()) {
+                            // Жанры от новостных лент приходят на своём языке —
+                            // сводим тем же канонизатором, что и карточку
+                            // релиза, а не печатаем сырьём.
+                            val shown = u.genres.mapNotNull { g ->
+                                net.ripster.mobile.core.service.GenreKey.of(g)
+                                    ?.let { tr("genre." + it, lang) } ?: g.takeIf { it.isNotBlank() }
+                            }.distinct()
+                            if (shown.isNotEmpty()) UpRow(tr("up.genres", lang), shown.joinToString(", "), c)
+                        }
+                        if (u.sources.isNotEmpty()) {
+                            UpRow(tr("up.sources", lang), u.sources.distinct().joinToString(", "), c)
+                        }
+
+                        Spacer(Modifier.height(12.dp))
+                        BasicText(
+                            tr("up.sources_note", lang),
+                            style = TextStyle(color = c.text_tertiary, fontSize = 11.sp),
+                        )
+                        Spacer(Modifier.height(18.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            val waitingNow = waiting[upKey] == true
+                            Box(
+                                Modifier.weight(1f).clip(RoundedCornerShape(24.dp))
+                                    .background(if (waitingNow) c.surface_raised else c.accent_fill)
+                                    .clickable(enabled = !waitingNow) {
+                                        scope.launch {
+                                            if (bridge.waitFor(u.artist).isSuccess) waiting[upKey] = true
+                                        }
+                                    }
+                                    .padding(vertical = 12.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                BasicText(
+                                    tr(if (waitingNow) "up.waiting" else "up.wait", lang),
+                                    style = TextStyle(
+                                        color = if (waitingNow) c.text_secondary else Color(0xFF0D0F13),
+                                        fontSize = 13.sp, fontWeight = FontWeight.W700,
+                                    ),
+                                )
+                            }
+                            Box(
+                                Modifier.weight(1f).clip(RoundedCornerShape(24.dp))
+                                    .border(1.dp, c.border_subtle, RoundedCornerShape(24.dp))
+                                    .clickable { openUp = null; onOpenArtist(u.artist, "", "") }
+                                    .padding(vertical = 12.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                BasicText(
+                                    tr("up.open_artist", lang),
+                                    style = TextStyle(color = c.text_primary, fontSize = 13.sp, fontWeight = FontWeight.W600),
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
                     }
                 }
             }
@@ -683,5 +813,15 @@ private fun relTime(iso: String?, lang: net.ripster.mobile.ui.i18n.AppLang): Str
         mins < 60 -> "${mins}m"
         mins < 1440 -> "${mins / 60}h"
         else -> "${mins / 1440}d"
+    }
+}
+
+
+/** Строка «метка — значение» в карточке анонса. */
+@Composable
+private fun UpRow(label: String, value: String, c: net.ripster.mobile.ui.theme.RipsterColors) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+        BasicText(label, Modifier.width(112.dp), style = TextStyle(color = c.text_tertiary, fontSize = 12.sp))
+        BasicText(value, style = TextStyle(color = c.text_primary, fontSize = 12.sp))
     }
 }
