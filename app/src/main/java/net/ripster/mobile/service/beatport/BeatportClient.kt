@@ -307,23 +307,79 @@ class BeatportClient(
         val pref = request.forcedQualityId?.let { listOf(it) } ?: request.qualityPreference
         val si = streamInfo(track, pref)
         emit(DownloadEvent.Log("Beatport: ${si.quality.label}"))
-        val out = File(cacheDir, "bp_${track.raw["bpId"]}.${si.quality.container}")
+        val out = File(cacheDir, "bp_${track.raw["bpId"]}.tmp")
         val req = Request.Builder().url(si.url).header("User-Agent", "libbeatport/v2.8.2").build()
         RipsterHttp.client.newCall(req).execute().use { r ->
             if (!r.isSuccessful) throw IOException(EngineErrors.code(EngineErrors.HTTP, "HTTP ${r.code}"))
             val total = r.body?.contentLength()?.takeIf { it > 0 }
             val src = r.body?.byteStream() ?: throw IOException(EngineErrors.EMPTY_STREAM)
+            // Первые байты держим отдельно: по ним потом опознаём, что реально
+            // пришло. Читать файл заново ради четырёх байт незачем.
+            val head = ByteArray(12)
+            var headLen = 0
             out.outputStream().use { os ->
                 val buf = ByteArray(64 * 1024); var got = 0L
                 while (true) {
                     val n = src.read(buf); if (n < 0) break
+                    if (headLen < head.size) {
+                        val take = minOf(head.size - headLen, n)
+                        System.arraycopy(buf, 0, head, headLen, take)
+                        headLen += take
+                    }
                     os.write(buf, 0, n); got += n
                     emit(DownloadEvent.Progress(total?.let { got.toFloat() / it }, got, total))
                 }
             }
-            emit(DownloadEvent.Done(out.absolutePath, si.quality, out.length()))
+
+            // ЧТО ПРИШЛО, А НЕ ЧТО ПРОСИЛИ.
+            //
+            // Владелец 06.09.2026: «битпорт отдаёт флак при любом выборе — что
+            // FLAC жми, что не FLAC». Мы подписывали файл ЗАПРОШЕННЫМ тиром и
+            // давали ему расширение того же тира. Если сервис отдаёт не то, о
+            // чём его просили, получался файл, который врёт дважды: бейдж
+            // «AAC 256» и имя `.m4a` на данных FLAC — и это ломало не только
+            // подпись, но и проигрывание, потому что расширение не совпадало
+            // с содержимым.
+            //
+            // Спорить с Beatport бесполезно и не нужно: содержимое опознаётся
+            // по сигнатуре однозначно. Тир и расширение берём у файла.
+            val real = tierOfBytes(head, headLen) ?: si.quality
+            if (real.id != si.quality.id) {
+                android.util.Log.i(
+                    "RipsterBeatport",
+                    "asked ${si.quality.id}, got ${real.id} — labelling what arrived",
+                )
+                emit(DownloadEvent.Log("Beatport: got ${real.label}, not ${si.quality.label}"))
+            }
+            val fixed = File(cacheDir, "bp_${track.raw["bpId"]}.${real.container}")
+            if (out.renameTo(fixed)) {
+                emit(DownloadEvent.Done(fixed.absolutePath, real, fixed.length()))
+            } else {
+                // Переименовать не вышло (редко, но возможно) — отдаём как есть.
+                // Соврать про формат хуже, чем отдать файл со странным именем.
+                emit(DownloadEvent.Done(out.absolutePath, real, out.length()))
+            }
         }
     }.flowOn(Dispatchers.IO)
+
+    /**
+     * Что это за файл — по сигнатуре первых байт. null, если непонятно.
+     *
+     * Незнакомое НЕ объявляем ничем: подставленный наугад формат — ровно та
+     * ложь, ради которой всё это и написано.
+     */
+    private fun tierOfBytes(b: ByteArray, len: Int): QualityTier? {
+        if (len < 4) return null
+        fun ascii(off: Int, s: String): Boolean =
+            len >= off + s.length && (0 until s.length).all { b[off + it].toInt().toChar() == s[it] }
+        return when {
+            ascii(0, "fLaC") -> flac
+            // MP4/M4A: размер бокса, затем 'ftyp'.
+            ascii(4, "ftyp") -> aac
+            ascii(0, "ID3") -> null              // MP3-тег: битрейт по сигнатуре не узнать
+            else -> null
+        }
+    }
 
     private fun jstr(s: String) = "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
