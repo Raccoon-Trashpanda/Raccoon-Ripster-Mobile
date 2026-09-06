@@ -121,39 +121,41 @@ fun LoadingBar(active: Boolean, modifier: Modifier = Modifier) {
         // проверено на эмуляторе, первая версия не рисовалась вовсе.
         val segment = w * 0.30f
         val x = -segment + (w + segment) * shift
-        drawRect(
-            color = PURPLE.copy(alpha = 0.95f * visible),
-            topLeft = Offset(x.coerceAtLeast(0f), 0f),
-            size = Size(
-                (segment + minOf(0f, x)).coerceIn(0f, w - x.coerceAtLeast(0f)),
-                h,
-            ),
-        )
-        // СВЕЧЕНИЕ вокруг отрезка — то, чем ПК-полоса и берёт (там это
-        // box-shadow вокруг бегущего отрезка). Без него полоса на тёмной шапке
-        // сливается с фоном: сама она есть, а глаз её не находит.
+
+        // Обрезка по краям — ОДНИМ способом на все слои.
         //
-        // Рисуем несколькими всё более широкими и всё более прозрачными
-        // прямоугольниками: на семи точках высоты это дешевле и предсказуемее
-        // настоящего размытия, которого на Android 11 (A31) всё равно нет.
-        for (i in 3 downTo 1) {
-            val grow = segment * 0.18f * i
-            val gx = (x - grow).coerceAtLeast(0f)
+        // Раньше каждый слой прижимал своё левое ребро через coerceAtLeast(0),
+        // НЕ убавляя ширину. Пока отрезок ещё за левой кромкой, свечение и след
+        // рисовались как широкий блок у самого края — и владелец 06.09.2026
+        // увидел ровно это: «в самом начале хода она уже стартует с середины,
+        // там уже есть что-то… криво получается». Так и было: полоса начинала
+        // ход не с пустоты, а с пятна.
+        //
+        // Здесь левое ребро и ширина считаются вместе: то, что вышло за кромку,
+        // из ширины вычитается.
+        fun band(left: Float, width: Float, alpha: Float) {
+            val l = left.coerceAtLeast(0f)
+            val r = (left + width).coerceAtMost(w)
+            if (r <= l) return
             drawRect(
-                color = PURPLE.copy(alpha = (0.14f / i) * visible),
-                topLeft = Offset(gx, 0f),
-                size = Size((segment + grow * 2f).coerceAtMost(w - gx), h),
+                color = PURPLE.copy(alpha = alpha * visible),
+                topLeft = Offset(l, 0f), size = Size(r - l, h),
             )
         }
-        // Неоновый след: тот же отрезок, шире и полупрозрачнее.
-        drawRect(
-            color = PURPLE.copy(alpha = 0.30f * visible),
-            topLeft = Offset((x - segment * 0.35f).coerceAtLeast(0f), 0f),
-            size = Size(
-                (segment * 1.7f).coerceAtMost(w - (x - segment * 0.35f).coerceAtLeast(0f)),
-                h,
-            ),
-        )
+
+        // СВЕЧЕНИЕ вокруг отрезка — то, чем ПК-полоса и берёт (там это
+        // box-shadow). Рисуем несколькими всё более широкими и всё более
+        // прозрачными полосами: на семи точках высоты это дешевле и
+        // предсказуемее настоящего размытия, которого на Android 11 нет.
+        // Сначала широкие и тусклые, поверх — сам отрезок.
+        for (k in 3 downTo 1) {
+            val grow = segment * 0.18f * k
+            band(x - grow, segment + grow * 2f, 0.14f / k)
+        }
+        // Неоновый след — тот же отрезок, шире и полупрозрачнее.
+        band(x - segment * 0.35f, segment * 1.7f, 0.30f)
+        // Сам отрезок — сверху, самый яркий.
+        band(x, segment, 0.95f)
     }
 }
 

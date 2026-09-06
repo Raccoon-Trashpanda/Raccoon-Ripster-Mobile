@@ -12,6 +12,7 @@ import androidx.work.WorkManager
 import androidx.work.workDataOf
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
@@ -43,6 +44,13 @@ class DownloadQueue(
     // из них закоммитила upsert, обе видят «активных нет» и обе вставляют строку.
     // Ровно это на видео 03.09.2026: «Jacob and the Stone» дважды в очереди.
     private val enqueueLock = Mutex()
+
+    // Своя область для действий, у которых нет вызывающей корутины: отмена
+    // приходит прямо из обработчика нажатия. SupervisorJob — чтобы одна
+    // упавшая отмена не уносила остальные.
+    private val scope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO,
+    )
 
     suspend fun enqueue(track: Track, forcedQualityId: String? = null): String = enqueueLock.withLock {
         // Дедуп: повторный тап «Скачать» по тому же треку (или трек альбома,
@@ -138,8 +146,22 @@ class DownloadQueue(
 
     fun cancel(id: String) {
         wm.cancelUniqueWork("dl_$id")
-        // Финальное состояние CANCELLED проставит сам воркер, поймав отмену;
-        // если он ещё не стартовал — подчистим здесь при следующем наблюдении.
+        // Раньше здесь стояло: «финальное состояние проставит сам воркер, а
+        // если он ещё не стартовал — подчистим при следующем наблюдении».
+        // Никакой подчистки не было. Задача, отменённая ДО запуска, оставалась
+        // в состоянии «в очереди» навсегда, и человек видел: нажал «Отмена» —
+        // ничего не произошло. Тестер 06.09.2026: «нажатие кнопки Отмена не
+        // приводит к отмене загрузки»; при этом «Очистить всё» работало —
+        // потому что оно правит базу напрямую.
+        //
+        // Теперь состояние проставляем сами и сразу. Для уже идущей задачи
+        // воркер поставит своё CANCELLED, поймав отмену, — то же значение,
+        // расхождения не будет.
+        scope.launch {
+            val row = dao.get(id) ?: return@launch
+            if (row.state == DownloadState.DONE.name) return@launch   // доделанное не отменяют
+            dao.setState(id, DownloadState.CANCELLED.name, System.currentTimeMillis())
+        }
     }
 
     suspend fun retry(id: String): String? {
