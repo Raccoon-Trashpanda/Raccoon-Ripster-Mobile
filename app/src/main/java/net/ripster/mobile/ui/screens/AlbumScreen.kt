@@ -330,7 +330,22 @@ fun AlbumScreen(
                         val n = album?.trackCount ?: tracks.size
                         if (n > 0) add("$n " + tr("search.tracks_short", lang))
                         if (totalMs > 0) add(fmtDur(totalMs / 1000))
-                        genre?.let { add(it) }
+                        // Жанр — НЕ сырой строкой от сервиса.
+                        //
+                        // Сервис отдаёт ярлык на языке своей витрины: Deezer
+                        // прислал «Електро» на полностью английский интерфейс
+                        // (владелец, 06.09.2026). Строка тут же и печаталась,
+                        // минуя канонизатор, — а он у нас есть и как раз для
+                        // этого написан.
+                        //
+                        // Не узнали жанр — показываем как прислали. Это честнее
+                        // молчания: слово от сервиса всё-таки сведения, просто
+                        // непереведённые. Врать переводом того, чего мы не
+                        // поняли, нельзя.
+                        genre?.let { raw ->
+                            val key = net.ripster.mobile.core.service.GenreKey.of(raw)
+                            add(if (key != null) tr("genre.$key", lang) else raw)
+                        }
                     }.joinToString("  ·  ")
                     if (meta.isNotBlank()) {
                         BasicText(meta, style = TextStyle(color = c.text_disabled, fontSize = 12.sp))

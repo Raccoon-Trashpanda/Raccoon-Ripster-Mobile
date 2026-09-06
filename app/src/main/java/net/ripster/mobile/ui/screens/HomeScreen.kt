@@ -540,14 +540,30 @@ fun HomeScreen(
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
                     radar.forEach { r ->
-                        // готовая обложка с ПК приоритетнее; скрейп зовём только если её нет
-                        val scraped = net.ripster.mobile.ui.components.rememberReleaseCover(
-                            if (r.coverUrl != null) "" else r.latestUrl,
-                        )
-                        val cover = r.coverUrl ?: scraped
+                        // Название релиза и обложка приходят ОДНИМ запросом — тем
+                        // самым, за которым мы и так ходили ради картинки.
+                        //
+                        // Раньше здесь стояло `title = r.name, artist = r.name`: одно и
+                        // то же поле дважды. У радара названия релиза нет, есть только
+                        // имя артиста, и карточка выдавала его за заголовок — владелец
+                        // 06.09.2026 увидел подряд «Maribou State / Maribou State»,
+                        // «Jayline / Jayline», «Cheremuha / Cheremuha».
+                        //
+                        // Обложка с ПК по-прежнему в приоритете, но за названием идём
+                        // и в этом случае: картинка у нас была, а название — нет.
+                        val info = net.ripster.mobile.ui.components.rememberReleaseInfo(r.latestUrl)
+                        val cover = r.coverUrl ?: info.cover
+                        // Не узнали названия — показываем имя артиста ОДИН раз, а второй
+                        // строкой дату выхода, которая у радара есть и которую здесь
+                        // раньше просто выбрасывали (dateText = null). Повторять одно и
+                        // то же дважды — это не «нет данных», это вид обмана.
+                        val realTitle = info.title
                         val cd = net.ripster.mobile.ui.components.ReleaseCardData(
-                            title = r.name, artist = r.name, service = r.service.ifBlank { "radar" },
-                            url = r.latestUrl, coverUrl = cover, isNew = true, dateText = null,
+                            title = realTitle ?: r.name,
+                            artist = if (realTitle != null) r.name else "",
+                            service = r.service.ifBlank { "radar" },
+                            url = r.latestUrl, coverUrl = cover, isNew = true,
+                            dateText = if (realTitle == null) r.date?.takeIf { it.isNotBlank() } else null,
                         )
                         var buffering by remember { mutableStateOf(false) }
                         net.ripster.mobile.ui.components.ReleaseCard(

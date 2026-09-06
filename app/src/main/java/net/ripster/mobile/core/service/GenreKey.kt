@@ -105,9 +105,25 @@ object GenreKey {
         of(IDM, "idm", "experimental")
         of(DOWNTEMPO, "downtempo", "lounge", "chillout", "chill out")
         of(TRIPHOP, "trip hop", "triphop")
-        of(ELECTRONIC, "electronic", "electronica", "electro", "edm")
+        of(ELECTRONIC, "electronic", "electronica", "electro", "edm",
+            // Кириллица: сервисы отдают жанр на языке витрины, и «Електро»
+            // (украинская раскладка Deezer) приезжала как есть на английский
+            // интерфейс — жалоба владельца 06.09.2026.
+            "электро", "електро", "электроника", "електроніка")
         of(DANCE, "dance")
         of(DISCO, "disco")
+        // Кириллические написания: ярлык приходит на языке сервиса, а жанр от
+        // этого не меняется. Без них канонизатор не узнаёт свой же жанр.
+        of(TECHNO, "техно"); of(HOUSE, "хаус"); of(TRANCE, "транс")
+        of(AMBIENT, "эмбиент", "эмбиэнт"); of(DISCO, "диско")
+        of(ROCK, "рок"); of(METAL, "метал", "метал-рок"); of(PUNK, "панк")
+        of(POP, "поп", "поп-музыка"); of(RAP, "рэп", "хип-хоп", "хіп-хоп")
+        of(SOUL, "соул"); of(FUNK, "фанк"); of(JAZZ, "джаз"); of(BLUES, "блюз")
+        of(CLASSICAL, "классика", "классическая", "класична"); of(REGGAE, "регги")
+        of(LATIN, "латина"); of(COUNTRY, "кантри"); of(FOLK, "фолк", "народная")
+        of(DANCE, "танцевальная", "танцювальна"); of(DNB, "драм-н-бэйс")
+        of(SOUNDTRACK, "саундтрек"); of(KIDS, "детская", "дитяча")
+
         of(ROCK, "rock", "hard rock", "classic rock", "post rock", "stoner rock", "psychedelic rock")
         of(METAL, "metal", "heavy metal", "black metal", "death metal", "thrash metal",
             "doom metal", "metalcore")
