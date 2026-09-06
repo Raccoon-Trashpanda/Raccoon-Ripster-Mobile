@@ -18,15 +18,43 @@ set(ALAC_SRC
     alac/matrix_dec.c
     alac/ALACDecoder.cpp)
 
+# WavPack 5.7.0 (BSD-3, David Bryant) — только распаковка, без упаковки.
+# Пункт трекера a4: «ALAC готов · APE/WavPack/DSD дальше».
+#
+# ENABLE_DSD включён намеренно: WavPack умеет нести DSD, и это первый путь,
+# которым DSD вообще попадает в наш тракт. Отдельные .dsf/.dff — следующим
+# шагом, у них свой контейнер.
+set(WAVPACK_SRC
+    wavpack/common_utils.c
+    wavpack/decorr_utils.c
+    wavpack/entropy_utils.c
+    wavpack/open_utils.c
+    wavpack/open_raw.c
+    wavpack/read_words.c
+    wavpack/tags.c
+    wavpack/tag_utils.c
+    wavpack/unpack.c
+    wavpack/unpack_dsd.c
+    wavpack/unpack_floats.c
+    wavpack/unpack_seek.c
+    wavpack/unpack_utils.c)
+
 add_library(ripster_audio SHARED
     native_audio.cpp
     dr_impl.c
-    ${ALAC_SRC})
+    ${ALAC_SRC}
+    ${WAVPACK_SRC})
 
-target_include_directories(ripster_audio PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/alac)
+target_include_directories(ripster_audio PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/alac
+    ${CMAKE_CURRENT_SOURCE_DIR}/wavpack)
+target_compile_definitions(ripster_audio PRIVATE ENABLE_DSD=1 NO_TAGS=0)
 target_compile_options(ripster_audio PRIVATE -O2 -fvisibility=hidden)
 # ALAC-код старый — не воюем с его предупреждениями.
 set_source_files_properties(${ALAC_SRC} PROPERTIES COMPILE_FLAGS "-w")
+# Чужая библиотека — её предупреждения не наши; правя их, мы бы разошлись с
+# апстримом и потеряли возможность обновляться.
+set_source_files_properties(${WAVPACK_SRC} PROPERTIES COMPILE_FLAGS "-w")
 
 target_link_libraries(ripster_audio
     oboe::oboe

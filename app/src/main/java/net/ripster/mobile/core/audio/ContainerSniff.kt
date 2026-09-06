@@ -44,6 +44,10 @@ object ContainerSniff {
             ascii(0, "FORM") && (ascii(8, "AIFF") || ascii(8, "AIFC")) -> "aiff"
             // Размер бокса впереди — сама сигнатура стоит на 4-м байте.
             ascii(4, "ftyp") -> "m4a"
+            // WavPack: сигнатура «wvpk» в самом начале. Отдельные .wvc
+            // (correction-файл для гибридного режима) без основного файла
+            // самостоятельного смысла не имеют и сюда не попадают.
+            ascii(0, "wvpk") -> "wv"
             ascii(0, "OggS") -> "ogg"
             ascii(0, "DSD ") -> "dsf"
             ascii(0, "ID3") -> "mp3"

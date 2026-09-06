@@ -151,7 +151,8 @@ class PlayerController(context: Context) {
         val p = path?.lowercase() ?: return false
         val local = p.startsWith("content://") || p.startsWith("file://") || p.startsWith("/")
         return local && (p.endsWith(".flac") || p.endsWith(".wav") ||
-            p.endsWith(".m4a") || p.endsWith(".alac") || p.endsWith(".m4b") || p.endsWith(".mp4"))
+            p.endsWith(".m4a") || p.endsWith(".alac") || p.endsWith(".m4b") ||
+            p.endsWith(".mp4") || p.endsWith(".wv"))
     }
 
     /**
@@ -178,6 +179,11 @@ class PlayerController(context: Context) {
         // часть очереди, которая ему по силам. Это осознанный размен: очередь
         // становится короче списка на экране. Молчание вместо музыки — хуже.
         val wanted = items.getOrNull(startIndex.coerceIn(0, items.size - 1))
+        android.util.Log.i(
+            "RipsterPlayer",
+            "native gate: enabled=$nativeEnabled avail=${NativeAudioEngine.isAvailable} " +
+                "path=${wanted?.filePath} lossless=${isLocalLossless(wanted?.filePath)}",
+        )
         if (wanted == null || !isLocalLossless(wanted.filePath)) return false
 
         val playable = items.filter { isLocalLossless(it.filePath) }

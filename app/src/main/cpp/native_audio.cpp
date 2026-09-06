@@ -32,6 +32,7 @@
 
 #include "dr_flac.h"
 #include "dr_wav.h"
+#include "wavpack.h"
 #include "alac/ALACDecoder.h"
 #include "alac/ALACBitUtilities.h"
 
@@ -79,6 +80,45 @@ drwav_bool32 wav_seek(void* user, int off, drwav_seek_origin o) {
 }
 drwav_bool32 wav_tell(void* user, drwav_int64* c) { *c = static_cast<FdSource*>(user)->pos; return DRWAV_TRUE; }
 
+// ── WavPack поверх того же fd ──────────────────────────────────────────────
+//
+// Библиотека умеет работать через свой набор колбэков, поэтому файл ей не
+// нужен — отдаём тот же дескриптор, что и остальным декодерам. Это важно:
+// путь к файлу у нас есть не всегда (SAF отдаёт только fd), и открытие по
+// имени сломало бы импорт из чужих папок.
+int32_t wv_read(void* id, void* data, int32_t bcount) {
+    auto* s = static_cast<FdSource*>(id);
+    ssize_t n = ::pread(s->fd, data, (size_t) bcount, s->pos);
+    if (n <= 0) return 0;
+    s->pos += n;
+    return (int32_t) n;
+}
+int wv_push_back(void* id, int c) {
+    auto* s = static_cast<FdSource*>(id);
+    if (s->pos > 0) s->pos--;
+    return c;
+}
+int64_t wv_get_pos(void* id) { return static_cast<FdSource*>(id)->pos; }
+int wv_set_pos_abs(void* id, int64_t pos) {
+    auto* s = static_cast<FdSource*>(id);
+    s->pos = pos < 0 ? 0 : pos;
+    return 0;
+}
+int wv_set_pos_rel(void* id, int64_t delta, int mode) {
+    auto* s = static_cast<FdSource*>(id);
+    int64_t base = (mode == SEEK_SET) ? 0 : (mode == SEEK_CUR) ? s->pos : s->size;
+    int64_t p = base + delta;
+    s->pos = p < 0 ? 0 : p;
+    return 0;
+}
+int64_t wv_get_length(void* id) { return static_cast<FdSource*>(id)->size; }
+int wv_can_seek(void* id) { (void) id; return 1; }
+int32_t wv_write(void* id, void* data, int32_t bcount) {
+    // Только чтение: упаковка нам не нужна и вендорить её не за чем.
+    (void) id; (void) data; (void) bcount;
+    return 0;
+}
+
 // ── один декодер (FLAC | WAV), интерливнутый f32 наружу ────────────────────
 struct Decoder {
     FdSource src{};
@@ -90,6 +130,14 @@ struct Decoder {
     int64_t  totalFrames = 0;
 
     // ── ALAC через AMediaExtractor (демукс) + Apple ALACDecoder (декод) ──
+    // ── WavPack ──
+    WavpackContext*  wv     = nullptr;
+    FdSource         wvSrc{};
+    WavpackStreamReader64 wvReader{};
+    std::vector<int32_t>  wvBuf;      // WavPack отдаёт int32 на семпл
+    float            wvScale = 1.0f;  // делитель к float по разрядности файла
+    char             wvErr[80] = {0};
+
     AMediaExtractor* ex     = nullptr;
     ALACDecoder*     alac   = nullptr;
     uint32_t         aFrameLen = 4096;
@@ -102,6 +150,7 @@ struct Decoder {
         close();
         fmt = f;
         if (f == 2) return openAlac(fd);
+        if (f == 3) return openWavPack(fd);
         src.fd = ::dup(fd);
         src.pos = 0;
         { struct stat st{}; src.size = (::fstat(src.fd, &st) == 0) ? (int64_t) st.st_size : 0; }
@@ -130,6 +179,51 @@ struct Decoder {
             bits = (int) wav.bitsPerSample;
             totalFrames = (int64_t) wav.totalPCMFrameCount;
         } else return false;
+        return channels > 0 && sampleRate > 0;
+    }
+
+    // WavPack (.wv). Пункт трекера a4: «ALAC готов · APE/WavPack/DSD дальше».
+    //
+    // Отдельный FdSource: библиотека держит своё положение в потоке, и делить
+    // его с dr_flac/dr_wav нельзя — второй декодер сбивал бы первому позицию.
+    bool openWavPack(int fd) {
+        wvSrc.fd = ::dup(fd);
+        wvSrc.pos = 0;
+        { struct stat st{}; wvSrc.size = (::fstat(wvSrc.fd, &st) == 0) ? (int64_t) st.st_size : 0; }
+        wvReader.read_bytes    = wv_read;
+        wvReader.write_bytes   = wv_write;
+        wvReader.get_pos       = wv_get_pos;
+        wvReader.set_pos_abs   = wv_set_pos_abs;
+        wvReader.set_pos_rel   = wv_set_pos_rel;
+        wvReader.push_back_byte = wv_push_back;
+        wvReader.get_length    = wv_get_length;
+        wvReader.can_seek      = wv_can_seek;
+        wvErr[0] = 0;
+        // OPEN_DSD_NATIVE: файлы с DSD внутри WavPack читаем как есть, а не
+        // отказываемся от них. OPEN_NORMALIZE даёт единый масштаб для float-
+        // потоков. Второго (correction) файла у нас нет — отдаём nullptr.
+        wv = WavpackOpenFileInputEx64(
+                &wvReader, &wvSrc, nullptr, wvErr,
+                OPEN_NORMALIZE | OPEN_DSD_NATIVE, 0);
+        if (!wv) {
+            LOGW("WavpackOpenFileInputEx64 failed: %s (size=%lld)",
+                 wvErr[0] ? wvErr : "no reason given", (long long) wvSrc.size);
+            close();
+            return false;
+        }
+        channels    = WavpackGetNumChannels(wv);
+        sampleRate  = (int) WavpackGetSampleRate(wv);
+        bits        = WavpackGetBitsPerSample(wv);
+        totalFrames = (int64_t) WavpackGetNumSamples64(wv);
+        // WavPack всегда отдаёт int32 в семпле; во float приводим по РАЗРЯДНОСТИ
+        // ФАЙЛА, а не по 32 битам, иначе 16-битная запись звучала бы на 48 дБ
+        // тише положенного.
+        const int shift = WavpackGetBytesPerSample(wv) * 8;
+        wvScale = 1.0f / (float) (1LL << (shift - 1));
+        if ((WavpackGetMode(wv) & MODE_FLOAT) != 0) wvScale = 1.0f;  // уже float
+        LOGI("wavpack ok: %dHz %dch %dbit frames=%lld%s",
+             sampleRate, channels, bits, (long long) totalFrames,
+             (WavpackGetQualifyMode(wv) & QMODE_DSD_AUDIO) ? " (DSD)" : "");
         return channels > 0 && sampleRate > 0;
     }
 
@@ -186,6 +280,12 @@ struct Decoder {
         if (wavOpen) { drwav_uninit(&wav); wavOpen = false; }
         if (alac) { delete alac; alac = nullptr; }
         if (ex) { AMediaExtractor_delete(ex); ex = nullptr; }
+        // Свой дескриптор WavPack закрываем ОТДЕЛЬНО: он дублировался под
+        // отдельный источник, и утечка тут копилась бы по треку на каждый
+        // переход в очереди.
+        if (wv) { WavpackCloseFile(wv); wv = nullptr; }
+        if (wvSrc.fd >= 0) { ::close(wvSrc.fd); wvSrc.fd = -1; }
+        wvBuf.clear();
         if (src.fd >= 0) { ::close(src.fd); src.fd = -1; }
         aStage.clear(); aStagePos = 0; aEos = false;
         fmt = -1;
@@ -228,6 +328,15 @@ struct Decoder {
     int64_t read(float* out, int64_t frames) {
         if (fmt == 0 && flac) return (int64_t) drflac_read_pcm_frames_f32(flac, (drflac_uint64) frames, out);
         if (fmt == 1 && wavOpen) return (int64_t) drwav_read_pcm_frames_f32(&wav, (drwav_uint64) frames, out);
+        if (fmt == 3 && wv) {
+            const size_t need = (size_t) frames * (size_t) channels;
+            if (wvBuf.size() < need) wvBuf.resize(need);
+            uint32_t got = WavpackUnpackSamples(wv, wvBuf.data(), (uint32_t) frames);
+            if (got == 0) return 0;
+            const size_t n = (size_t) got * (size_t) channels;
+            for (size_t i = 0; i < n; ++i) out[i] = (float) wvBuf[i] * wvScale;
+            return (int64_t) got;
+        }
         if (fmt == 2 && alac) {
             int64_t need = frames * channels, done = 0;
             while (done < need) {
@@ -248,6 +357,7 @@ struct Decoder {
     bool seek(int64_t frame) {
         if (fmt == 0 && flac) return drflac_seek_to_pcm_frame(flac, (drflac_uint64) frame) == DRFLAC_TRUE;
         if (fmt == 1 && wavOpen) return drwav_seek_to_pcm_frame(&wav, (drwav_uint64) frame) == DRWAV_TRUE;
+        if (fmt == 3 && wv) return WavpackSeekSample64(wv, (int64_t) frame) != 0;
         if (fmt == 2 && ex) {
             int64_t us = sampleRate > 0 ? frame * 1000000 / sampleRate : 0;
             AMediaExtractor_seekTo(ex, us, AMEDIAEXTRACTOR_SEEK_PREVIOUS_SYNC);

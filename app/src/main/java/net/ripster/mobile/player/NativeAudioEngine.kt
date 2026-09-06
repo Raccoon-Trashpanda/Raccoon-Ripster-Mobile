@@ -200,6 +200,10 @@ object NativeAudioEngine {
         when (sniff(context, uri)) {
             "flac" -> return 0
             "wav" -> return 1
+            // WavPack — наш, и это ЕДИНСТВЕННЫЙ путь: системный декодер
+            // Android его не читает вовсе, то есть на ExoPlayer такой файл
+            // означал бы тишину.
+            "wv" -> return 3
             "m4a" -> return if (isAlacContainer(context, uri)) 2 else -1
             // Опознали что-то заведомо чужое (mp3/ogg) — нативный тракт не про них.
             "mp3", "ogg", "dsf", "aiff" -> return -1
@@ -208,6 +212,7 @@ object NativeAudioEngine {
         when {
             name.endsWith(".flac") || "flac" in mime -> return 0
             name.endsWith(".wav") || "wav" in mime || "x-wav" in mime -> return 1
+            name.endsWith(".wv") -> return 3
         }
         // .m4a / .alac / .mp4 — только если внутри реально ALAC (не AAC).
         if (name.endsWith(".m4a") || name.endsWith(".alac") || name.endsWith(".mp4") ||
