@@ -139,22 +139,53 @@ fun HomeScreen(
         }
     }
 
+    // Как вещь ВЫГЛЯДИТ на карточке — этим полки и сверяются между собой.
+    // Обложка, а если её нет — название: пустая строка склеила бы всё
+    // безобложечное в одну «одинаковую» кучу.
+    // Три приметы, по которым человек узнаёт «это же самое»: картинка,
+    // подпись и — главное — сама песня.
+    //
+    // Последняя нужна потому, что в фонотеке лежат почти-дубли: «Cyberverse» и
+    // «Cyberverse (Over Slowed)» того же Navjaxx, одна песня в двух видах.
+    // Ни обложка (разные ссылки), ни подпись (разные слова) их не связывают, а
+    // на полке они стоят рядом и читаются как сбой. Скобочный хвост
+    // (ремастер, версия, «Over Slowed») отбрасываем и сверяем песню с её
+    // основным автором: «Teardrop» Massive Attack и «Teardrop» Das Kabinett
+    // при этом остаются РАЗНЫМИ — это и правда разные записи.
+    fun look(it: net.ripster.mobile.core.db.LibraryEntity): List<String> {
+        val base = it.title.substringBefore("(").substringBefore("[").trim().lowercase()
+        val who = it.artist.substringBefore(",").substringBefore("&").trim().lowercase()
+        return listOf(
+            it.artworkUrl.orEmpty().trim().lowercase(),
+            it.title.trim().lowercase(),
+            if (base.isNotBlank() && who.isNotBlank()) "$base|$who" else "",
+        )
+    }
+
     // Недавно добавленное в библиотеку — по времени добавления, не по алфавиту.
     // Полки показывают РАЗНОЕ. Девятнадцать треков одного альбома иначе
     // заполняют обе целиком одной обложкой — жалоба владельца 05.09.2026:
     // «массив аттак захватил нашу коллекцию подчистую». См. Showcase.
     val recentlyAdded = remember(library) {
-        Showcase.spread(library.sortedByDescending { it.addedAt }, take = 10) { it.artist }
+        Showcase.spread(
+            library.sortedByDescending { it.addedAt }, take = 10,
+            sameLook = { look(it) },
+        ) { it.artist }
     }
     // Витрина коллекции — случайная выборка на этот заход, не первые 12.
     // Уступает «недавнему»: та полка показывает ФАКТ (что пришло последним),
     // а эта — свободный показ, и ей есть из чего выбрать. Поэтому она обходит
     // то, что уже стоит рядом.
     val collectionShow = remember(library, visitSeed, recentlyAdded) {
-        val shown = recentlyAdded.map { it.id }.toSet()
+        // Сверяем ВНЕШНИЙ ВИД, а не id и не название. По id это разные
+        // записи фонотеки, по названию — разные строки; а на экране A31
+        // 06.09.2026 это была одна и та же обложка в соседних полках. Полка
+        // повторяет соседку ровно тогда, когда человек видит то же самое.
+        val shown = recentlyAdded.flatMap { look(it) }.filter { it.isNotBlank() }.toSet()
         Showcase.spread(
             library.shuffled(kotlin.random.Random(visitSeed)), take = 12,
-            avoid = shown, keyOf = { it.id },
+            avoid = shown, keyOf = { look(it).firstOrNull { s -> s.isNotBlank() }.orEmpty() },
+            sameLook = { look(it) },
         ) { it.artist }
     }
     // Жанровые станции — крутим 10 из полного набора за заход.

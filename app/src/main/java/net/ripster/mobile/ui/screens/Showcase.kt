@@ -53,6 +53,7 @@ object Showcase {
         maxPerArtist: Int = MAX_PER_ARTIST,
         avoid: Set<String> = emptySet(),
         keyOf: (T) -> String = { "" },
+        sameLook: ((T) -> List<String>)? = null,
         artistOf: (T) -> String,
     ): List<T> {
         if (take <= 0 || rows.isEmpty()) return emptyList()
@@ -65,20 +66,53 @@ object Showcase {
         // Занятое соседкой не выбрасываем, а отодвигаем в конец очереди: у
         // человека может быть ровно три альбома, и тогда пустая полка хуже
         // повтора. Сначала показываем то, чего ещё не видно нигде.
+        //
+        // Сверяемся с соседкой ТЕМИ ЖЕ приметами, что и внутри полки. Пока
+        // здесь стоял один ключ, а внутри — три, полка честно не повторялась
+        // сама, но повторяла соседку: на A31 06.09.2026 «Teardrop» стоял в
+        // обеих. Правило должно быть одно, иначе оно ловит только там, где я
+        // его в тот раз вспомнил.
         val ordered = if (avoid.isEmpty()) rows else {
-            val (seen, fresh) = rows.partition { keyOf(it) in avoid }
+            val (seen, fresh) = rows.partition { r ->
+                val f = sameLook?.invoke(r)?.map { it.trim().lowercase() }?.filter { it.isNotBlank() }
+                if (f.isNullOrEmpty()) keyOf(r) in avoid else f.any { it in avoid }
+            }
             fresh + seen
         }
         val used = HashMap<String, Int>()
+        val seenLooks = HashSet<String>()    // уже показанное «на вид»
         val picked = ArrayList<T>(take)
         val rest = ArrayList<T>()
         for (r in ordered) {
             if (picked.size >= take) break
+            // Дважды одно и то же НА ВИД — второй раз не показываем.
+            //
+            // Я подходил к этому трижды и трижды считал не то. Сначала
+            // ограничил артиста — на A31 06.09.2026 рядом встали два
+            // «Teardrop». Ограничил название — рядом встали «Cyberverse» и
+            // «Cyberverse (Over Slowed)» с ОДНОЙ И ТОЙ ЖЕ обложкой.
+            //
+            // Человек не читает поля. Он видит картинку, и две одинаковые
+            // картинки подряд для него сломанная полка — чем бы они ни
+            // различались в базе. Поэтому ключ здесь — то, как вещь ВЫГЛЯДИТ
+            // на карточке, а не то, чем она числится.
+            // Совпало ЛЮБОЕ из того, что человек замечает, — это повтор.
+            // Обложка и подпись ловят разные случаи: «Cyberverse» и
+            // «Cyberverse (Over Slowed)» — одна картинка при разных словах,
+            // два «Teardrop» — одно слово при разных картинках. Каждый раз я
+            // чинил только одну половину, и вторая тут же вылезала рядом.
+            val facets = sameLook?.invoke(r)
+                ?.map { it.trim().lowercase() }?.filter { it.isNotBlank() }.orEmpty()
+            if (facets.isNotEmpty() && facets.any { it in seenLooks }) {
+                rest += r
+                continue
+            }
             // Занял место — засчитывается КАЖДОМУ, кто указан в строке.
             // Иначе достаточно приписать соавтора, чтобы обойти потолок.
             val names = credited(artistOf(r))
             if (names.none { (used[it] ?: 0) >= maxPerArtist }) {
                 names.forEach { used[it] = (used[it] ?: 0) + 1 }
+                seenLooks += facets
                 picked += r
             } else {
                 rest += r
