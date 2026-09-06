@@ -997,6 +997,7 @@ private val STRINGS: Map<String, Row> = mapOf(
     "dl.downloading" to row("качается", "downloading", "डाउनलोड हो रहा है", "ダウンロード中", "下载中"),
     "dl.done" to row("готово", "done", "हो गया", "完了", "完成"),
     "dl.error" to row("ошибка", "error", "त्रुटि", "エラー", "错误"),
+    "dl.retry_failed" to row("Повторить упавшие", "Retry failed", "विफल पुनः प्रयास", "失敗を再試行", "重试失败"),
     "dl.clear_done" to row("Очистить готовые", "Clear finished", "पूर्ण साफ़ करें", "完了を消去", "清除已完成"),
     "dl.clear_all" to row("Очистить всё", "Clear all", "सब साफ़ करें", "すべて消去", "全部清除"),
 

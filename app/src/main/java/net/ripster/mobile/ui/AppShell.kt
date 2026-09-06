@@ -678,6 +678,13 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                         onRetry = { t -> scope.launch { app.downloads.retry(t.id) } },
                         onCancel = { t -> app.downloads.cancel(t.id) },
                         onClearFinished = { scope.launch { app.downloads.clearFinished() } },
+                        onRetryFailed = {
+                            scope.launch {
+                                queue.forEach { di ->
+                                    if (di.state == DownloadState.FAILED) app.downloads.retry(di.id)
+                                }
+                            }
+                        },
                         onClearAll = {
                             queue.forEach { di ->
                                 if (di.state == DownloadState.QUEUED || di.state == DownloadState.RUNNING) {

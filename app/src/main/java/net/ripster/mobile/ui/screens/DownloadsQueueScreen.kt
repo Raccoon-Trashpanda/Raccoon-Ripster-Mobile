@@ -104,6 +104,7 @@ fun DownloadsQueueScreen(
     onCancel: (DownloadTask) -> Unit,
     modifier: Modifier = Modifier,
     onClearFinished: () -> Unit = {},
+    onRetryFailed: () -> Unit = {},
     onClearAll: () -> Unit = {},
 ) {
     val colors = RipsterTheme.colors
@@ -113,6 +114,16 @@ fun DownloadsQueueScreen(
 
     val hasFinished = tasks.any { it.status == DownloadTaskStatus.Done || it.status == DownloadTaskStatus.Failed }
     val hasActive = tasks.any { it.status == DownloadTaskStatus.Queued || it.status == DownloadTaskStatus.Downloading }
+    // Упавшие обычно падают ПАЧКОЙ и по одной причине: альбом на девятнадцать
+    // треков дёргает сервис девятнадцать раз подряд, тот отвечает «слишком
+    // часто», и красными становятся сразу все. Проверено 06.09.2026 на
+    // эмуляторе: девять треков Mezzanine, у всех девяти в базе один и тот же
+    // «429 Too Many Requests», и нажатый вручную повтор докачал трек целиком —
+    // ограничение к тому времени давно снялось.
+    //
+    // Значит человеку нужно было нажать «Повторить» девять раз, чтобы
+    // исправить одну помеху. Кнопка появляется только когда упавшие есть.
+    val failedCount = tasks.count { it.status == DownloadTaskStatus.Failed }
 
     Column(
         modifier = modifier
@@ -129,6 +140,14 @@ fun DownloadsQueueScreen(
                 style = TextStyle(color = colors.text_primary, fontSize = type.title, fontWeight = Weights.Primary),
             )
             Spacer(Modifier.weight(1f))
+            if (failedCount > 1) {
+                BasicText(
+                    tr("dl.retry_failed", lang) + " ($failedCount)",
+                    Modifier.clickable(onClick = onRetryFailed).padding(horizontal = 6.dp, vertical = 4.dp),
+                    style = TextStyle(color = colors.accent_text, fontSize = type.label, fontWeight = FontWeight.W600),
+                )
+                Spacer(Modifier.width(spacing.sm))
+            }
             if (hasFinished) {
                 BasicText(
                     tr("dl.clear_done", lang),
