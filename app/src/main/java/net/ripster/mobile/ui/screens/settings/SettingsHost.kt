@@ -892,6 +892,34 @@ private fun PlayerSection(lang: AppLang, c: RipsterColors) {
                 app.settings.update { it.copy(playerStyle = id) }
             }
         }
+
+        // ── Аудиодвижок ──
+        //
+        // Переехал сюда из «Эквалайзера» по просьбе владельца: там он стоял
+        // не на месте. Эквалайзер — это ОБРАБОТКА уже идущего звука, а здесь
+        // выбирается, чем звук воспроизводится вообще; в настройках плеера
+        // это первое, что ищут.
+        GroupLabel(tr("snd.engine", lang), c)
+        val engineAvailable = net.ripster.mobile.player.NativeAudioEngine.isAvailable
+        RadioRow(tr("snd.engine_exo", lang), !s.nativeEngine, c) {
+            app.settings.update { it.copy(nativeEngine = false) }
+        }
+        RadioRow(
+            tr("snd.engine_native", lang) + (if (engineAvailable) "" else "  —  " + tr("nae.no_lib", lang)),
+            s.nativeEngine, c,
+        ) {
+            // Недоступный движок не выбирается МОЛЧА: строка рядом называет
+            // причину, иначе нажатие выглядело бы как поломка.
+            if (engineAvailable) app.settings.update { it.copy(nativeEngine = true) }
+        }
+        BasicText(
+            tr("nae.setting_hint", lang),
+            Modifier.padding(start = 24.dp, end = 24.dp, top = 2.dp, bottom = 4.dp),
+            style = TextStyle(color = c.text_tertiary, fontSize = 10.sp, lineHeight = 14.sp),
+        )
+        // Указатель на эквалайзер остаётся, но про движок больше не говорит —
+        // он теперь здесь. Строка, обещающая найти настройку не там, где она
+        // лежит, хуже отсутствующей.
         BasicText(
             tr("player.audio_in_eq", lang),
             Modifier.padding(start = 24.dp, end = 24.dp, top = 10.dp),
@@ -911,24 +939,10 @@ private fun EqualizerSection(lang: AppLang, c: RipsterColors) {
     val s by app.settings.state.collectAsState()
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 8.dp)) {
-        // ── Аудиодвижок ──
-        GroupLabel(tr("snd.engine", lang), c)
-        val engineAvailable = net.ripster.mobile.player.NativeAudioEngine.isAvailable
-        RadioRow(tr("snd.engine_exo", lang), !s.nativeEngine, c) {
-            app.settings.update { it.copy(nativeEngine = false) }
-        }
-        RadioRow(
-            tr("snd.engine_native", lang) + (if (engineAvailable) "" else "  —  " + tr("nae.no_lib", lang)),
-            s.nativeEngine, c,
-        ) {
-            if (engineAvailable) app.settings.update { it.copy(nativeEngine = true) }
-        }
-        BasicText(
-            tr("nae.setting_hint", lang),
-            Modifier.padding(start = 24.dp, end = 24.dp, top = 2.dp, bottom = 4.dp),
-            style = TextStyle(color = c.text_tertiary, fontSize = 10.sp, lineHeight = 14.sp),
-        )
-
+        // Выбор аудиодвижка ЖИЛ ЗДЕСЬ и переехал в «Плеер» (владелец,
+        // 07.09.2026). Место было неверное: эквалайзер — это обработка
+        // звука, а движок решает, ЧЕМ звук вообще воспроизводится; человек
+        // искал его в плеере и не находил.
         // ── Эквалайзер ──
         GroupLabel(tr("snd.eq", lang), c)
         ToggleRow(tr("eq.enabled", lang), cfg.enabled, c) { fx.setEnabled(it) }
