@@ -1,0 +1,74 @@
+[
+    {
+        "merged": "net.ripster.mobile.app-debug-60:/drawable_ic_launcher_bg.xml.flat",
+        "source": "net.ripster.mobile.app-main-62:/drawable/ic_launcher_bg.xml"
+    },
+    {
+        "merged": "net.ripster.mobile.app-debug-60:/mipmap-xxhdpi_ic_launcher.png.flat",
+        "source": "net.ripster.mobile.app-main-62:/mipmap-xxhdpi/ic_launcher.png"
+    },
+    {
+        "merged": "net.ripster.mobile.app-debug-60:/mipmap-anydpi-v26_ic_launcher.xml.flat",
+        "source": "net.ripster.mobile.app-main-62:/mipmap-anydpi-v26/ic_launcher.xml"
+    },
+    {
+        "merged": "net.ripster.mobile.app-debug-60:/mipmap-hdpi_ic_launcher_round.png.flat",
+        "source": "net.ripster.mobile.app-main-62:/mipmap-hdpi/ic_launcher_round.png"
+    },
+    {
+        "merged": "net.ripster.mobile.app-debug-60:/mipmap-xhdpi_ic_launcher.png.flat",
+        "source": "net.ripster.mobile.app-main-62:/mipmap-xhdpi/ic_launcher.png"
+    },
+    {
+        "merged": "net.ripster.mobile.app-debug-60:/mipmap-mdpi_ic_launcher.png.flat",
+        "source": "net.ripster.mobile.app-main-62:/mipmap-mdpi/ic_launcher.png"
+    },
+    {
+        "merged": "net.ripster.mobile.app-debug-60:/drawable-xxxhdpi_ic_ripster.png.flat",
+        "source": "net.ripster.mobile.app-main-62:/drawable-xxxhdpi/ic_ripster.png"
+    },
+    {
+        "merged": "net.ripster.mobile.app-debug-60:/xml_network_security_config.xml.flat",
+        "source": "net.ripster.mobile.app-main-62:/xml/network_security_config.xml"
+    },
+    {
+        "merged": "net.ripster.mobile.app-debug-60:/drawable-xxxhdpi_ic_launcher_fg.png.flat",
+        "source": "net.ripster.mobile.app-main-62:/drawable-xxxhdpi/ic_launcher_fg.png"
+    },
+    {
+        "merged": "net.ripster.mobile.app-debug-60:/mipmap-anydpi-v26_ic_launcher_round.xml.flat",
+        "source": "net.ripster.mobile.app-main-62:/mipmap-anydpi-v26/ic_launcher_round.xml"
+    },
+    {
+        "merged": "net.ripster.mobile.app-debug-60:/mipmap-xxxhdpi_ic_launcher.png.flat",
+        "source": "net.ripster.mobile.app-main-62:/mipmap-xxxhdpi/ic_launcher.png"
+    },
+    {
+        "merged": "net.ripster.mobile.app-debug-60:/mipmap-xxhdpi_ic_launcher_round.png.flat",
+        "source": "net.ripster.mobile.app-main-62:/mipmap-xxhdpi/ic_launcher_round.png"
+    },
+    {
+        "merged": "net.ripster.mobile.app-debug-60:/mipmap-xhdpi_ic_launcher_round.png.flat",
+        "source": "net.ripster.mobile.app-main-62:/mipmap-xhdpi/ic_launcher_round.png"
+    },
+    {
+        "merged": "net.ripster.mobile.app-debug-60:/mipmap-xxxhdpi_ic_launcher_round.png.flat",
+        "source": "net.ripster.mobile.app-main-62:/mipmap-xxxhdpi/ic_launcher_round.png"
+    },
+    {
+        "merged": "net.ripster.mobile.app-debug-60:/mipmap-mdpi_ic_launcher_round.png.flat",
+        "source": "net.ripster.mobile.app-main-62:/mipmap-mdpi/ic_launcher_round.png"
+    },
+    {
+        "merged": "net.ripster.mobile.app-debug-60:/drawable-xxhdpi_ic_ripster.png.flat",
+        "source": "net.ripster.mobile.app-main-62:/drawable-xxhdpi/ic_ripster.png"
+    },
+    {
+        "merged": "net.ripster.mobile.app-debug-60:/drawable-xhdpi_ic_ripster.png.flat",
+        "source": "net.ripster.mobile.app-main-62:/drawable-xhdpi/ic_ripster.png"
+    },
+    {
+        "merged": "net.ripster.mobile.app-debug-60:/mipmap-hdpi_ic_launcher.png.flat",
+        "source": "net.ripster.mobile.app-main-62:/mipmap-hdpi/ic_launcher.png"
+    }
+]

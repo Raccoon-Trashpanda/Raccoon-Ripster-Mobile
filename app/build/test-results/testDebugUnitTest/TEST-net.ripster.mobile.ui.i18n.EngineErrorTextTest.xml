@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="net.ripster.mobile.ui.i18n.EngineErrorTextTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-03T23:46:24" hostname="DESKTOP-U95NT04" time="0.033">
+  <properties/>
+  <testcase name="blankDetailAddsNothing" classname="net.ripster.mobile.ui.i18n.EngineErrorTextTest" time="0.028"/>
+  <testcase name="detailIsKeptInParentheses" classname="net.ripster.mobile.ui.i18n.EngineErrorTextTest" time="0.003"/>
+  <testcase name="foreignMessagesArePassedThrough" classname="net.ripster.mobile.ui.i18n.EngineErrorTextTest" time="0.0"/>
+  <testcase name="translationsActuallyDiffer" classname="net.ripster.mobile.ui.i18n.EngineErrorTextTest" time="0.0"/>
+  <testcase name="everyMarkerIsTranslatedInEveryLanguage" classname="net.ripster.mobile.ui.i18n.EngineErrorTextTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

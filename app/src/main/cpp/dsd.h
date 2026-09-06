@@ -155,15 +155,33 @@ inline bool parse(Ctx& c, ReadAt readAt, void* user, int64_t fileSize, char* why
         uint8_t fmt[52];
         if (!readAt(user, 28, fmt, sizeof fmt)) return fail("dsf: no fmt chunk");
         if (std::memcmp(fmt, "fmt ", 4) != 0) return fail("dsf: fmt chunk missing");
-        const uint32_t formatId = rdU32le(fmt + 20);
+        // РАСКЛАДКА ЧАНКА `fmt` У DSF. Смещения считаются от начала чанка:
+        //
+        //    0  "fmt "                12  версия формата
+        //    4  размер чанка (8, =52) 16  ИДЕНТИФИКАТОР ФОРМАТА (0 = сырой DSD)
+        //                             20  тип каналов
+        //                             24  число каналов
+        //                             28  частота
+        //                             32  бит на отсчёт (1 = младший первым, 8 = старший)
+        //                             36  отсчётов на канал (8 байт)
+        //                             44  размер блока на канал
+        //                             48  резерв
+        //
+        // Первая версия читала всё это на 4 байта дальше, чем надо: идентификатор
+        // брался с 20-го байта (то есть тип каналов), не совпадал с нулём — и
+        // КАЖДЫЙ .dsf отвергался с «not raw DSD». Поймано самопроверкой
+        // (dsd_selftest.cpp) на синтезированном файле: DFF при этом играл
+        // безупречно, и без отдельной проверки DSF ошибка дожила бы до первого
+        // живого файла у человека.
+        const uint32_t formatId = rdU32le(fmt + 16);
         if (formatId != 0) return fail("dsf: not raw DSD");
-        c.channels  = (int) rdU32le(fmt + 28);
-        c.dsdRate   = (int64_t) rdU32le(fmt + 32);
-        const uint32_t bps = rdU32le(fmt + 36);
+        c.channels  = (int) rdU32le(fmt + 24);
+        c.dsdRate   = (int64_t) rdU32le(fmt + 28);
+        const uint32_t bps = rdU32le(fmt + 32);
         c.lsbFirst  = (bps == 1);            // 1 = младший бит первый, 8 = старший
         c.totalFrames = 0;                   // посчитаем ниже из sampleCount
-        const uint64_t sampleCount = rdU64le(fmt + 40);
-        c.blockSize = (int) rdU32le(fmt + 48);
+        const uint64_t sampleCount = rdU64le(fmt + 36);
+        c.blockSize = (int) rdU32le(fmt + 44);
         uint8_t dchunk[12];
         if (!readAt(user, 80, dchunk, sizeof dchunk)) return fail("dsf: no data chunk");
         if (std::memcmp(dchunk, "data", 4) != 0) return fail("dsf: data chunk missing");

@@ -1,27 +1,4 @@
-# --- Android / Gradle build output ---
-*.iml
-.gradle/
-.kotlin/
-/local.properties
-/.idea/
-.DS_Store
-/build/
-/captures/
-.externalNativeBuild/
-.cxx/
-*/build/
-app/build/
-app/.cxx/
 
-# --- Signing material — NEVER commit ---
-*.jks
-*.keystore
-keystore.properties
-signing.properties
-
-# --- Misc ---
-*.log
-*.hprof
-/app/release/
-/app/debug/
-local.gradle
+# Самопроверка DSD собирается вручную (см. tests/test_dsd_decoder.py) —
+# исходник в дереве нужен, собранный файл нет.
+app/src/main/cpp/dsd_selftest.exe

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Пейринг с ПК-Рипстером идёт по HTTP на его локальный адрес: 10.0.2.2 у
+  эмулятора, произвольный 192.168.x/10.x в домашней сети. Android
+  network-security-config не умеет CIDR-диапазоны в <domain>, а IP ПК заранее
+  неизвестен, поэтому cleartext разрешён глобально.
+
+  Это НЕ ослабляет вызовы к сервисам: их URL захардкожены на https://, схема
+  не меняется от этого флага. Флаг лишь снимает запрет на http:// туда, куда
+  мы осознанно ходим по http — на ПК пользователя в его же сети.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
