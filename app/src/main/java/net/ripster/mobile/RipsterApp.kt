@@ -238,6 +238,20 @@ class RipsterApp : Application() {
         val qbEmail = credentials.get(CredentialStore.Key.QOBUZ_EMAIL)
         val qbToken = credentials.get(CredentialStore.Key.QOBUZ_TOKEN)
         val qbAppId = credentials.get(CredentialStore.Key.QOBUZ_APP_ID)
+        // Какой токен реально берёт клиент. Секрета тут нет: длина и первые
+        // четыре символа. Без этого «токен недействителен» неотличимо от
+        // «взяли не тот токен», и 06.09.2026 я на этом встал — на телефоне
+        // сохранён живой токен, а загрузка всё равно ругается.
+        android.util.Log.i(
+            "RipsterQobuz",
+            "register: token len=${qbToken?.length ?: 0} head=${qbToken?.take(4).orEmpty()} " +
+                "appId=${qbAppId.orEmpty().take(4)} " +
+                // Секрет тоже нужен головой: «токен верный, ключи верные, а
+                // подпись не сходится» неотличимо от «взяли ЧУЖОЙ секрет»,
+                // пока не видно, какой именно взят. Четыре символа — не секрет.
+                "secret=${credentials.get(CredentialStore.Key.QOBUZ_SECRET).orEmpty().take(4)} " +
+                "email=${!qbEmail.isNullOrBlank()}",
+        )
         // Регистрируем Qobuz, если есть ЛЮБОЙ путь входа: email+пароль, готовый
         // токен, ИЛИ ручные app_id+secret (тогда qualities()/isConfigured сами
         // разберутся). Раньше при вводе только app_id движок не появлялся вовсе.
@@ -250,6 +264,12 @@ class RipsterApp : Application() {
                     appId = credentials.get(CredentialStore.Key.QOBUZ_APP_ID),
                     secret = credentials.get(CredentialStore.Key.QOBUZ_SECRET),
                     cacheDir = cacheDir,
+                    // Пригодность токена решает, можно ли синку с ПК перекрыть
+                    // ручной ввод: набранное руками держится, ПОКА ОНО РАБОТАЕТ.
+                    onTokenVerdict = { ok ->
+                        if (ok) credentials.markWorking(CredentialStore.Key.QOBUZ_TOKEN)
+                        else credentials.markRejected(CredentialStore.Key.QOBUZ_TOKEN)
+                    },
                 ),
             )
         }

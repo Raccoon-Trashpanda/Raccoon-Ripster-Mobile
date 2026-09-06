@@ -656,6 +656,27 @@ private val STRINGS: Map<String, Row> = mapOf(
         "キーを自動取得できませんでした — 設定→アカウントで app_id と app_secret を手入力してください。",
         "无法自动获取密钥 — 请在设置 → 账户中手动填写 app_id 和 app_secret。",
     ),
+    "err.qobuz_purchase_only" to row(
+        "Qobuz отдаёт этот трек только за покупку — по подписке он не скачивается.",
+        "Qobuz offers this track for purchase only — a subscription doesn’t cover it.",
+        "Qobuz यह ट्रैक केवल खरीद पर देता है — सदस्यता से डाउनलोड नहीं होगा।",
+        "この曲は Qobuz では購入専用です — サブスクリプションでは取得できません。",
+        "Qobuz 上此曲仅支持购买 — 订阅无法下载。",
+    ),
+    "err.qobuz_rights_blocked" to row(
+        "правообладатель закрыл этот трек на Qobuz — доступа нет ни у одной учётки.",
+        "the rights holder has blocked this track on Qobuz — no account can get it.",
+        "अधिकारधारक ने इस ट्रैक को Qobuz पर रोक दिया है — किसी भी खाते से नहीं मिलेगा।",
+        "権利者がこの曲を Qobuz でブロックしています — どのアカウントでも取得できません。",
+        "版权方已在 Qobuz 上封锁该曲目 — 任何账户都无法获取。",
+    ),
+    "err.qobuz_restricted" to row(
+        "Qobuz не отдал ссылку и назвал причину",
+        "Qobuz returned no link and gave the reason",
+        "Qobuz ने लिंक नहीं दिया, कारण बताया",
+        "Qobuz はリンクを返さず、理由を示しました",
+        "Qobuz 未返回链接，并给出了原因",
+    ),
     "err.empty_stream" to row(
         "сервис вернул пустой ответ.",
         "the service returned an empty response.",

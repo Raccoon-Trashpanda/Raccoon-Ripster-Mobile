@@ -47,13 +47,103 @@ class SoundCloudClient(
     private val mp3_128 = QualityTier(
         id = "mp3_128", label = "MP3 128", lossless = false, container = "mp3", bitrateKbps = 128,
     )
+    /**
+     * Тир «лучшее AAC» — только для ВЫБОРА потока, не для подписи.
+     *
+     * Число здесь стояло 256 намертво, и им подписывался ЛЮБОЙ aac-поток.
+     *
+     * Замер 06.09.2026 по ссылке владельца (bananagoldrecords/hareton-salvanini
+     * -saire-beno-pebo-remix-1) — и он же урок про то, как меряют:
+     *   • БЕЗ OAuth сервис отдаёт `aac_160k`, `aac_96k`, `abr_sq`, `mp3_1_0`;
+     *   • С OAuth к тому же треку добавляются `aac_256k` (quality=hq) и
+     *     `abr_hq` — те самые 256, плашка HD на сайте не врёт.
+     * То есть 256 существуют, но не всегда, и по анонимному ответу этого не
+     * видно: первый мой вывод «256 не бывает» был сделан по неавторизованному
+     * запросу и оказался ложным.
+     *
+     * Отсюда и правило: тир-предпочтение не называет числа вовсе, а подпись
+     * берётся у ТОГО потока, который реально выбран. Иначе `aac_160k`
+     * подписывался «256», а `aac_96k` — тоже «256».
+     *
+     * Битрейта до выбора потока мы не знаем, поэтому у тира-предпочтения его
+     * НЕТ (`bitrateKbps = null` = «не знаю»), а настоящее число проставляется
+     * в [tierFor] по пресету уже выбранного транскодинга.
+     */
     private val aac_hq = QualityTier(
-        id = "aac_hq", label = "HQ AAC", lossless = false, container = "aac", bitrateKbps = 256,
+        id = "aac_hq", label = "AAC", lossless = false, container = "aac", bitrateKbps = null,
     )
+
+    /**
+     * Подпись под РЕАЛЬНО выбранным потоком: имя пресета SoundCloud уже
+     * содержит правду о битрейте, надо только её не выбрасывать.
+     */
+    private fun tierFor(tc: ScTranscoding): QualityTier {
+        val aac = tc.quality == "hq" || tc.preset.startsWith("aac")
+        val kbps = presetKbpsKnown(tc.preset)
+        val name = if (aac) "AAC" else "MP3"
+        val base = if (aac) aac_hq else mp3_128
+        // Число ставим, только если пресет его действительно называет.
+        // «Не знаю» — это пустая подпись, а не круглое число наугад: именно
+        // так и появились несуществующие 256 kbps.
+        return base.copy(
+            id = tierId(tc),
+            label = if (kbps != null) "$name $kbps" else name,
+            bitrateKbps = kbps,
+            container = if (aac) "aac" else "mp3",
+        )
+    }
+
+    /**
+     * Имя тира, указывающее на ОДИН конкретный поток трека.
+     *
+     * Общие `aac_hq`/`mp3_128` описывают предпочтение аккаунта («бери что
+     * получше»), а выбор в списке качеств — это выбор конкретного потока,
+     * который у этого трека есть. Разные вещи, поэтому и имена разные:
+     * «sc:aac_160k:hls». Протокол в имени не для красоты — у одного пресета
+     * бывают и progressive, и hls-варианты, и это разные ссылки.
+     */
+    private fun tierId(tc: ScTranscoding): String =
+        "sc:${tc.preset}:${tc.format.protocol}"
+
+    /**
+     * Битрейт пресета, когда он ИЗВЕСТЕН. null — «не знаю».
+     *
+     * Отличается от [presetKbps] назначением: там число нужно для сортировки
+     * и незнание допустимо заменить серединой, здесь оно показывается
+     * человеку — и подставлять догадку нельзя.
+     */
+    internal fun presetKbpsKnown(preset: String): Int? {
+        val p = preset.lowercase()
+        Regex("(\\d+)k").find(p)?.let { return it.groupValues[1].toInt() }
+        return when {
+            p.startsWith("mp3") -> 128      // у SoundCloud mp3_0_0/mp3_1_0 фиксированы
+            p.startsWith("opus") -> 72
+            else -> null                    // abr_* адаптивный, остальное незнакомо
+        }
+    }
 
     // Поиск SoundCloud публичный: client_id скрейпится лениво в самом search().
     // Дёргать скрейп в пробе готовности — тот же баг «Проверяю сервисы…».
     override suspend fun isConfigured(): Boolean = true
+
+    /**
+     * Качества КОНКРЕТНОГО трека — ровно те, что SoundCloud реально отдаёт.
+     *
+     * Просьба владельца 06.09.2026: «предлагать качество исходя из того, какое
+     * там нативно; если предлагается несколько — выбор ровно из того, что
+     * есть». Общий список [qualities] к треку отношения не имеет: он про
+     * аккаунт. У одного трека бывает `aac_160k` + `aac_96k` + `mp3_1_0`,
+     * у другого — только `mp3_1_0`, и показывать во втором случае «AAC» —
+     * это предлагать несуществующее.
+     *
+     * DRM-потоки (FairPlay) в список НЕ попадают: взять их мы не можем, и
+     * пункт, который гарантированно не сработает, — это не выбор.
+     */
+    override suspend fun qualitiesFor(track: Track): List<QualityTier> = runCatching {
+        orderedNonDrm(freshScTrack(track), emptyList())
+            .map { it.first }
+            .distinctBy { it.id }
+    }.getOrElse { emptyList() }
 
     override suspend fun qualities(): List<QualityTier> =
         if (oauthToken.isNullOrBlank()) listOf(mp3_128) else listOf(aac_hq, mp3_128)
@@ -251,13 +341,18 @@ class SoundCloudClient(
                     EngineErrors.TRACK_UNAVAILABLE
             )
         }
+        // Человек выбрал КОНКРЕТНЫЙ поток («sc:aac_160k:hls») — ставим его
+        // первым, а не «примерно такой же». Остальные оставляем ниже: ссылки
+        // SoundCloud короткоживущие, и обрубать запасной путь ради буквальности
+        // значило бы менять «не то качество» на «ничего не скачалось».
+        val pinned = preference.filter { it.startsWith("sc:") }.toSet()
+
         // preference по нашим id → SC quality/preset. Всё, что не hq → mp3_128.
         val wantHq = preference.firstOrNull { it == "aac_hq" || it.startsWith("flac") } != null &&
             !oauthToken.isNullOrBlank()
-        return candidates.sortedByDescending { score(it, wantHq) }.map { tc ->
-            val tier = if (tc.quality == "hq" || tc.preset.startsWith("aac")) aac_hq else mp3_128
-            tier to tc
-        }
+        return candidates
+            .sortedByDescending { score(it, wantHq) + if (tierId(it) in pinned) 100_000 else 0 }
+            .map { tc -> tierFor(tc) to tc }
     }
 
     /**

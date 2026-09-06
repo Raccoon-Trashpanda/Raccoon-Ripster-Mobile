@@ -35,6 +35,19 @@ object EngineErrors {
     /** Qobuz: не выходит добыть app_id/app_secret автоматически. */
     const val QOBUZ_KEYS = "__e.qobuz_keys__"
 
+    /**
+     * Qobuz отдал 200 без ссылки и назвал причину: трек продаётся, а не
+     * стримится (`TrackRestrictedByPurchaseCredentials`). Подписка тут ни при
+     * чём, ключи тем более — и предлагать человеку править app_id было ложью.
+     */
+    const val QOBUZ_PURCHASE_ONLY = "__e.qobuz_purchase_only__"
+
+    /** Правообладатель закрыл трек целиком (`SampleRestrictedByRightHolders`). */
+    const val QOBUZ_RIGHTS_BLOCKED = "__e.qobuz_rights_blocked__"
+
+    /** Ссылки нет, а причину Qobuz назвал незнакомым кодом — отдаём код как есть. */
+    const val QOBUZ_RESTRICTED = "__e.qobuz_restricted__"
+
     /** Ответ/поток пустой там, где ожидались данные. */
     const val EMPTY_STREAM = "__e.empty_stream__"
 

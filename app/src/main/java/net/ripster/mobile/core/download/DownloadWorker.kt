@@ -211,6 +211,13 @@ class DownloadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
             dao.setState(id, DownloadState.CANCELLED.name, now())
             throw ce
         } catch (t: Throwable) {
+            // В базу уходит МАРКЕР для человека — он короткий и переводимый.
+            // Настоящая ошибка (класс, причина, стек) при этом не попадала
+            // никуда вообще: снаружи было видно только «не удалось добыть
+            // ключи», и отличить это от мёртвого токена, 400 в запросе или
+            // обрыва сети было нечем. Пишем в лог полностью — там не UI, там
+            // диагностика.
+            android.util.Log.w("RipsterDownload", "task $id failed: ${t.javaClass.name}", t)
             dao.markFailed(id, t.message ?: t.javaClass.simpleName, now())
             return Result.failure()
         }

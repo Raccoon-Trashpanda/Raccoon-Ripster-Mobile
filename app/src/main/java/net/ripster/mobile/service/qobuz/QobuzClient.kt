@@ -40,11 +40,13 @@ class QobuzClient(
     appId: String?,
     secret: String?,
     private val cacheDir: File,
+    /** См. [QobuzApi.onTokenVerdict]: true — токен принят, false — отвергнут. */
+    onTokenVerdict: ((Boolean) -> Unit)? = null,
 ) : ServiceClient {
 
     override val service = Service.QOBUZ
 
-    private val api = QobuzApi(email, password, token, appId, secret, cacheDir)
+    private val api = QobuzApi(email, password, token, appId, secret, cacheDir, onTokenVerdict)
 
     // format_id: 27=FLAC≤192/24, 7=FLAC≤96/24, 6=FLAC16/44, 5=MP3 320
     private val flac24 = QualityTier("flac_24", "FLAC 24-bit", lossless = true, container = "flac", bitDepth = 24)

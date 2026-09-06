@@ -68,6 +68,10 @@ private fun markerText(raw: String, lang: AppLang): String? {
     return when {
         "__qobuz_stale_appid__" in m -> tr("search.qobuz_stale_appid", lang)
         "__qobuz_bad_token__" in m -> tr("search.qobuz_bad_token", lang)
+        net.ripster.mobile.core.errors.EngineErrors.QOBUZ_PURCHASE_ONLY in m -> tr("err.qobuz_purchase_only", lang)
+        net.ripster.mobile.core.errors.EngineErrors.QOBUZ_RIGHTS_BLOCKED in m -> tr("err.qobuz_rights_blocked", lang)
+        net.ripster.mobile.core.errors.EngineErrors.QOBUZ_RESTRICTED in m ->
+            tr("err.qobuz_restricted", lang) + ": " + m.substringAfter(net.ripster.mobile.core.errors.EngineErrors.QOBUZ_RESTRICTED).trim()
         m == "__timeout__" || "timed out" in m || "timeout" in m -> tr("search.svc_timeout", lang)
         "unknownhost" in m || "connection abort" in m || "connection reset" in m ||
             "unreachable" in m || "failed to connect" in m -> tr("search.svc_neterr", lang)

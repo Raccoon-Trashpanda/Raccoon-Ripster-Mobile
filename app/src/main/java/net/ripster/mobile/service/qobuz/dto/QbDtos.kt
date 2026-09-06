@@ -118,4 +118,14 @@ data class QbFileUrl(
     @SerialName("bit_depth") val bitDepth: Int? = null,
     @SerialName("sampling_rate") val samplingRate: Double? = null,
     val sample: Boolean = false,
+    /**
+     * Почему ссылки нет. Qobuz отвечает 200 БЕЗ `url` и кладёт сюда код —
+     * это единственное место, где сервис говорит настоящую причину.
+     * Мы его годами не читали, и любой отказ превращался в «не удалось
+     * добыть ключи» (замер на A31 06.09.2026).
+     */
+    val restrictions: List<QbRestriction> = emptyList(),
 )
+
+@Serializable
+data class QbRestriction(val code: String = "")

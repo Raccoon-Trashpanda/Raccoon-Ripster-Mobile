@@ -107,6 +107,8 @@ class CredentialStore(context: Context) {
                 putString(key.id, value.trim())
                 putLong("${key.id}\$ts", System.currentTimeMillis())
                 putString("${key.id}\$src", source.name)
+                // Приговор был вынесен ПРЕЖНЕМУ значению. Новое ещё не пробовали.
+                remove("${key.id}\$dead")
             }
         }
     }
@@ -123,19 +125,67 @@ class CredentialStore(context: Context) {
      *
      * Возвращает true, если значение реально изменилось.
      */
-    fun mergeFromPc(key: Key, value: String?, pcUpdatedAt: Long): Boolean {
+    fun mergeFromPc(key: Key, value: String?, pcUpdatedAt: Long, force: Boolean = false): Boolean {
         if (value.isNullOrBlank()) return false
+        // «Забрать учётки с ПК» ([force]) обязано ЗАБРАТЬ. Отметка слепка ПК —
+        // оптимизация автосинка (не дёргать стор, когда на ПК ничего не
+        // менялось); для нажатой кнопки это была тихая заглушка: конфиг ПК с
+        // прошлого синка не трогали — и кнопка не делала ничего, молча.
         val acceptedPcTs = prefs.getLong("${key.id}\$pcts", 0L)
-        if (get(key) != null && pcUpdatedAt <= acceptedPcTs) return false
+        if (!force && get(key) != null && pcUpdatedAt <= acceptedPcTs) return false
+
+        // НАБРАННОЕ РУКАМИ АВТОСИНК НЕ ТРОГАЕТ.
+        //
+        // 06.09.2026: на телефоне сохранён живой токен Qobuz, экран его
+        // показывает — а клиент получает СТАРЫЙ, с ПК. Синк перезаписывал
+        // ручное значение при каждом запуске. Человек вводит токен, видит его в
+        // поле, и приложение молча им не пользуется: контрол показывает не то,
+        // чем живёт.
+        //
+        // Сравнивать отметки времени бесполезно: конфиг на ПК переписывается
+        // часто, и его mtime почти всегда свежее ручной правки — я попробовал,
+        // не сработало. Правило простое и предсказуемое: сказал человек руками
+        // — его слово держится, пока он сам не нажмёт «Забрать учётки с ПК».
+        // Тогда приходит [force] = true, и ПК снова главный.
+        //
+        // Уточнение владельца 06.09.2026: держится РУЧНОЙ И ВАЛИДНЫЙ. Если
+        // сервис уже отверг набранное руками (`markRejected`), держать его
+        // не за что — это не выбор человека, это мёртвая строка, и синк с ПК
+        // имеет право её заменить. «Не знаю» приговором не считается: пометку
+        // ставит только явный отказ сервиса.
+        val manual = prefs.getString("${key.id}\$src", null) == Source.MANUAL.name
+        if (manual && !force && get(key) != null && !isRejected(key)) return false
         val changed = get(key) != value.trim()
         edit {
             putString(key.id, value.trim())
             putLong("${key.id}\$ts", System.currentTimeMillis())
             putLong("${key.id}\$pcts", pcUpdatedAt)
             putString("${key.id}\$src", Source.PC_SYNC.name)
+            remove("${key.id}\$dead")
         }
         return changed
     }
+
+    /**
+     * Сервис ОТВЕРГ это значение (401 «токен недействителен», не сетевой сбой).
+     *
+     * Приговор привязан к КОНКРЕТНОМУ значению: [set] и [mergeFromPc] его
+     * снимают, потому что относился он к предыдущей строке, а не к полю.
+     * Сеть — не приговор: сюда попадает только явный отказ сервиса, иначе
+     * упавший Wi-Fi объявлял бы живой токен мёртвым.
+     */
+    fun markRejected(key: Key) {
+        if (get(key) == null) return
+        edit { putBoolean("${key.id}\$dead", true) }
+    }
+
+    /** Значение реально сработало — снимаем прежний приговор, если он был. */
+    fun markWorking(key: Key) {
+        if (!isRejected(key)) return
+        edit { remove("${key.id}\$dead") }
+    }
+
+    fun isRejected(key: Key): Boolean = prefs.getBoolean("${key.id}\$dead", false)
 
     fun clearAll() {
         edit { clear() }

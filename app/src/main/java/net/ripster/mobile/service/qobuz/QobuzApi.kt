@@ -32,6 +32,16 @@ class QobuzApi(
     private val overrideAppId: String?,
     private val overrideSecret: String?,
     private val cacheDir: java.io.File? = null,
+    /**
+     * Что сервис сказал про наш токен: true — принял, false — отверг (401).
+     *
+     * Наружу это нужно затем, что «токен набран руками» и «токен рабочий» —
+     * разные вещи, а решение «перекрывать ли ручной ввод синком с ПК»
+     * зависит от второго. Сюда попадает ТОЛЬКО явный ответ сервиса: сетевой
+     * сбой вердикта не даёт (иначе упавший Wi-Fi объявил бы живой токен
+     * мёртвым и пустил бы ПК затирать ручной ввод).
+     */
+    private val onTokenVerdict: ((Boolean) -> Unit)? = null,
 ) {
     private val bundleCache: java.io.File? get() = cacheDir?.let { java.io.File(it, "qobuz_bundle.txt") }
 
@@ -157,6 +167,34 @@ class QobuzApi(
         // добываем свежую пару из bundle.js веб-плеера. `app_id` из бандла Qobuz
         // сейчас часто не совпадает с рабочим (для этого пути/аккаунта), поэтому
         // НЕ затираем синхронизированный, а пробуем свежие секреты под ОБА id.
+        // ВСТРОЕННАЯ ПАРА КАК ЗАПАСНОЙ ХОД.
+        //
+        // Своя (или синкнутая с ПК) пара перекрывает встроенную целиком — и это
+        // правильно, пока она рабочая. Но когда она НЕ рабочая, дальше шёл
+        // сразу отказ «не удалось добыть ключи, введи app_id и app_secret
+        // вручную», хотя рядом лежала заведомо рабочая FALLBACK
+        // (312369995 + e79f8b9b…), которой мы даже не попробовали.
+        //
+        // Ровно так это и выглядело у тестеров 06.09.2026: приложение просило
+        // ввести ключи, тестер вводил ВЕРНЫЕ, и ничего не менялось — потому что
+        // проблема была не в том, что ключей нет, а в том, что мы отказывались
+        // взять те, что уже есть. Сеть тут не нужна, попытка стоит один запрос.
+        if (appId != QobuzBundle.FALLBACK.appId || secrets != QobuzBundle.FALLBACK.secrets) {
+            android.util.Log.i(
+                "RipsterQobuz",
+                "own pair (appId=${appId.take(4)}…, secret ${secrets.firstOrNull()?.take(4) ?: "none"}…) " +
+                    "failed to sign getFileUrl — trying the built-in pair",
+            )
+            tryFileUrl(trackId, formatId, QobuzBundle.FALLBACK.appId, QobuzBundle.FALLBACK.secrets)?.let {
+                mutex.withLock {
+                    appId = QobuzBundle.FALLBACK.appId
+                    secrets = QobuzBundle.FALLBACK.secrets
+                }
+                    android.util.Log.i("RipsterQobuz", "built-in pair worked")
+                return it
+            }
+        }
+
         if (!refreshedFromBundle) {
             refreshedFromBundle = true
             runCatching { QobuzBundle.resolve(null, null, bundleCache, forceFresh = true) }.getOrNull()?.let { fresh ->
@@ -198,6 +236,18 @@ class QobuzApi(
                     goodSecret = secret
                     return fu
                 }
+                // 200 БЕЗ ссылки — это не «ключи плохие». Подпись сошлась,
+                // сервис ответил и НАЗВАЛ причину в `restrictions`. Раньше мы
+                // её выбрасывали, возвращали null, перебирали остальные
+                // секреты и в конце писали «не удалось добыть ключи, введи
+                // app_id вручную» — диагноз, не имеющий отношения к делу.
+                // Тестер вводил верные ключи, и ничего не менялось.
+                android.util.Log.w(
+                    "RipsterQobuz",
+                    "getFileUrl fmt=$formatId aid=${aid.take(4)}… sec=${secret.take(4)}…: " +
+                        "HTTP 200 without url, body=${raw.take(200)}",
+                )
+                restrictionError(fu)?.let { throw it }
             } catch (e: Exception) {
                 // Ловим ТОЛЬКО то, что и правда лечится следующим секретом.
                 //
@@ -210,11 +260,38 @@ class QobuzApi(
                 // Мёртвый токен и любая неожиданная ошибка идут наверх как
                 // есть: пусть человек прочитает НАСТОЯЩУЮ причину.
                 val msg = e.message.orEmpty()
+                android.util.Log.w(
+                    "RipsterQobuz",
+                    "getFileUrl fmt=$formatId aid=${aid.take(4)}… sec=${secret.take(4)}… failed: $msg",
+                )
                 val signatureIssue = "400" in msg || "__qobuz_bad_secret__" in msg
                 if (!signatureIssue) throw e
             }
         }
         return null
+    }
+
+    /**
+     * Ответ без ссылки, но с причиной → ошибка, которую не надо угадывать.
+     *
+     * null значит «причины сервис не назвал» — тогда молчим и пробуем
+     * следующий секрет: вот там незнание действительно уместно.
+     *
+     * `FormatRestrictedByFormatAvailability` СЮДА НЕ ПОПАДАЕТ намеренно: это
+     * «нет вот такого формата», и следующий формат в очереди может подойти —
+     * так и работает перебор 27 → 7 → 6 → 5.
+     */
+    private fun restrictionError(fu: QbFileUrl): IOException? {
+        val codes = fu.restrictions.map { it.code }
+        if (codes.isEmpty()) return null
+        return when {
+            codes.any { it == "TrackRestrictedByPurchaseCredentials" } ->
+                IOException(EngineErrors.QOBUZ_PURCHASE_ONLY)
+            codes.any { it == "SampleRestrictedByRightHolders" } ->
+                IOException(EngineErrors.QOBUZ_RIGHTS_BLOCKED)
+            codes.all { it == "FormatRestrictedByFormatAvailability" } -> null
+            else -> IOException(EngineErrors.code(EngineErrors.QOBUZ_RESTRICTED, codes.joinToString()))
+        }
     }
 
     /** Брошено getWithAppId при 400 = Qobuz отверг app_id. Ловим в get() для
@@ -268,7 +345,10 @@ class QobuzApi(
             .build()
         return withContext(Dispatchers.IO) {
             RipsterHttp.client.newCall(req).execute().use { r ->
-                if (r.code == 401 && authed) throw IOException("__qobuz_bad_token__")
+                if (r.code == 401 && authed) {
+                    onTokenVerdict?.invoke(false)
+                    throw IOException("__qobuz_bad_token__")
+                }
                 // 400 у Qobuz на /catalog/search почти всегда = «Invalid or missing
                 // app_id» (протух/пустой app_id), а не проблема самого запроса.
                 // get() ловит это и один раз пере-скрейпит bundle.js.
@@ -290,6 +370,9 @@ class QobuzApi(
                     throw IOException(EngineErrors.code(EngineErrors.HTTP, "400 " + body.take(160)))
                 }
                 if (!r.isSuccessful) throw IOException(EngineErrors.code(EngineErrors.HTTP, "${r.code} ${url.encodedPath.substringAfterLast('/')}"))
+                // Ответ пришёл с нашим токеном и сервис не возразил — значит
+                // токен живой. Снимаем прежний приговор, если он был.
+                if (authed && authToken.isNotBlank()) onTokenVerdict?.invoke(true)
                 r.body?.string() ?: throw IOException(EngineErrors.EMPTY_STREAM)
             }
         }
