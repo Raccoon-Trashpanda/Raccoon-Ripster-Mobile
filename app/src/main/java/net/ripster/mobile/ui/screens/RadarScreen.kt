@@ -123,7 +123,10 @@ fun RadarScreen(
     var openUp by remember { mutableStateOf<PcBridge.UpcomingItem?>(null) }
 
     val upcoming by produceState<List<PcBridge.UpcomingItem>>(emptyList(), bridge.paired) {
-        value = if (bridge.paired) bridge.upcoming().getOrDefault(emptyList()) else emptyList()
+        // Подгрузка анонсов — тоже ожидание: полоса сверху должна о нём знать.
+        value = net.ripster.mobile.ui.Busy.during {
+            if (bridge.paired) bridge.upcoming().getOrDefault(emptyList()) else emptyList()
+        }
     }
     val waiting = remember { mutableStateMapOf<String, Boolean>() }
 

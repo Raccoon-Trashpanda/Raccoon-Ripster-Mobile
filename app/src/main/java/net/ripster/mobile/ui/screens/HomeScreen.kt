@@ -408,7 +408,7 @@ fun HomeScreen(
                             building = st.id; stationMsg = null
                             scope.launch {
                                 val q = app.settings.state.value.qualityFor(onWifi = true)
-                                val tracks = kotlinx.coroutines.withTimeoutOrNull(25_000) {
+                                val tracks = net.ripster.mobile.ui.Busy.during { kotlinx.coroutines.withTimeoutOrNull(25_000) {
                                     net.ripster.mobile.core.service.StationBuilder.build(
                                         st.scSlug, st.query, st.ya,
                                         appleGenreId = st.appleGenre,
@@ -424,7 +424,7 @@ fun HomeScreen(
                                         // плитка не должна играть один и тот же список.
                                         rotationSeed = System.currentTimeMillis() / 1000L + st.id.hashCode(),
                                     )
-                                } ?: emptyList()
+                                } } ?: emptyList()
                                 // Первые 6 — быстро, чтобы сразу заиграло; остальное дорезолвим фоном.
                                 val head = net.ripster.mobile.core.service.StreamResolver
                                     .toStreamItems(tracks.take(6), q, limit = 6)

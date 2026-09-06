@@ -311,8 +311,13 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
             // — что-то качается или подгружается прямо сейчас. Ни «связь
             // есть», ни «всё хорошо»: для этого полоса не нужна, а лишний
             // смысл на ней делает её нечитаемой.
+            // Полоса означает ровно одно: ИДЁТ РАБОТА. Не только скачивание —
+            // сборка станции, поиск, подгрузка радара и всё прочее ожидание
+            // (просьба владельца 06.09.2026: «как ПК-Рипстер»). Общий признак —
+            // Busy, счётчик наложенных друг на друга операций.
+            val busyNow by net.ripster.mobile.ui.Busy.active.collectAsState()
             net.ripster.mobile.ui.components.LoadingBar(
-                active = queue.any {
+                active = busyNow || queue.any {
                     it.state == DownloadState.RUNNING || it.state == DownloadState.QUEUED
                 },
             )

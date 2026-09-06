@@ -237,6 +237,24 @@ class PlayerController(context: Context) {
         tasteProvider = provider
     }
 
+    /**
+     * Какое качество просил человек. Продолжение эфира обязано спрашивать то же
+     * самое, что и обычное воспроизведение.
+     *
+     * До 06.09.2026 автодобор звал `toStreamItems(..., quality = emptyList())` —
+     * с пустым списком предпочтений, тогда как ВСЕ остальные вызовы передавали
+     * настройки. Что вернёт сервис на пустой список, не определено: у части
+     * клиентов это «ни один тир не подошёл», то есть пустой ответ. Добор молча
+     * не давал ничего, очередь не росла, и музыка кончалась на последнем треке
+     * (жалоба владельца: «4 трека вижу, а потом упёрлись, последний доиграет и
+     * стоп»).
+     */
+    private var qualityProvider: (() -> List<String>)? = null
+
+    fun bindQuality(provider: () -> List<String>) {
+        qualityProvider = provider
+    }
+
     private fun logPlayIfNew(title: String, artist: String, album: String, art: String?, e: LibraryEntity?) {
         val rec = playLogger ?: return
         if (title.isBlank()) return
@@ -469,7 +487,6 @@ class PlayerController(context: Context) {
         if (artist.isBlank() && title.isBlank()) return
         val seed = "$artist|$title"
         if (seed == lastSeed) return          // по этому треку уже добирали
-        lastSeed = seed
         extending = true
         scope.launch {
             try {
@@ -489,8 +506,20 @@ class PlayerController(context: Context) {
                 }
                 if (fresh.isEmpty()) return@launch
                 val items = net.ripster.mobile.core.service.StreamResolver
-                    .toStreamItems(fresh, quality = emptyList(), limit = 12)
-                if (items.isNotEmpty()) appendStream(items)
+                    .toStreamItems(fresh, quality = qualityProvider?.invoke().orEmpty(), limit = 12)
+                if (items.isNotEmpty()) {
+                    appendStream(items)
+                    // Отмечаем ТОЛЬКО удачу. Раньше отметка ставилась до попытки,
+                    // и одна неудача запирала добор по этому треку навсегда: тишина
+                    // становилась окончательной там, где следующая попытка вполне
+                    // могла сработать.
+                    lastSeed = seed
+                } else {
+                    android.util.Log.i(
+                        "RipsterPlayer",
+                        "продолжение эфира пусто: ни один из ${fresh.size} треков не отдал поток",
+                    )
+                }
             } catch (_: Throwable) {
                 // Молча: продолжение — удобство, а не обещание. Ошибка здесь не
                 // должна прерывать то, что уже играет.
