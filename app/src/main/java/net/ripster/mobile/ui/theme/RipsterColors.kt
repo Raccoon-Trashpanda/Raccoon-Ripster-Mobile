@@ -207,6 +207,58 @@ val SepiaColors = RipsterColors(
     accent_active = Color(0xFF6D364C),
 )
 
+/**
+ * Aurora — палитра, снятая с референса `design/references/nano_banana_pro_…png`
+ * (12.09.2026, просьба владельца «сделай дизайн из референсных картинок»).
+ *
+ * Что взято из картинки и почему именно это:
+ *
+ * * холст не чёрный, а иссиня-фиолетовый — на референсе тени панелей уходят в
+ *   синь, и на чистом чёрном стеклянные поверхности выглядели бы грязными;
+ * * панели светлее холста на заметный шаг: там они читаются как стекло поверх
+ *   подсветки, а не как плоские карточки;
+ * * акцент — пурпур, а не розовый (это и отличает Aurora от нашей Neon, где
+ *   акцент розовый). Розовый остаётся у опасных действий, чтобы два «горячих»
+ *   цвета не спорили;
+ * * дорожка прогресса голубая: на референсе волна переливается из пурпура в
+ *   голубой, и голубой — именно та часть, которая означает «уже сыграно».
+ *
+ * `accent_text` заметно светлее `accent_fill` намеренно: насыщенный пурпур на
+ * тёмном холсте даёт около 4.6:1 — этого хватает крупному, но не мелкому
+ * тексту, а подписи у нас мелкие.
+ */
+val AuroraColors = RipsterColors(
+    surface_canvas = Color(0xFF0A0715),
+    surface_sunken = Color(0xFF0D0A1B),
+    surface_raised = Color(0xFF171130),
+    surface_overlay = Color(0xFF1E1740),
+    surface_hover = Color(0xFF261D4D),
+    surface_active = Color(0xFF1E1740),
+    text_primary = Color(0xFFF2ECFF),
+    text_secondary = Color(0xFFC3B8E4),
+    text_tertiary = Color(0xFF9D93C4),
+    text_disabled = Color(0xFF6A6390),
+    text_on_fill = Color(0xFF0A0715),
+    border_subtle = Color(0xFF201A3D),
+    border_default = Color(0xFF322A5C),
+    border_strong = Color(0xFF6E5FB0),
+    focus_ring = Color(0xFFC98BFF),
+    success_text = Color(0xFF5BE8BC),
+    success_fill = Color(0xFF1FC894),
+    warning_text = Color(0xFFFFD483),
+    warning_fill = Color(0xFFE0A43A),
+    danger_text = Color(0xFFFF7BA0),
+    danger_fill = Color(0xFFE8445F),
+    progress_text = Color(0xFF7FD2FF),
+    progress_fill = Color(0xFF3A9BE8),
+    info_text = Color(0xFFC08BFF),
+    info_fill = Color(0xFF8D4CE0),
+    accent_text = Color(0xFFC98BFF),
+    accent_fill = Color(0xFFA855F7),
+    accent_hover = Color(0xFFBB74FF),
+    accent_active = Color(0xFF8E3FDE),
+)
+
 val NeonColors = RipsterColors(
     surface_canvas = Color(0xFF08070C),
     surface_sunken = Color(0xFF0B0910),

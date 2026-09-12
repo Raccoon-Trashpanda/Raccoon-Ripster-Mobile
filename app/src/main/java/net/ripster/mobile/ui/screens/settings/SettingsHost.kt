@@ -543,7 +543,7 @@ private fun NetworkSection(lang: AppLang, c: RipsterColors) {
 private fun AppSection(lang: AppLang, c: RipsterColors) {
     val app = RipsterApp.from(LocalContext.current)
     val s by app.settings.state.collectAsState()
-    val themes = listOf("Dark", "Light", "Midnight", "Ember", "Sepia", "Neon")
+    val themes = listOf("Dark", "Light", "Midnight", "Ember", "Sepia", "Neon", "Aurora")
     val dens = listOf("Compact", "Normal", "Large")
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(8.dp)) {
         ChipsRow(tr("set.language", lang), AppLang.ORDER.map { it.display }, AppLang.ORDER.indexOf(AppLang.byTag(s.uiLang)), c) { i -> app.settings.update { it.copy(uiLang = AppLang.ORDER[i].tag) } }

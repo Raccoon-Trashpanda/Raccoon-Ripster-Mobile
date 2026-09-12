@@ -66,7 +66,32 @@ class QobuzClient(
 
     override suspend fun search(query: String): MediaSelection {
         val s = api.search(query)
-        return MediaSelection(kind = MediaKind.TRACK, tracks = s.tracks.items.map { it.toTrack() })
+        // Альбомы — отдельным запросом, как у Deezer: `track/search` их не
+        // возвращает, и фильтр «Альбомы» из-за этого был пуст всегда.
+        // Отказ по альбомам не должен ронять выдачу треков — она уже есть.
+        val albums = runCatching {
+            api.searchAlbums(query).albums.items.map { a ->
+                Album(
+                    id = a.id,
+                    title = a.title,
+                    artist = a.artist.name,
+                    service = Service.QOBUZ,
+                    trackCount = a.tracksCount,
+                    artworkUrl = a.image.large,
+                    releaseDate = a.releaseDateOriginal
+                        ?: a.releasedAt?.let {
+                            java.time.Instant.ofEpochSecond(it)
+                                .atZone(java.time.ZoneOffset.UTC).toLocalDate().toString()
+                        },
+                    url = "https://open.qobuz.com/album/${a.id}",
+                )
+            }
+        }.getOrDefault(emptyList())
+        return MediaSelection(
+            kind = if (s.tracks.items.isEmpty() && albums.isNotEmpty()) MediaKind.ALBUM else MediaKind.TRACK,
+            tracks = s.tracks.items.map { it.toTrack() },
+            albums = albums,
+        )
     }
 
     override suspend fun resolve(url: String): MediaSelection? {

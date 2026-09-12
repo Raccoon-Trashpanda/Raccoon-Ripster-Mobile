@@ -957,6 +957,7 @@ private val STRINGS: Map<String, Row> = mapOf(
     "ob.theme_ember" to row("Уголёк", "Ember", "एम्बर", "エンバー", "余烬"),
     "ob.theme_sepia" to row("Сепия", "Sepia", "सेपिया", "セピア", "棕褐"),
     "ob.theme_neon" to row("Неон", "Neon", "नियॉन", "ネオン", "霓虹"),
+    "ob.theme_aurora" to row("Аврора", "Aurora", "अरोरा", "オーロラ", "极光"),
     "ob.font_s" to row("Мелкий", "Small", "छोटा", "小", "小"),
     "ob.font_m" to row("Обычный", "Normal", "सामान्य", "標準", "标准"),
     "ob.font_l" to row("Крупный", "Large", "बड़ा", "大", "大"),

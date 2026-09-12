@@ -231,7 +231,13 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
     // приглушённых пятен, сбалансированно разложенных по всему экрану. При
     // смене АЛЬБОМА палитра плавно перетекает; при смене трека внутри альбома
     // палитра та же, но пятна хаотично перекладываются и чуть светлее/темнее.
-    val neon = RipsterTheme.name == RipsterThemeName.Neon
+    // Aurora построена по тому же принципу, что и Neon (тёмный холст + мягкие
+    // подсветки под интерфейсом), поэтому подсветки включает так же. Проверять
+    // тут ИМЯ конкретной темы, а не свойство палитры, приходится лишь потому,
+    // что подсветка — это про фон экрана, а не про цвет элемента; список из
+    // двух имён честнее, чем скрытый флаг в палитре, о котором никто не узнает.
+    val neon = RipsterTheme.name == RipsterThemeName.Neon ||
+        RipsterTheme.name == RipsterThemeName.Aurora
     val ambiOn = settings.adaptiveColors && playback.hasItem
     val paletteNew = rememberPalette(
         if (ambiOn) playback.artworkUrl else null,

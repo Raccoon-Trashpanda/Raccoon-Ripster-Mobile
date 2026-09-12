@@ -20,6 +20,7 @@ enum class RipsterThemeName {
     Ember,
     Sepia,
     Neon,
+    Aurora,
 }
 
 /**
@@ -36,6 +37,7 @@ fun colorsFor(theme: RipsterThemeName): RipsterColors = when (theme) {
     RipsterThemeName.Ember -> EmberColors
     RipsterThemeName.Sepia -> SepiaColors
     RipsterThemeName.Neon -> NeonColors
+    RipsterThemeName.Aurora -> AuroraColors
 }
 
 /**

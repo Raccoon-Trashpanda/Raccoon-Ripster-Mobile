@@ -60,6 +60,10 @@ data class QbTrackItems(val items: List<QbTrack> = emptyList(), val total: Int =
 @Serializable
 data class QbSearch(val tracks: QbTrackItems = QbTrackItems())
 
+/** Ответ `album/search`. Треки он не содержит — это отдельный запрос. */
+@Serializable
+data class QbAlbumSearch(val albums: QbArtistAlbums = QbArtistAlbums())
+
 @Serializable
 data class QbAlbumFull(
     val id: String = "",

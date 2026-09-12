@@ -8,6 +8,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import net.ripster.mobile.core.net.RipsterHttp
 import net.ripster.mobile.service.qobuz.dto.QbAlbumFull
+import net.ripster.mobile.service.qobuz.dto.QbAlbumSearch
 import net.ripster.mobile.service.qobuz.dto.QbFileUrl
 import net.ripster.mobile.service.qobuz.dto.QbLogin
 import net.ripster.mobile.service.qobuz.dto.QbSearch
@@ -119,6 +120,22 @@ class QobuzApi(
             it.addQueryParameter("app_id", searchAid)
         }
         return json.decodeFromString(QbSearch.serializer(), raw)
+    }
+
+    /** Альбомы по тому же запросу. Отдельный вызов: `track/search` их не отдаёт.
+     *
+     * Без него фильтр «Альбомы» в поиске был у Qobuz пуст всегда, и экран писал
+     * «под этот фильтр ничего нет» — со стороны это неотличимо от сломанного
+     * поиска (12.09.2026, тот же дефект был найден у Tidal). */
+    suspend fun searchAlbums(query: String): QbAlbumSearch {
+        ensureAuth()
+        val searchAid = QobuzBundle.SEARCH_APP_ID
+        val raw = getWithAppId(searchAid, "album/search", authed = true) {
+            it.addQueryParameter("query", query)
+            it.addQueryParameter("limit", "25")
+            it.addQueryParameter("app_id", searchAid)
+        }
+        return json.decodeFromString(QbAlbumSearch.serializer(), raw)
     }
 
     suspend fun track(id: String): QbTrack {

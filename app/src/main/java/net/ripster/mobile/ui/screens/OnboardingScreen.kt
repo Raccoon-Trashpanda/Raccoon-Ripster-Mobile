@@ -136,6 +136,7 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                         RipsterThemeName.Ember to "ob.theme_ember",
                         RipsterThemeName.Sepia to "ob.theme_sepia",
                         RipsterThemeName.Neon to "ob.theme_neon",
+                        RipsterThemeName.Aurora to "ob.theme_aurora",
                     )
                     RipsterThemeName.entries.forEach { t ->
                         Selectable(tr(names[t] ?: "ob.theme_dark", lang), s.theme == t.name, c) {
