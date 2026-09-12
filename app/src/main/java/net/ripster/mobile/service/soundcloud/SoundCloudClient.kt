@@ -150,7 +150,30 @@ class SoundCloudClient(
 
     override suspend fun search(query: String): MediaSelection {
         val tracks = api.searchTracks(query).map { it.toTrack() }
-        return MediaSelection(kind = MediaKind.TRACK, tracks = tracks)
+        // Плейлисты — это и есть альбомы SoundCloud: релизы лейблы выкладывают
+        // именно ими. Без этого запроса фильтр «Альбомы» был пуст всегда (тот же
+        // дефект, что нашёлся 12.09.2026 у Tidal, Qobuz и Beatport).
+        // Отказ по плейлистам не должен ронять уже найденные треки.
+        val albums = runCatching {
+            api.searchPlaylists(query).map { p ->
+                Album(
+                    id = p.id.toString(),
+                    title = p.title,
+                    artist = p.user.username,
+                    service = Service.SOUNDCLOUD,
+                    trackCount = p.trackCount,
+                    artworkUrl = p.artworkUrl,
+                    // Постоянный адрес обязателен: у плейлиста SoundCloud ссылку
+                    // из номера не собрать, а без неё релиз нечем открыть.
+                    url = p.permalinkUrl.ifBlank { null },
+                )
+            }
+        }.getOrDefault(emptyList())
+        return MediaSelection(
+            kind = if (tracks.isEmpty() && albums.isNotEmpty()) MediaKind.ALBUM else MediaKind.TRACK,
+            tracks = tracks,
+            albums = albums,
+        )
     }
 
     /** Станция по жанру: чарт SoundCloud (top → trending → поиск как запас). */

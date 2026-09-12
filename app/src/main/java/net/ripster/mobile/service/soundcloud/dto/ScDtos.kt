@@ -87,6 +87,13 @@ data class ScPlaylist(
     val tracks: List<ScTrack> = emptyList(),
 )
 
+/** Ответ `GET /search/playlists`. У SoundCloud роль альбома играет плейлист. */
+@Serializable
+data class ScPlaylistSearch(
+    val collection: List<ScPlaylist> = emptyList(),
+    @SerialName("total_results") val totalResults: Int = 0,
+)
+
 @Serializable
 data class ScSearch(
     val collection: List<ScTrack> = emptyList(),

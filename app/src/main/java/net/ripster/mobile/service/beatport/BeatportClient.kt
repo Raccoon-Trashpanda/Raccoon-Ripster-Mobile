@@ -18,6 +18,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
+import net.ripster.mobile.core.model.Album
 import net.ripster.mobile.core.model.DownloadEvent
 import net.ripster.mobile.core.model.DownloadRequest
 import net.ripster.mobile.core.model.MediaKind
@@ -216,7 +217,39 @@ class BeatportClient(
 
     override suspend fun search(query: String): MediaSelection {
         val raw = apiGet("catalog/search/", mapOf("q" to query, "type" to "tracks", "per_page" to "25"))
-        return MediaSelection(kind = MediaKind.TRACK, tracks = rows(raw, "tracks").map { trackOf(it) })
+        // Релизы — отдельным запросом. Тот же дефект, что нашёлся 12.09.2026 у
+        // Tidal и Qobuz: поиск спрашивал только треки, и фильтр «Альбомы» был
+        // пуст всегда, а экран писал «под этот фильтр ничего нет» — со стороны
+        // неотличимо от сломанного поиска.
+        // Отказ по релизам не должен ронять уже полученные треки.
+        val albums = runCatching {
+            val rel = apiGet("catalog/search/", mapOf("q" to query, "type" to "releases", "per_page" to "25"))
+            rows(rel, "releases").map { r ->
+                val id = (r["id"]?.jsonPrimitive?.longOrNull ?: r["id"]?.jsonPrimitive?.intOrNull ?: 0).toString()
+                val artists = (r["artists"]?.jsonArray ?: emptyList())
+                    .mapNotNull { it.jsonObject["name"]?.jsonPrimitive?.contentOrNull }
+                Album(
+                    id = id,
+                    title = r["name"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    artist = artists.joinToString(", "),
+                    service = Service.BEATPORT,
+                    trackCount = r["track_count"]?.jsonPrimitive?.intOrNull,
+                    artworkUrl = img(r),
+                    releaseDate = r["release_date"]?.jsonPrimitive?.contentOrNull,
+                    // Слаг в ссылке Beatport ни на что не влияет — наш resolve()
+                    // читает из неё только тип и номер, — но опустить его нельзя:
+                    // без него адрес не совпадёт с разбором и релиз будет нечем
+                    // открыть.
+                    url = "https://www.beatport.com/release/x/$id",
+                )
+            }
+        }.getOrDefault(emptyList())
+        val tracks = rows(raw, "tracks").map { trackOf(it) }
+        return MediaSelection(
+            kind = if (tracks.isEmpty() && albums.isNotEmpty()) MediaKind.ALBUM else MediaKind.TRACK,
+            tracks = tracks,
+            albums = albums,
+        )
     }
 
     override suspend fun resolve(url: String): MediaSelection? {

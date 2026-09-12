@@ -46,6 +46,21 @@ class SoundCloudApi(private val oauthToken: String? = null) {
         json.decodeFromString(ScSearch.serializer(), raw).collection
     }
 
+    /** Плейлисты и альбомы по тому же запросу: у SoundCloud это одна сущность,
+     *  и без неё фильтр «Альбомы» в поиске был пуст всегда. */
+    suspend fun searchPlaylists(
+        query: String,
+        limit: Int = 20,
+    ): List<net.ripster.mobile.service.soundcloud.dto.ScPlaylist> = withContext(Dispatchers.IO) {
+        val raw = getJson("$API/search/playlists") {
+            it.addQueryParameter("q", query)
+            it.addQueryParameter("limit", limit.toString())
+        }
+        json.decodeFromString(
+            net.ripster.mobile.service.soundcloud.dto.ScPlaylistSearch.serializer(), raw,
+        ).collection
+    }
+
     /**
      * Чарт по жанру — «станция»: `kind` = top | trending, `genreSlug` без
      * префикса (house, techno, deephouse, …). SC отдаёт готовый курируемый
