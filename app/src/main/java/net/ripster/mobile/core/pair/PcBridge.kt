@@ -238,10 +238,16 @@ class PcBridge(context: Context) {
 
     /**
      * Выкачать токены сервисов с ПК в [store]. Возвращает число реально
-     * записанных ключей (свой более свежий ручной ввод не затирается —
-     * см. [CredentialStore.mergeFromPc]).
+     * записанных ключей.
+     *
+     * Автоматический вызов ручной ввод НЕ трогает; перекрыть его может только
+     * явное нажатие «Забрать учётки с ПК» ([force] = true).
      */
-    suspend fun syncCredentials(store: CredentialStore): Result<Int> = withContext(Dispatchers.IO) {
+    suspend fun syncCredentials(
+        store: CredentialStore,
+        /** true — человек НАЖАЛ «Забрать учётки с ПК» и согласен перекрыть свой ручной ввод. */
+        force: Boolean = false,
+    ): Result<Int> = withContext(Dispatchers.IO) {
         val tok = token ?: return@withContext Result.failure(IllegalStateException("not paired"))
         runCatching {
             viaBase { base ->
@@ -260,7 +266,7 @@ class PcBridge(context: Context) {
                     for ((id, el) in creds) {
                         val key = CredentialStore.Key.entries.firstOrNull { it.id == id } ?: continue
                         val value = el.jsonPrimitive.contentOrNull ?: continue
-                        if (store.mergeFromPc(key, value, updatedAt)) written++
+                        if (store.mergeFromPc(key, value, updatedAt, force)) written++
                     }
                     prefs.edit().putBoolean("synced_ok", true).apply()
                     written
