@@ -42,10 +42,13 @@ Ripster, and only if you pair.
   over MPEG-DASH), lossless or high-AAC from SoundCloud, FLAC from Yandex Music.
 - 🔍 **Search across services** from one field, with ▶ preview and one-tap queue.
 - 🎧 **Player with two backends:** the OS codec (default) or a native Oboe engine
-  (AAudio exclusive, no resample when rates match) for local FLAC/WAV/ALAC, with
-  a gapless queue.
-- 🎛 **Equalizer**, bass boost, virtualizer and the engine switch under **Settings →
-  Equalizer & effects**.
+  (AAudio exclusive, bit-perfect when the device takes the file's rate) for local
+  FLAC / WAV / ALAC / WavPack / DSD, with a gapless queue. Pick it under
+  **Settings → Player**.
+- 🎛 **Equalizer**, bass boost and virtualizer under **Settings → Equalizer &
+  effects**.
+- 🩺 **Trouble report** — one button copies the whole log, redacted, so
+  "it doesn't work" can be sent as something readable.
 - 📊 **Spectrogram** with an honest lossless / upscale verdict.
 - 🅰 **Lyrics** line by line, active line centred.
 - 🦝 **Ripster Radar** — release feed for the artists and labels you follow, sticky date
@@ -80,8 +83,8 @@ previous / play / next — tap again to come back.
 
 ## Codecs & engines
 
-**Codecs** — `FLAC`, `ALAC`, `WAV` decode straight through the native engine
-(no resample when the device rate matches); `AAC` / `M4A`, `MP3`, `Vorbis` (OGG)
+**Codecs** — `FLAC`, `ALAC`, `WAV`, `WavPack` (`.wv`) and `DSD` (`.dsf` / `.dff`)
+decode straight through the native engine; `AAC` / `M4A`, `MP3`, `Vorbis` (OGG)
 and `Opus` play through the system engine. Tags are written as Vorbis comments
 (FLAC), ID3 (MP3) or MP4 atoms (M4A). Actual bit-depth / sample-rate depends on
 the release and your subscription — the quality badge never invents a number it
@@ -96,7 +99,10 @@ track on a service you have).
 
 **Playback** — `ExoPlayer / Media3` by default (every source, streaming and
 local, MediaSession, Bluetooth); `Oboe · AAudio exclusive` for local
-FLAC/WAV/ALAC (gapless, no resample, bit-perfect readout).
+FLAC/WAV/ALAC/WavPack/DSD (gapless, bit-perfect readout). When the device will
+not take the file's rate, a polyphase windowed-sinc resampler converts it —
+DSD is decimated to 88.2 kHz PCM the same way, since no phone DAC accepts a
+1-bit stream over AAudio.
 
 ## Playing a track
 
@@ -140,7 +146,7 @@ Pairing is optional and can be done later in **Settings → PC pairing**.
 Not on Google Play. Sideload the APK:
 
 1. Open [**the latest release**](https://github.com/Raccoon-Trashpanda/Raccoon-Ripster-Mobile/releases/latest)
-   on the phone and download the `.apk` (current: `Ripster-0.31.apk`).
+   on the phone and download the `.apk` (current: `Ripster-0.38.apk`).
 2. Tap the file, allow installs from that source, confirm.
 3. Open Ripster.
 
@@ -186,12 +192,14 @@ and skip it.
 
 ## Audio engine
 
-**Settings → Equalizer & effects → Audio engine.**
+**Settings → Player → Audio engine.**
 
 - **System (ExoPlayer)** — default, handles every source.
-- **Native (Oboe)** — beta. For local FLAC/WAV/ALAC only: decodes and feeds an
-  AAudio exclusive stream directly, gapless, with a bit-perfect / "resampled →
-  N Hz" readout on Now Playing. Other tracks fall back to the system engine.
+- **Native (Oboe)** — for local FLAC / WAV / ALAC / WavPack / DSD: decodes and
+  feeds an AAudio exclusive stream directly, gapless, with a bit-perfect /
+  "resampled → N Hz" readout on Now Playing. Volume is applied in software with
+  dither, so the samples reach the device untouched at full volume. MP3/AAC,
+  streaming and Bluetooth stay on the system engine.
 
 The ALAC path plays Apple Lossless files you already have. It is playback, not
 FairPlay removal — Apple Music downloads still need a paired PC.
@@ -252,6 +260,9 @@ The download and decode work builds on open-source projects:
 - [google/oboe](https://github.com/google/oboe) — AAudio/OpenSL audio
 - [mackron/dr_libs](https://github.com/mackron/dr_libs) — `dr_flac`, `dr_wav`
 - [macosforge/alac](https://github.com/macosforge/alac) — Apple Lossless decoder
+  (Apache-2.0, vendored)
+- [dbry/WavPack](https://github.com/dbry/WavPack) — WavPack 5.7.0 decoder
+  (David Bryant, BSD-3, vendored)
 - [androidx/media](https://github.com/androidx/media) — Media3 / ExoPlayer
 - [square/okhttp](https://github.com/square/okhttp),
   [Kotlin](https://github.com/JetBrains/kotlin),
