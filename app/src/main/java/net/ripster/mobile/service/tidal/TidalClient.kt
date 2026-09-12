@@ -73,6 +73,43 @@ class TidalClient(
     private val aac = QualityTier("aac_256", "AAC 320", lossless = false, container = "m4a", bitrateKbps = 320)
     private val low = QualityTier("mp3_128", "AAC 96", lossless = false, container = "m4a", bitrateKbps = 96)
 
+    internal companion object {
+        /** Порядок тиров, которые имеет смысл просить у Tidal, и в каком порядке.
+         *
+         * Отдельной чистой функцией, потому что именно здесь жил тупик, из-за
+         * которого тестеры писали «трансляция идёт, а загрузка — 403».
+         * Раньше порядок собирался СТРОГО из предпочтений: человек выбрал в
+         * настройках «FLAC 24-bit» — список состоял из одного `HI_RES_LOSSLESS`,
+         * CDN отказывал в сегментах, тир исключался, список пустел, и загрузка
+         * падала с голым отказом. Спускаться было некуда, хотя тот же трек
+         * прекрасно отдаётся тиром ниже — что и доказывает работающий ▶.
+         *
+         * Теперь за предпочтениями идёт АВАРИЙНЫЙ ХВОСТ. В обычной жизни он не
+         * виден: предпочтения стоят первыми, и до хвоста очередь не доходит. Он
+         * включается ровно тогда, когда всё запрошенное уже отказало —
+         * `exclude` непуст, — и тогда лучше отдать человеку lossless вместо
+         * hi-res (о чём загрузка говорит вслух), чем не отдать ничего.
+         */
+        fun qualityKeys(preference: List<String>, exclude: Set<String> = emptySet()): List<String> {
+            val wanted = buildList {
+                for (p in preference) when {
+                    // Спец-режим стрима: только прямые URL, без HI-RES/DASH.
+                    p == "lossless_direct" -> { add("LOSSLESS"); add("HIGH") }
+                    p.startsWith("flac_24") || p.contains("hires") || p.contains("hi_res") -> add("HI_RES_LOSSLESS")
+                    p.startsWith("flac") -> { add("HI_RES_LOSSLESS"); add("LOSSLESS") }
+                    p == "mp3_320" || p == "aac_256" -> add("HIGH")
+                    p == "mp3_128" -> add("LOW")
+                }
+                if (isEmpty()) { add("HI_RES_LOSSLESS"); add("LOSSLESS"); add("HIGH") }
+            }
+            // Хвост НЕ включает HI_RES: подниматься выше запрошенного нельзя —
+            // человек мог выбрать AAC ради места на телефоне, и отдать ему
+            // 24-битный файл значит не услышать просьбу.
+            val tail = listOf("LOSSLESS", "HIGH", "LOW")
+            return (wanted + tail).distinct().filterNot { it in exclude }
+        }
+    }
+
     // Есть сохранённая сессия — считаем готовым; ensureToken() (сеть) уедет в
     // первый search()/resolve(), а не в пробу готовности.
     /**
@@ -97,11 +134,43 @@ class TidalClient(
 
     override suspend fun search(query: String): MediaSelection {
         ensureToken()
-        val raw = api("https://api.tidal.com/v1/search/tracks") {
-            it.addQueryParameter("query", query); it.addQueryParameter("limit", "25")
+        // АДРЕС ЗАПРОСА РЕШАЕТ, ЧТО ВООБЩЕ МОЖНО НАЙТИ.
+        //
+        // Здесь стоял `/v1/search/tracks` — эндпоинт, который отдаёт ТОЛЬКО
+        // треки. Из-за этого фильтр «Альбомы» у Tidal был пуст ВСЕГДА, и экран
+        // честно писал «под этот фильтр ничего нет» — со стороны неотличимо от
+        // «поиск сломан», о чём владелец и сообщил 12.09.2026.
+        //
+        // Проверено живым запросом в тот же день: `/v1/search?types=ALBUMS` по
+        // запросу «portishead» возвращает Dummy, Third, Roseland NYC Live. То
+        // есть альбомы были доступны всё это время — мы их не спрашивали.
+        val raw = api("https://api.tidal.com/v1/search") {
+            it.addQueryParameter("query", query)
+            it.addQueryParameter("types", "TRACKS,ALBUMS")
+            it.addQueryParameter("limit", "25")
         }
-        val items = json.decodeFromString(TdItems.serializer(), raw).items
-        return MediaSelection(kind = MediaKind.TRACK, tracks = items.map { it.toTrack() })
+        val res = json.decodeFromString(TdSearch.serializer(), raw)
+        val albums = res.albums.items.map { a ->
+            Album(
+                id = a.id.toString(),
+                title = a.title,
+                artist = a.artist?.name ?: a.artists?.firstOrNull()?.name ?: "",
+                service = Service.TIDAL,
+                trackCount = a.numberOfTracks,
+                artworkUrl = coverUrl(a.cover),
+                releaseDate = a.releaseDate,
+                // Ссылку отдаём ту, которую понимает наш же resolve() — иначе
+                // карточку альбома будет нечем открыть и нечего скачивать.
+                url = "https://tidal.com/album/${a.id}",
+            )
+        }
+        return MediaSelection(
+            // Вид выдачи — по тому, чего в ней больше: список из одних альбомов
+            // не должен подписываться как треки.
+            kind = if (res.tracks.items.isEmpty() && albums.isNotEmpty()) MediaKind.ALBUM else MediaKind.TRACK,
+            tracks = res.tracks.items.map { it.toTrack() },
+            albums = albums,
+        )
     }
 
     override suspend fun resolve(url: String): MediaSelection? {
@@ -344,17 +413,14 @@ class TidalClient(
         exclude: Set<String> = emptySet(),
     ): TdStream {
         if (!ensureToken()) throw IOException(EngineErrors.TOKEN_INVALID)
-        val order = buildList {
-            for (p in preference) when {
-                // спец-режим для стрима: только прямые URL, без HI-RES/DASH
-                p == "lossless_direct" -> { add("LOSSLESS" to flac); add("HIGH" to aac) }
-                p.startsWith("flac_24") || p.contains("hires") || p.contains("hi_res") -> add("HI_RES_LOSSLESS" to hires)
-                p.startsWith("flac") -> { add("HI_RES_LOSSLESS" to hires); add("LOSSLESS" to flac) }
-                p == "mp3_320" || p == "aac_256" -> add("HIGH" to aac)
-                p == "mp3_128" -> add("LOW" to low)
+        val order = qualityKeys(preference, exclude).map { key ->
+            key to when (key) {
+                "HI_RES_LOSSLESS" -> hires
+                "LOSSLESS"        -> flac
+                "HIGH"            -> aac
+                else              -> low
             }
-            if (isEmpty()) { add("HI_RES_LOSSLESS" to hires); add("LOSSLESS" to flac); add("HIGH" to aac) }
-        }.distinctBy { it.first }.filterNot { it.first in exclude }
+        }
         if (order.isEmpty()) throw IOException(EngineErrors.TIDAL_SEGMENT_DENIED)
 
         // Последняя реальная причина отказа — чтобы финальная ошибка называла
@@ -618,6 +684,11 @@ class TidalClient(
         val artists: List<TdArtist>? = null,
     )
     @Serializable private data class TdAlbumItems(val items: List<TdArtistAlbum> = emptyList())
+    /** Ответ общего поиска: у каждого типа свой блок с `items`. */
+    @Serializable private data class TdSearch(
+        val tracks: TdItems = TdItems(),
+        val albums: TdAlbumItems = TdAlbumItems(),
+    )
     @Serializable private data class TdAlbumRef(val id: Long = 0, val title: String = "", val cover: String? = null)
     @Serializable
     private data class TdTrack(
