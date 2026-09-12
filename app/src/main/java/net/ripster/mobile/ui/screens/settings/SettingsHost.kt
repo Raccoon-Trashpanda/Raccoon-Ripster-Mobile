@@ -205,7 +205,67 @@ private val ACCOUNT_SERVICES = listOf(
 
 @Composable
 private fun AccountsList(lang: AppLang, c: RipsterColors, open: (Service) -> Unit) {
+    val app = RipsterApp.from(androidx.compose.ui.platform.LocalContext.current)
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var checking by remember { mutableStateOf(false) }
+    var checked by remember {
+        mutableStateOf<List<net.ripster.mobile.core.service.AccountAutoHeal.Result>>(emptyList())
+    }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        // ── Проверить и починить ────────────────────────────────────────────
+        //
+        // «Подключён» в списке ниже означает лишь «ключ на месте» — это
+        // готовность, а не работоспособность. Протухший токен выяснялся
+        // посреди загрузки. Здесь у сервисов спрашивают напрямую, и если
+        // учётка мертва или не отдаёт lossless, свежая забирается с ПК: он
+        // держит пул и уже отдаёт лучшую по каждому сервису.
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable(enabled = !checking) {
+                    checking = true
+                    scope.launch {
+                        checked = net.ripster.mobile.core.service.AccountAutoHeal.run(
+                            app.credentials, app.pcBridge, app.pcBridge.paired,
+                        )
+                        checking = false
+                    }
+                }
+                .padding(horizontal = 18.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BasicText(
+                tr(if (checking) "acc.checking" else "acc.check", lang),
+                Modifier.weight(1f),
+                style = TextStyle(color = c.accent_text, fontSize = 13.sp, fontWeight = FontWeight.W600),
+            )
+        }
+        checked.forEach { r ->
+            val h = r.after ?: r.before
+            // Цвет по состоянию: «не смогли спросить» не красное — это не вина
+            // учётки, а свойство сети или региона.
+            val col = when {
+                h.alive == false -> c.danger_text
+                h.alive == null -> c.text_tertiary
+                !h.lossless -> c.warning_text
+                else -> c.success_text
+            }
+            val what = when {
+                h.alive == false -> tr("acc.h_dead", lang)
+                h.alive == null -> tr("acc.h_unknown", lang)
+                !h.lossless -> tr("acc.h_lossy", lang)
+                else -> tr("acc.h_ok", lang)
+            }
+            val extra = listOf(h.plan, h.quality, h.country, h.reason)
+                .filter { it.isNotBlank() }.joinToString(" · ")
+            BasicText(
+                "${r.service.label}: $what" + (if (extra.isNotBlank()) " — $extra" else "") +
+                    (if (r.improved) "  " + tr("acc.h_healed", lang) else ""),
+                Modifier.padding(start = 18.dp, end = 18.dp, bottom = 6.dp),
+                style = TextStyle(color = col, fontSize = 11.sp),
+            )
+        }
+        Box(Modifier.fillMaxWidth().height(1.dp).background(c.border_subtle))
         ACCOUNT_SERVICES.forEach { svc ->
             var status by remember(svc) { mutableStateOf<Boolean?>(null) }
             LaunchedEffect(svc) {

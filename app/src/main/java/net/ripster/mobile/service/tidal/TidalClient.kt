@@ -16,6 +16,10 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import net.ripster.mobile.core.model.Album
 import net.ripster.mobile.core.model.Artist
 import net.ripster.mobile.core.model.DownloadEvent
@@ -131,6 +135,45 @@ class TidalClient(
     }
 
     override suspend fun qualities(): List<QualityTier> = listOf(flac, aac, low)
+
+    /**
+     * Измерить учётку: жив ли токен и что подписка реально отдаёт.
+     *
+     * Спрашиваем ПОДПИСКУ, а не трек. 12.09.2026 разбор «Tidal даёт 403 на
+     * загрузке» начался с вывода «подписка без lossless» — и вывод оказался
+     * неверным: мерили на треке, у которого своё каталожное качество `LOW`.
+     * Права учётки видны только у самой учётки.
+     */
+    override suspend fun health(): net.ripster.mobile.core.service.AccountHealth {
+        val H = net.ripster.mobile.core.service.AccountHealth
+        return try {
+            if (!ensureToken()) return H.dead("токен не принят")
+            val s = json.parseToJsonElement(api("https://api.tidal.com/v1/sessions") {}).jsonObject
+            val uid = s["userId"]?.jsonPrimitive?.longOrNull ?: 0L
+            val cc = s["countryCode"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            val sub = json.parseToJsonElement(
+                api("https://api.tidal.com/v1/users/$uid/subscription") {},
+            ).jsonObject
+            val q = (sub["highestSoundQuality"]?.jsonPrimitive?.contentOrNull ?: "").uppercase()
+            net.ripster.mobile.core.service.AccountHealth(
+                alive = true,
+                lossless = q in setOf("LOSSLESS", "HI_RES", "HI_RES_LOSSLESS"),
+                plan = sub["subscription"]?.jsonObject?.get("type")?.jsonPrimitive?.contentOrNull.orEmpty(),
+                quality = q,
+                country = cc,
+                validUntil = sub["validUntil"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                reason = if (q in setOf("LOSSLESS", "HI_RES", "HI_RES_LOSSLESS")) ""
+                         else "подписка не даёт lossless",
+            )
+        } catch (e: Exception) {
+            val msg = e.message.orEmpty()
+            when {
+                "401" in msg -> H.dead("токен отвергнут (401)")
+                "403" in msg -> H.dead("доступ закрыт (403)")
+                else -> H.unknown("не смогли спросить: ${e::class.simpleName}")
+            }
+        }
+    }
 
     override suspend fun search(query: String): MediaSelection {
         ensureToken()

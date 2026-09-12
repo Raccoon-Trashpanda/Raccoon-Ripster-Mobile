@@ -47,6 +47,16 @@ interface ServiceClient {
      */
     suspend fun getArtist(artistId: String): net.ripster.mobile.core.pair.PcBridge.ArtistPage? = null
 
+    /**
+     * Измерить учётку: жива ли и что отдаёт. По умолчанию — «не спрашивали».
+     *
+     * Значение по умолчанию намеренно НЕ «жива»: клиент, который проверять не
+     * умеет, не должен выдавать себя за проверенного. Пустой ответ здесь —
+     * честное «не знаю», а вызывающий отличает его от «мертва» и ничего не
+     * трогает (см. [AccountHealth]).
+     */
+    suspend fun health(): AccountHealth = AccountHealth.unknown()
+
     /** Какие уровни качества доступны этому аккаунту, в порядке убывания. */
     suspend fun qualities(): List<QualityTier>
 

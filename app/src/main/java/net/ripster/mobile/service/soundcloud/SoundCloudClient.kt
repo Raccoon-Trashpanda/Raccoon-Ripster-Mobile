@@ -148,6 +148,34 @@ class SoundCloudClient(
     override suspend fun qualities(): List<QualityTier> =
         if (oauthToken.isNullOrBlank()) listOf(mp3_128) else listOf(aac_hq, mp3_128)
 
+    /**
+     * Измерить учётку: работает ли доступ и есть ли токен.
+     *
+     * У SoundCloud публичный доступ — штатный режим: без токена он отдаёт
+     * 128 kbps, и это не поломка. Поэтому «нет токена» здесь не смерть, а
+     * честное «жив, lossless не будет»; лечение (забрать токен с ПК) при этом
+     * всё равно запускается — у ПК токен с Go+ может быть.
+     */
+    override suspend fun health(): net.ripster.mobile.core.service.AccountHealth {
+        val H = net.ripster.mobile.core.service.AccountHealth
+        return try {
+            api.searchTracks("a", limit = 1)
+            val hasToken = !oauthToken.isNullOrBlank()
+            net.ripster.mobile.core.service.AccountHealth(
+                alive = true,
+                lossless = false,
+                losslessPossible = false,   // SoundCloud его не отдаёт ни на каком тарифе
+                plan = if (hasToken) "с токеном" else "публичный доступ",
+                quality = if (hasToken) "AAC 256" else "MP3 128",
+                reason = if (hasToken) "" else "без токена только 128 kbps",
+            )
+        } catch (e: Exception) {
+            val msg = e.message.orEmpty()
+            if ("401" in msg) H.dead("токен отвергнут (401)")
+            else H.unknown("не смогли спросить: ${e::class.simpleName}")
+        }
+    }
+
     override suspend fun search(query: String): MediaSelection {
         val tracks = api.searchTracks(query).map { it.toTrack() }
         // Плейлисты — это и есть альбомы SoundCloud: релизы лейблы выкладывают

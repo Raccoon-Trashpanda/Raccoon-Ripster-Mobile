@@ -16,6 +16,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -65,6 +66,68 @@ fun ServiceAccountsScreen() {
         Box(Modifier.height(6.dp))
         BasicText(tr("acc.hint", lang), style = TextStyle(color = c.text_tertiary, fontSize = 12.sp))
         Box(Modifier.height(14.dp))
+
+        // ── Проверка учёток и автопочинка ───────────────────────────────────
+        //
+        // До 12.09.2026 «Подключён» на этом экране означало «поле заполнено».
+        // Протухший токен выяснялся посреди загрузки, а не здесь. Теперь можно
+        // спросить сами сервисы — и, если учётка мертва или не даёт lossless,
+        // забрать с ПК лучшую (он их меряет и держит пул).
+        run {
+            val scope = androidx.compose.runtime.rememberCoroutineScope()
+            var checking by remember { mutableStateOf(false) }
+            var results by remember {
+                mutableStateOf<List<net.ripster.mobile.core.service.AccountAutoHeal.Result>>(emptyList())
+            }
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .background(c.surface_raised, RoundedCornerShape(9.dp))
+                    .border(1.dp, c.border_default, RoundedCornerShape(9.dp))
+                    .clickable(enabled = !checking) {
+                        checking = true
+                        scope.launch {
+                            results = net.ripster.mobile.core.service.AccountAutoHeal.run(
+                                store, app.pcBridge, app.pcBridge.paired,
+                            )
+                            checking = false
+                        }
+                    }
+                    .padding(horizontal = 14.dp, vertical = 11.dp),
+            ) {
+                BasicText(
+                    tr(if (checking) "acc.checking" else "acc.check", lang),
+                    style = TextStyle(color = c.accent_text, fontSize = 13.sp, fontWeight = FontWeight.Bold),
+                )
+            }
+            if (results.isNotEmpty()) Box(Modifier.height(8.dp))
+            results.forEach { r ->
+                val h = r.after ?: r.before
+                // Цвет по состоянию, а не по факту ответа: «не смогли спросить»
+                // не красим красным — это не вина учётки.
+                val color = when {
+                    h.alive == false -> c.danger_text
+                    h.alive == null -> c.text_tertiary
+                    !h.lossless -> c.warning_text
+                    else -> c.success_text
+                }
+                val what = when {
+                    h.alive == false -> tr("acc.h_dead", lang)
+                    h.alive == null -> tr("acc.h_unknown", lang)
+                    !h.lossless -> tr("acc.h_lossy", lang)
+                    else -> tr("acc.h_ok", lang)
+                }
+                val extra = listOf(h.plan, h.quality, h.country, h.reason)
+                    .filter { it.isNotBlank() }.joinToString(" · ")
+                BasicText(
+                    "${r.service.name}: $what" + (if (extra.isNotBlank()) " — $extra" else "") +
+                        (if (r.improved) "  " + tr("acc.h_healed", lang) else ""),
+                    Modifier.padding(bottom = 4.dp),
+                    style = TextStyle(color = color, fontSize = 12.sp),
+                )
+            }
+            Box(Modifier.height(14.dp))
+        }
 
         TidalLoginBlock()
         Box(Modifier.height(10.dp))

@@ -64,6 +64,34 @@ class QobuzClient(
 
     override suspend fun qualities(): List<QualityTier> = listOf(flac24, flac16, mp3_320)
 
+    /**
+     * Измерить учётку: принимает ли Qobuz наши ключи ПРЯМО СЕЙЧАС.
+     *
+     * Проверяем авторизованным запросом, а не наличием строки в поле: именно
+     * так выясняется протухший токен — иначе он всплывал бы посреди загрузки.
+     *
+     * Про тариф молчим намеренно. Дешёвого способа узнать его с телефона нет:
+     * `user/get` требует user_id, которого при входе по токену может не быть,
+     * а выдумывать «lossless есть» по факту успешного поиска — то самое
+     * обещание, за которое потом отвечает не код, а человек. Пустое качество
+     * читается как «не знаю» и не запускает лишнюю починку.
+     */
+    override suspend fun health(): net.ripster.mobile.core.service.AccountHealth {
+        val H = net.ripster.mobile.core.service.AccountHealth
+        if (!isConfigured()) return H.dead("ключи не заданы")
+        return try {
+            api.search("a")
+            net.ripster.mobile.core.service.AccountHealth(alive = true)
+        } catch (e: Exception) {
+            val msg = e.message.orEmpty()
+            when {
+                "401" in msg -> H.dead("Qobuz отверг ключи (401)")
+                "400" in msg -> H.dead("Qobuz не принял app_id (400)")
+                else -> H.unknown("не смогли спросить: ${e::class.simpleName}")
+            }
+        }
+    }
+
     override suspend fun search(query: String): MediaSelection {
         val s = api.search(query)
         // Альбомы — отдельным запросом, как у Deezer: `track/search` их не

@@ -11,6 +11,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -75,6 +76,40 @@ class YandexMusicClient(
     private fun looksLikeYandexToken(v: String): Boolean {
         val t = v.trim()
         return t.length >= 30 && t.none { it.isWhitespace() }
+    }
+
+    /**
+     * Измерить учётку: жив ли токен и есть ли Plus (без него FLAC не дадут).
+     *
+     * 403 здесь означает «не смогли спросить», а НЕ «токен мёртв»: вызов
+     * геозависим — та же причина, по которой `isConfigured()` намеренно на нём
+     * не гейтится. Спутать эти два состояния значит пометить живую учётку
+     * мёртвой при поездке или смене сети.
+     */
+    override suspend fun health(): net.ripster.mobile.core.service.AccountHealth {
+        val H = net.ripster.mobile.core.service.AccountHealth
+        if (!looksLikeYandexToken(oauthToken)) return H.dead("токен не задан")
+        return try {
+            val raw = get("https://api.music.yandex.net/account/status")
+            val res = json.parseToJsonElement(raw).jsonObject["result"]?.jsonObject
+            val plus = res?.get("plus")?.jsonObject?.get("hasPlus")?.jsonPrimitive?.booleanOrNull ?: false
+            val acc = res?.get("account")?.jsonObject
+            net.ripster.mobile.core.service.AccountHealth(
+                alive = true,
+                lossless = plus,
+                plan = if (plus) "Plus" else "без Plus",
+                quality = if (plus) "FLAC" else "MP3 320",
+                country = acc?.get("region")?.jsonPrimitive?.contentOrNull.orEmpty(),
+                reason = if (plus) "" else "нет Plus — FLAC не отдаст",
+            )
+        } catch (e: Exception) {
+            val msg = e.message.orEmpty()
+            when {
+                "401" in msg -> H.dead("токен отвергнут (401)")
+                "403" in msg -> H.unknown("регион не обслуживается (403) — не смогли спросить")
+                else -> H.unknown("не смогли спросить: ${e::class.simpleName}")
+            }
+        }
     }
 
     override suspend fun qualities(): List<QualityTier> = listOf(flac, mp3)

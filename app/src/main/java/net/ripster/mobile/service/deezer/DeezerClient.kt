@@ -82,6 +82,32 @@ class DeezerClient(
 
     override suspend fun qualities(): List<QualityTier> = listOf(flac, mp3_320, mp3_128)
 
+    /**
+     * Измерить учётку: жив ли ARL и отдаёт ли он lossless.
+     *
+     * Deezer говорит и то и другое одним ответом `deezer.getUserData` —
+     * `USER_ID` для живости, `web_lossless`/`web_hq` для прав. Раньше права
+     * оттуда выбрасывались, и «подключён» ничего не сообщало о качестве:
+     * бесплатная учётка выглядела так же, как Family с FLAC.
+     */
+    override suspend fun health(): net.ripster.mobile.core.service.AccountHealth {
+        val H = net.ripster.mobile.core.service.AccountHealth
+        if (arl.isBlank()) return H.dead("ARL не задан")
+        return try {
+            val alive = gw.ensureSession(force = true)
+            if (!alive) H.dead("Deezer отверг ARL")
+            else net.ripster.mobile.core.service.AccountHealth(
+                alive = true,
+                lossless = gw.lossless,
+                plan = if (gw.lossless) "lossless" else if (gw.hq) "HQ" else "free",
+                quality = if (gw.lossless) "FLAC" else if (gw.hq) "MP3 320" else "MP3 128",
+                reason = if (gw.lossless) "" else "тариф без FLAC",
+            )
+        } catch (e: Exception) {
+            H.unknown("не смогли спросить: ${e::class.simpleName}")
+        }
+    }
+
     override suspend fun search(query: String): MediaSelection {
         val res = apiGet("https://api.deezer.com/search/track") {
             it.addQueryParameter("q", query); it.addQueryParameter("limit", "25")

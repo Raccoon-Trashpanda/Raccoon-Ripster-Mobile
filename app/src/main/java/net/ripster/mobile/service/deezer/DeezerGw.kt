@@ -57,6 +57,20 @@ class DeezerGw(private val arl: String) {
         RipsterHttp.client.newBuilder().cookieJar(jar).build()
     }
 
+    /** Права аккаунта из последней сессии: отдаёт ли он lossless и HQ.
+     *
+     * Deezer сообщает их прямо в `deezer.getUserData` (`web_lossless`,
+     * `web_hq`) — мы их читали ради license_token и выбрасывали. Без них
+     * «учётка жива» ничего не говорило о том, приедет ли FLAC.
+     */
+    @Volatile
+    var lossless: Boolean = false
+        private set
+
+    @Volatile
+    var hq: Boolean = false
+        private set
+
     /** true, если ARL живой (USER_ID != 0). Кэширует токены. */
     suspend fun ensureSession(force: Boolean = false): Boolean = mutex.withLock {
         if (!force && userId > 0) return true
@@ -65,6 +79,8 @@ class DeezerGw(private val arl: String) {
         userId = u.userId
         apiToken = env.results.checkForm
         licenseToken = u.options.licenseToken
+        lossless = u.options.webLossless
+        hq = u.options.webHq
         userId > 0
     }
 
