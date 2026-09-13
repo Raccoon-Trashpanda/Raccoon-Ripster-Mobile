@@ -20,6 +20,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
@@ -575,45 +584,225 @@ private fun StorageSection(lang: AppLang, c: RipsterColors) {
     val scope = rememberCoroutineScope()
     var importMsg by remember { mutableStateOf("") }
     var importing by remember { mutableStateOf(false) }
+    // Выбор перед импортом (владелец 13.09.2026: «потреково, чекбоксы, поальбомно
+    // чтобы само по порядку»). Сначала СКАНИРУЕМ дерево (без записи), показываем
+    // альбомы/треки галочками, заводим ТОЛЬКО отмеченное.
+    var scanning by remember { mutableStateOf(false) }
+    var scanProgress by remember { mutableStateOf("") }
+    var albums by remember { mutableStateOf<List<net.ripster.mobile.core.library.FolderImport.ScanAlbum>?>(null) }
+    var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
     val pickImport = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         app.storage.persist(uri)
-        importing = true
-        importMsg = tr("set.import_running", lang)
+        scanning = true; scanProgress = tr("set.import_running", lang); albums = null
         scope.launch {
             val existing = runCatching { app.db.library().allPaths().toSet() }.getOrDefault(emptySet())
-            val rep = net.ripster.mobile.core.library.FolderImport.run(
-                context = app,
-                treeUri = uri,
-                existingPaths = existing,
-                upsert = { app.db.library().upsert(it) },
-                forget = { app.db.library().forgetPath(it) },
-                onProgress = { r, name ->
-                    importMsg = tr("set.import_progress", lang, r.scanned, r.added) +
-                        (if (name.isNotBlank()) "  ·  $name" else "")
-                },
+            val tracks = net.ripster.mobile.core.library.FolderImport.scan(
+                context = app, treeUri = uri, existingPaths = existing,
+                onProgress = { n, name -> scanProgress = tr("set.import_scanned", lang, n) + "  ·  $name" },
             )
-            importing = false
-            importMsg = tr("set.import_done", lang, rep.added, rep.skipped, rep.failed) +
-                (if (rep.forgotten > 0) "  ·  " + tr("set.import_forgotten", lang, rep.forgotten) else "")
+            val grouped = net.ripster.mobile.core.library.FolderImport.groupAlbums(tracks)
+            // По умолчанию отмечено всё НОВОЕ (уже в библиотеке — снято).
+            selected = tracks.filterNot { it.already }.map { it.uri }.toSet()
+            albums = grouped
+            scanning = false
         }
     }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(8.dp)) {
-        SubRow(
-            tr("set.storage", lang),
-            if (s.downloadTreeUri.isBlank()) tr("sc.folder_none", lang) else Uri.decode(s.downloadTreeUri.substringAfterLast('/')),
-            c,
-        ) { pick.launch(null) }
-        SubRow(
-            tr("set.import_folder", lang),
-            if (importMsg.isNotBlank()) importMsg else tr("set.import_folder_sub", lang),
-            c,
-        ) { if (!importing) pickImport.launch(null) }
-        var tpl by remember(s.nameTemplate) { mutableStateOf(s.nameTemplate) }
-        LabeledField(tr("set.name_template", lang), tpl, c, onChange = { tpl = it })
-        Box(Modifier.height(6.dp))
-        Box(Modifier.padding(start = 24.dp)) {
-            Btn("OK", c) { app.settings.update { it.copy(nameTemplate = tpl) } }
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(8.dp)) {
+            SubRow(
+                tr("set.storage", lang),
+                if (s.downloadTreeUri.isBlank()) tr("sc.folder_none", lang) else Uri.decode(s.downloadTreeUri.substringAfterLast('/')),
+                c,
+            ) { pick.launch(null) }
+            SubRow(
+                tr("set.import_folder", lang),
+                when {
+                    scanning -> scanProgress.ifBlank { tr("set.import_running", lang) }
+                    importMsg.isNotBlank() -> importMsg
+                    else -> tr("set.import_folder_sub", lang)
+                },
+                c,
+            ) { if (!scanning && !importing) pickImport.launch(null) }
+            var tpl by remember(s.nameTemplate) { mutableStateOf(s.nameTemplate) }
+            LabeledField(tr("set.name_template", lang), tpl, c, onChange = { tpl = it })
+            Box(Modifier.height(6.dp))
+            Box(Modifier.padding(start = 24.dp)) {
+                Btn("OK", c) { app.settings.update { it.copy(nameTemplate = tpl) } }
+            }
+        }
+        // ── экран выбора поверх настроек ──
+        albums?.let { alb ->
+            ImportReviewOverlay(
+                albums = alb, selected = selected, lang = lang, c = c, importing = importing,
+                onToggleTrack = { uri ->
+                    selected = if (uri in selected) selected - uri else selected + uri
+                },
+                onToggleAlbum = { a ->
+                    val uris = a.tracks.map { it.uri }
+                    val allOn = uris.all { it in selected }
+                    selected = if (allOn) selected - uris.toSet() else selected + uris
+                },
+                onCancel = { albums = null; selected = emptySet() },
+                onImport = {
+                    importing = true
+                    scope.launch {
+                        val all = alb.flatMap { it.tracks }
+                        val rep = net.ripster.mobile.core.library.FolderImport.importSelected(
+                            selected = selected, tracks = all,
+                            upsert = { app.db.library().upsert(it) },
+                        )
+                        importing = false
+                        importMsg = tr("set.import_done", lang, rep.added, 0, rep.failed)
+                        albums = null; selected = emptySet()
+                    }
+                },
+            )
+        }
+    }
+}
+
+/** Экран выбора при импорте: альбомы с галочкой «весь альбом» и треки с
+ *  галочками, по порядку. Стиль Рипстера (свой чекбокс, без Material). */
+@Composable
+private fun ImportReviewOverlay(
+    albums: List<net.ripster.mobile.core.library.FolderImport.ScanAlbum>,
+    selected: Set<String>,
+    lang: AppLang,
+    c: RipsterColors,
+    importing: Boolean,
+    onToggleTrack: (String) -> Unit,
+    onToggleAlbum: (net.ripster.mobile.core.library.FolderImport.ScanAlbum) -> Unit,
+    onCancel: () -> Unit,
+    onImport: () -> Unit,
+) {
+    androidx.activity.compose.BackHandler(enabled = true) { onCancel() }
+    val total = albums.sumOf { it.tracks.size }
+    Column(Modifier.fillMaxSize().background(c.surface_canvas)) {
+        // шапка
+        Row(
+            Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.clickable { onCancel() }.padding(end = 12.dp)) {
+                BasicText("‹", style = TextStyle(color = c.text_secondary, fontSize = 24.sp, fontWeight = FontWeight.Bold))
+            }
+            Column(Modifier.weight(1f)) {
+                BasicText(tr("set.import_pick_title", lang),
+                    style = TextStyle(color = c.text_primary, fontSize = 17.sp, fontWeight = FontWeight.W700))
+                BasicText(tr("set.import_pick_count", lang, selected.size, total),
+                    style = TextStyle(color = c.text_tertiary, fontSize = 12.sp))
+            }
+        }
+        Box(Modifier.fillMaxWidth().height(1.dp).background(c.border_subtle))
+        androidx.compose.foundation.lazy.LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+            albums.forEach { a ->
+                val uris = a.tracks.map { it.uri }
+                val allOn = uris.all { it in selected }
+                val someOn = uris.any { it in selected }
+                item(key = "alb:${a.artist}:${a.album}") {
+                    Row(
+                        Modifier.fillMaxWidth().clickable { onToggleAlbum(a) }
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        ImpCheck(allOn, someOn, c)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            BasicText(a.album.ifBlank { tr("set.import_no_album", lang) },
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                style = TextStyle(color = c.text_primary, fontSize = 14.5.sp, fontWeight = FontWeight.W700))
+                            if (a.artist.isNotBlank()) BasicText(a.artist,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                style = TextStyle(color = c.text_tertiary, fontSize = 12.sp))
+                        }
+                        BasicText("${a.tracks.count { it.uri in selected }}/${a.tracks.size}",
+                            style = TextStyle(color = c.text_tertiary, fontSize = 11.sp))
+                    }
+                }
+                items(a.tracks, key = { it.uri }) { t ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable { onToggleTrack(t.uri) }
+                            .padding(start = 40.dp, end = 14.dp, top = 7.dp, bottom = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        ImpCheck(t.uri in selected, false, c)
+                        Spacer(Modifier.width(12.dp))
+                        BasicText(
+                            (t.trackNo.takeIf { it > 0 }?.let { "%d. ".format(it) } ?: "") +
+                                t.entity.title,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                            style = TextStyle(
+                                color = if (t.already) c.text_tertiary else c.text_secondary,
+                                fontSize = 13.sp),
+                        )
+                        if (t.lossless) {
+                            Spacer(Modifier.width(6.dp))
+                            Canvas(Modifier.size(6.dp)) { drawCircle(c.accent_text) }
+                        }
+                        if (t.durationSec > 0) {
+                            Spacer(Modifier.width(8.dp))
+                            BasicText("%d:%02d".format(t.durationSec / 60, t.durationSec % 60),
+                                style = TextStyle(color = c.text_tertiary, fontSize = 11.sp))
+                        }
+                    }
+                }
+                item(key = "sep:${a.artist}:${a.album}") {
+                    Box(Modifier.fillMaxWidth().height(1.dp).background(c.border_subtle.copy(alpha = 0.5f)))
+                }
+            }
+        }
+        // низ — импорт/отмена
+        Box(Modifier.fillMaxWidth().height(1.dp).background(c.border_subtle))
+        Row(
+            Modifier.fillMaxWidth().padding(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier.weight(1f).clip(RoundedCornerShape(12.dp))
+                    .background(c.surface_raised).border(1.dp, c.border_subtle, RoundedCornerShape(12.dp))
+                    .clickable(enabled = !importing) { onCancel() }
+                    .padding(vertical = 13.dp),
+                contentAlignment = Alignment.Center,
+            ) { BasicText(tr("common.cancel", lang), style = TextStyle(color = c.text_secondary, fontSize = 14.sp)) }
+            Box(
+                Modifier.weight(1.6f).clip(RoundedCornerShape(12.dp))
+                    .background(if (selected.isEmpty() || importing) c.surface_active else c.accent_fill)
+                    .clickable(enabled = selected.isNotEmpty() && !importing) { onImport() }
+                    .padding(vertical = 13.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                BasicText(
+                    if (importing) tr("set.import_running", lang)
+                    else tr("set.import_do", lang, selected.size),
+                    style = TextStyle(
+                        color = if (selected.isEmpty() || importing) c.text_tertiary else c.text_on_fill,
+                        fontSize = 14.sp, fontWeight = FontWeight.W700),
+                )
+            }
+        }
+    }
+}
+
+/** Чекбокс в стиле Рипстера: пустой контур / заливка с галочкой / «частично» (тире). */
+@Composable
+private fun ImpCheck(on: Boolean, partial: Boolean, c: RipsterColors) {
+    Box(
+        Modifier.size(22.dp).clip(RoundedCornerShape(6.dp))
+            .background(if (on || partial) c.accent_fill else Color.Transparent)
+            .border(1.5.dp, if (on || partial) c.accent_fill else c.text_tertiary, RoundedCornerShape(6.dp)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.size(13.dp)) {
+            val w = size.width
+            if (partial && !on) {
+                drawLine(c.text_on_fill, Offset(w * 0.24f, w * 0.5f), Offset(w * 0.76f, w * 0.5f), w * 0.14f, StrokeCap.Round)
+            } else if (on) {
+                drawLine(c.text_on_fill, Offset(w * 0.2f, w * 0.52f), Offset(w * 0.42f, w * 0.74f), w * 0.14f, StrokeCap.Round)
+                drawLine(c.text_on_fill, Offset(w * 0.42f, w * 0.74f), Offset(w * 0.8f, w * 0.28f), w * 0.14f, StrokeCap.Round)
+            }
         }
     }
 }

@@ -22,6 +22,9 @@ data class StreamInfo(
     val sampleRateHz: Int = 0,
     val bitDepth: Int = 0,
     val channels: Int = 0,
+    /** Номер трека/диска из тегов (0 — нет). Нужен для авто-порядка при импорте. */
+    val trackNo: Int = 0,
+    val discNo: Int = 0,
     val durationSec: Int = 0,
     val fileBytes: Long = 0,
     val title: String = "",
@@ -97,6 +100,11 @@ object StreamProbe {
                 title = k(MediaMetadataRetriever.METADATA_KEY_TITLE).orEmpty(),
                 artist = k(MediaMetadataRetriever.METADATA_KEY_ARTIST).orEmpty(),
                 album = k(MediaMetadataRetriever.METADATA_KEY_ALBUM).orEmpty(),
+                // Тег вида "3/12" — берём число до слэша.
+                trackNo = k(MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER)
+                    ?.substringBefore('/')?.trim()?.toIntOrNull() ?: 0,
+                discNo = k(MediaMetadataRetriever.METADATA_KEY_DISC_NUMBER)
+                    ?.substringBefore('/')?.trim()?.toIntOrNull() ?: 0,
             )
             if (android.os.Build.VERSION.SDK_INT >= 31) {
                 val bps = runCatching { k(MediaMetadataRetriever.METADATA_KEY_BITS_PER_SAMPLE)?.toIntOrNull() }.getOrNull() ?: 0

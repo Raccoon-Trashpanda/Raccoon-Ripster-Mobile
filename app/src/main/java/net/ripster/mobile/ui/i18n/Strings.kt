@@ -535,6 +535,18 @@ private val STRINGS: Map<String, Row> = mapOf(
         "完了: 追加 {0}、既存 {1}、読み取り不可 {2}",
         "完成：新增 {0}，已有 {1}，无法读取 {2}",
     ),
+    "set.import_scanned" to row(
+        "Сканирую… найдено {0}", "Scanning… found {0}", "स्कैन… {0} मिले",
+        "スキャン中… {0} 件", "扫描中…已找到 {0}",
+    ),
+    "set.import_pick_title" to row("Что завести", "What to import", "क्या जोड़ें", "取り込む対象", "选择导入"),
+    "set.import_pick_count" to row(
+        "Выбрано {0} из {1}", "{0} of {1} selected", "{1} में से {0} चुने",
+        "{1} 件中 {0} 件選択", "已选 {0} / {1}",
+    ),
+    "set.import_no_album" to row("Без альбома", "No album", "कोई एल्बम नहीं", "アルバムなし", "无专辑"),
+    "set.import_do" to row("Завести {0}", "Import {0}", "{0} जोड़ें", "{0} 件を取り込む", "导入 {0}"),
+    "common.cancel" to row("Отмена", "Cancel", "रद्द करें", "キャンセル", "取消"),
     "lib.by_album" to row("Релизы", "Releases", "रिलीज़", "リリース", "专辑"),
     "lib.by_track" to row("Треки", "Tracks", "ट्रैक", "トラック", "单曲"),
     "a11y.prev" to row("Предыдущий", "Previous", "पिछला", "前へ", "上一首"),
