@@ -40,8 +40,18 @@ class NativeSessionPlayer(
     private val onPrevious: () -> Unit,
     private val onSeek: (Long) -> Unit,
     private val onStop: () -> Unit,
+    /** Прыжок на позицию очереди — для локскрина/трек-листа (COMMAND_SEEK_TO_MEDIA_ITEM). */
+    private val onSetIndex: (Int) -> Unit = {},
 ) : SimpleBasePlayer(looper) {
 
+    // ЗАЧЕМ COMMAND_CHANGE_MEDIA_ITEMS/SEEK_TO_MEDIA_ITEM здесь (13.09.2026):
+    // без них любой контроллер (системное уведомление, Bluetooth, наш собственный),
+    // пытавшийся тронуть очередь, получал «Controller isn't allowed to call
+    // command= 20» — и некоторые долбили это в тугом цикле, забивая ГЛАВНЫЙ поток
+    // тысячами строк в секунду → ANR/зависание (владелец: «в эмуляторе всё
+    // повисло»). Нативная очередь — источник истины, поэтому смену списка
+    // принимаем и гасим (no-op + invalidateState), а не отклоняем; прыжок на
+    // индекс маршрутизируем в движок.
     private val commands: Player.Commands = Player.Commands.Builder()
         .addAll(
             Player.COMMAND_PLAY_PAUSE,
@@ -51,6 +61,8 @@ class NativeSessionPlayer(
             Player.COMMAND_SEEK_TO_PREVIOUS,
             Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
             Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
+            Player.COMMAND_SEEK_TO_MEDIA_ITEM,
+            Player.COMMAND_CHANGE_MEDIA_ITEMS,
             Player.COMMAND_GET_CURRENT_MEDIA_ITEM,
             Player.COMMAND_GET_TIMELINE,
             Player.COMMAND_GET_METADATA,
@@ -103,8 +115,44 @@ class NativeSessionPlayer(
         when (seekCommand) {
             Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> onNext()
             Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> onPrevious()
+            Player.COMMAND_SEEK_TO_MEDIA_ITEM ->
+                if (mediaItemIndex != C_INDEX_UNSET) onSetIndex(mediaItemIndex)
+                else if (positionMs >= 0) onSeek(positionMs)
             else -> if (positionMs >= 0) onSeek(positionMs)
         }
+        return Futures.immediateVoidFuture()
+    }
+
+    // Смену очереди принимаем и гасим: нативный движок владеет списком, но
+    // ОТКАЗ (deny) заставлял контроллеры зацикливать вызов и топить главный
+    // поток в логах. Приняв команду, мы возвращаем истинное состояние через
+    // invalidateState — контроллер видит нативную очередь и не долбит снова.
+    override fun handleSetMediaItems(
+        mediaItems: List<MediaItem>, startIndex: Int, startPositionMs: Long,
+    ): ListenableFuture<*> {
+        invalidateState()
+        return Futures.immediateVoidFuture()
+    }
+
+    override fun handleAddMediaItems(index: Int, mediaItems: List<MediaItem>): ListenableFuture<*> {
+        invalidateState()
+        return Futures.immediateVoidFuture()
+    }
+
+    override fun handleMoveMediaItems(fromIndex: Int, toIndex: Int, newIndex: Int): ListenableFuture<*> {
+        invalidateState()
+        return Futures.immediateVoidFuture()
+    }
+
+    override fun handleRemoveMediaItems(fromIndex: Int, toIndex: Int): ListenableFuture<*> {
+        invalidateState()
+        return Futures.immediateVoidFuture()
+    }
+
+    override fun handleReplaceMediaItems(
+        fromIndex: Int, toIndex: Int, mediaItems: List<MediaItem>,
+    ): ListenableFuture<*> {
+        invalidateState()
         return Futures.immediateVoidFuture()
     }
 
@@ -114,5 +162,7 @@ class NativeSessionPlayer(
     private companion object {
         /** `C.TIME_UNSET` без тяги всего `C` в этот файл. */
         const val C_TIME_UNSET = Long.MIN_VALUE + 1
+        /** `C.INDEX_UNSET`. */
+        const val C_INDEX_UNSET = -1
     }
 }

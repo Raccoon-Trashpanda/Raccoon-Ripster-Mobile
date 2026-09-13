@@ -138,6 +138,9 @@ class PlayerController(context: Context) {
             onPrevious = { NativeAudioEngine.previous(); pushNativeState() },
             onSeek = { NativeAudioEngine.seekMs(it); pushNativeState() },
             onStop = { stop() },
+            onSetIndex = { i ->
+                if (i in nativeQueue.indices) { NativeAudioEngine.setIndex(i); pushNativeState() }
+            },
         )
     }
 

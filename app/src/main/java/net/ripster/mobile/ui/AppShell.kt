@@ -614,7 +614,14 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                                     .windowInsetsPadding(WindowInsets.systemBars)
                                     .padding(top = 6.dp)
                                     .size(width = 72.dp, height = 22.dp)   // зона касания шире полоски
-                                    .clickable { minimize() },
+                                    // indication=null: без дефолтного ripple —
+                                    // прямоугольная заливка по всей зоне касания
+                                    // 72×22 «съезжала» с самой полоски и выглядела
+                                    // кривой (владелец 13.09.2026).
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                    ) { minimize() },
                                 contentAlignment = Alignment.Center,
                             ) {
                                 // Тонкая тёмная подложка под полоской — иначе на
@@ -632,30 +639,15 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                                     )
                                 }
                             }
-                            // Свернуть — еле заметный шеврон-вниз ВВЕРХУ ПО ЦЕНТРУ,
-                            // без бокса и рамки. Владелец 13.09.2026: крестик не
-                            // должен бросаться в глаза «клодовской подписью». Это
-                            // стандартный жест «свернуть Now Playing», ненавязчиво;
-                            // мишень остаётся крупной (44dp), сам глиф — тонкий.
-                            Box(
-                                Modifier.align(Alignment.TopCenter)
-                                    .windowInsetsPadding(WindowInsets.systemBars)
-                                    .padding(top = 6.dp)
-                                    .size(width = 56.dp, height = 30.dp)
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null,
-                                    ) { close() },
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Canvas(Modifier.size(width = 26.dp, height = 10.dp)) {
-                                    val g = Color.White.copy(alpha = 0.38f)
-                                    drawLine(g, Offset(0f, size.height * 0.2f),
-                                        Offset(size.width * 0.5f, size.height * 0.8f), 4f, androidx.compose.ui.graphics.StrokeCap.Round)
-                                    drawLine(g, Offset(size.width * 0.5f, size.height * 0.8f),
-                                        Offset(size.width, size.height * 0.2f), 4f, androidx.compose.ui.graphics.StrokeCap.Round)
-                                }
-                            }
+                            // РАНЬШЕ здесь поверх метки-хвата лежал ещё один
+                            // невидимый шеврон, вызывавший close() (=stop). Две
+                            // кнопки на одном месте: тап по «свернуть» бил по
+                            // верхнему шеврону и ОСТАНАВЛИВАЛ музыку вместо сворачивания
+                            // (владелец 13.09.2026: «сворачивание просто закрывает
+                            // плеер… наложение на кнопке, которая сворачивает»).
+                            // Оставлена ОДНА метка-хват = свернуть (плеер играет
+                            // дальше). Полностью закрыть/остановить — ✕ на мини-плеере
+                            // или свайп вбок.
                         }
                     } else {
                         Placeholder(tr("player.pick_track", lang))

@@ -2,10 +2,14 @@ package net.ripster.mobile.ui.screens
 
 import net.ripster.mobile.ui.components.MARQUEE_SECOND_LINE_DELAY
 import net.ripster.mobile.ui.components.ripsterMarquee
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,9 +20,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,14 +38,20 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import net.ripster.mobile.RipsterApp
 import net.ripster.mobile.ui.components.Cover
+import net.ripster.mobile.ui.i18n.LocalAppLang
+import net.ripster.mobile.ui.i18n.tr
 import net.ripster.mobile.ui.theme.RipsterTheme
 
 /**
@@ -54,7 +69,13 @@ fun ImmersivePlayerScreen(
     onPrevious: () -> Unit,
 ) {
     val c = RipsterTheme.colors
+    val lang = LocalAppLang.current
+    val app = RipsterApp.from(LocalContext.current)
     var dragAcc by remember { mutableStateOf(0f) }
+    // 0 — нет, 1 — трек-лист, 2 — текст, 3 — спектр, 4 — эквалайзер, 6 — каст.
+    // Те же панели, что у Mockup-плеера (владелец 13.09.2026: «в иммерсиве только
+    // три кнопки, где эквалайзер и прочие»). Переиспользуем их 1-в-1.
+    var sheet by remember { mutableStateOf(0) }
 
     Box(
         Modifier.fillMaxSize().background(Color(0xFF07070A))
@@ -201,7 +222,90 @@ fun ImmersivePlayerScreen(
                     drawRect(Color.White, androidx.compose.ui.geometry.Offset(w * 0.71f, w * 0.28f), androidx.compose.ui.geometry.Size(w * 0.05f, w * 0.44f))
                 }
             }
+
+            Spacer(Modifier.height(14.dp))
+
+            // Действия — те же, что в Mockup-плеере, но в стекле под иммерсив:
+            // трек-лист, текст, спектр, эквалайзер, каст. Открывают панель поверх.
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.Top,
+            ) {
+                ImmAction(tr("ref.tracklist", lang), onClick = { sheet = 1 }) { listGlyph(it) }
+                ImmAction(tr("ref.lyrics", lang), onClick = { sheet = 2 }) { lyricsGlyph(it) }
+                ImmAction(tr("ref.spectrum", lang), onClick = { sheet = 3 }) { barsGlyph(it) }
+                ImmAction(tr("ref.equalizer", lang), onClick = { sheet = 4 }) { eqGlyph(it) }
+                ImmAction(tr("ref.cast", lang), onClick = { sheet = 6 }) { castGlyph(it) }
+            }
         }
+
+        // ── панель поверх плеера (те же панели, что у Mockup) ──────────
+        if (sheet != 0) {
+            BackHandler(enabled = true) { sheet = 0 }
+            Column(
+                Modifier.fillMaxSize().background(Color(0xFF07070A)),
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().clickable { sheet = 0 }.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    BasicText("‹", style = TextStyle(color = Color.White.copy(alpha = 0.8f), fontSize = 22.sp, fontWeight = FontWeight.Bold))
+                    Spacer(Modifier.width(10.dp))
+                    BasicText(
+                        tr(when (sheet) {
+                            1 -> "ref.tracklist"; 2 -> "ref.lyrics"; 3 -> "ref.spectrum"
+                            6 -> "ref.cast"; else -> "ref.equalizer"
+                        }, lang),
+                        style = TextStyle(color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.W700),
+                    )
+                }
+                Box(Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.10f)))
+                Box(Modifier.fillMaxWidth().weight(1f)) {
+                    when (sheet) {
+                        1 -> TracklistPanel(app, c) { sheet = 0 }
+                        2 -> LyricsPanel(state, c, lang)
+                        3 -> SpectrumPanel(app, c, lang)
+                        6 -> Column(
+                            Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                        ) { net.ripster.mobile.ui.screens.cast.YandexStationBlock() }
+                        else -> EqPanel(c, lang)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Стеклянная кнопка действия для иммерсив-плеера: иконка + подпись, полупрозрачная
+ *  плитка поверх обложки (белым, чтобы читалось на любой картинке). */
+@Composable
+private fun ImmAction(
+    label: String,
+    onClick: () -> Unit,
+    draw: DrawScope.(Color) -> Unit,
+) {
+    Column(
+        modifier = Modifier.width(58.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        Box(
+            Modifier.size(46.dp).clip(RoundedCornerShape(14.dp))
+                .background(Color.White.copy(alpha = 0.12f))
+                .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(14.dp))
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) { Canvas(Modifier.size(20.dp)) { draw(Color.White.copy(alpha = 0.9f)) } }
+        BasicText(
+            label,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            style = TextStyle(
+                color = Color.White.copy(alpha = 0.62f),
+                fontSize = 10.sp, lineHeight = 12.sp, textAlign = TextAlign.Center,
+            ),
+        )
     }
 }
 

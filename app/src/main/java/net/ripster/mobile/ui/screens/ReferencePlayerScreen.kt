@@ -396,7 +396,7 @@ fun ReferencePlayerScreen(
 }
 
 @Composable
-private fun TracklistPanel(
+internal fun TracklistPanel(
     app: RipsterApp,
     c: net.ripster.mobile.ui.theme.RipsterColors,
     onPicked: () -> Unit,
@@ -487,7 +487,7 @@ private fun TracklistPanel(
 }
 
 @Composable
-private fun LyricsPanel(
+internal fun LyricsPanel(
     state: NowPlayingState,
     c: net.ripster.mobile.ui.theme.RipsterColors,
     lang: net.ripster.mobile.ui.i18n.AppLang,
@@ -576,7 +576,7 @@ private fun LyricsPanel(
 }
 
 @Composable
-private fun SpectrumPanel(
+internal fun SpectrumPanel(
     app: RipsterApp,
     c: net.ripster.mobile.ui.theme.RipsterColors,
     lang: net.ripster.mobile.ui.i18n.AppLang,
@@ -696,7 +696,7 @@ private fun SpectrumPanel(
 
 // ── «всё про поток» — инспектор: метаданные + спектр + вердикт ──
 @Composable
-private fun StreamInfoPanel(
+internal fun StreamInfoPanel(
     app: RipsterApp,
     c: net.ripster.mobile.ui.theme.RipsterColors,
     lang: net.ripster.mobile.ui.i18n.AppLang,
@@ -1035,7 +1035,7 @@ private fun SquareAction(
 
 // ── эквалайзер прямо в плеере (нативный audiofx) ──
 @Composable
-private fun EqPanel(
+internal fun EqPanel(
     c: net.ripster.mobile.ui.theme.RipsterColors,
     lang: net.ripster.mobile.ui.i18n.AppLang,
 ) {
@@ -1134,7 +1134,7 @@ private fun FxSlider(label: String, value: Int, max: Int, onChange: (Int) -> Uni
     }
 }
 
-private fun DrawScope.listGlyph(color: Color) {
+internal fun DrawScope.listGlyph(color: Color) {
     val w = size.width; val h = size.height
     for (i in 0..2) {
         val y = h * (0.22f + i * 0.28f)
@@ -1143,7 +1143,7 @@ private fun DrawScope.listGlyph(color: Color) {
     }
 }
 
-private fun DrawScope.lyricsGlyph(color: Color) {
+internal fun DrawScope.lyricsGlyph(color: Color) {
     val w = size.width; val h = size.height
     val widths = listOf(0.9f, 0.6f, 0.82f, 0.45f)
     widths.forEachIndexed { i, fw ->
@@ -1152,7 +1152,7 @@ private fun DrawScope.lyricsGlyph(color: Color) {
     }
 }
 
-private fun DrawScope.barsGlyph(color: Color) {
+internal fun DrawScope.barsGlyph(color: Color) {
     val w = size.width; val h = size.height
     val hs = listOf(0.5f, 0.85f, 0.35f, 0.7f, 0.55f)
     hs.forEachIndexed { i, fh ->
@@ -1161,7 +1161,7 @@ private fun DrawScope.barsGlyph(color: Color) {
     }
 }
 
-private fun DrawScope.eqGlyph(color: Color) {
+internal fun DrawScope.eqGlyph(color: Color) {
     val w = size.width; val h = size.height
     val knobs = listOf(0.35f, 0.62f, 0.45f)
     knobs.forEachIndexed { i, ky ->
@@ -1172,7 +1172,7 @@ private fun DrawScope.eqGlyph(color: Color) {
 }
 
 /** Каст на Станцию — рамка «экрана» + волны сигнала в углу. */
-private fun DrawScope.castGlyph(color: Color) {
+internal fun DrawScope.castGlyph(color: Color) {
     val w = size.width; val h = size.height
     val sw = w * 0.09f
     drawRect(
