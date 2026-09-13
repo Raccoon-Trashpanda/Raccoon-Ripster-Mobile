@@ -282,12 +282,27 @@ class BeatportClient(
         else listOf("high" to aac, "medium" to aacLo, "lossless" to flac)
         var last: Exception? = null
         for ((q, tier) in order) {
-            try {
-                val body = apiGet("catalog/tracks/$id/download/", mapOf("quality" to q))
-                val loc = json.parseToJsonElement(body).jsonObject["location"]?.jsonPrimitive?.contentOrNull
-                if (!loc.isNullOrBlank()) return StreamInfo(url = loc, quality = tier)
-            } catch (e: Exception) {
-                last = e
+            // Транзиентный 401 на ЛУЧШЕМ качестве не должен ронять в AAC: apiGet
+            // на 401 чистит токен и бросает TOKEN_INVALID, а следующая попытка
+            // того же качества пойдёт уже со свежим токеном (ensureToken его
+            // обновит) и вернёт FLAC. Без этой повторной попытки протухший на
+            // миг токен молча отдавал гостю AAC 256 при живом Pro+ — ровно тот
+            // же класс, что чинили на ПК (см. orpheus_beatport._tier_now кэш).
+            var attempts = 0
+            while (attempts < 2) {
+                attempts++
+                try {
+                    val body = apiGet("catalog/tracks/$id/download/", mapOf("quality" to q))
+                    val loc = json.parseToJsonElement(body).jsonObject["location"]?.jsonPrimitive?.contentOrNull
+                    if (!loc.isNullOrBlank()) return StreamInfo(url = loc, quality = tier)
+                    break // ответ есть, но location пуст — это качество недоступно, вниз
+                } catch (e: Exception) {
+                    last = e
+                    val authBlip = e.message == EngineErrors.TOKEN_INVALID ||
+                        e.message == EngineErrors.AUTH_FAILED
+                    if (authBlip && attempts < 2) continue // тем же качеством, свежий токен
+                    break // не-auth сбой или уже повторяли — к следующему качеству
+                }
             }
         }
         throw last ?: IOException(EngineErrors.NEEDS_SUBSCRIPTION)
