@@ -72,14 +72,26 @@ fun ImmersivePlayerScreen(
             url = state.artworkUrl,
             modifier = Modifier.fillMaxSize(),
         )
-        // затемнение краёв + низа под текст
+        // Низ отливает ПАЛИТРОЙ обложки, а не чёрным (референс владельца
+        // 13.09.2026): верх — чистая обложка, книзу цвет плавно сгущается в
+        // тёмный тон самой картинки, и на нём читается текст. Тон берём из
+        // краёв обложки (та же проба, что у ореола) — так фон «живой».
+        val pal = net.ripster.mobile.ui.components.rememberCoverEdgePalette(state.artworkUrl)
+        val tint = run {
+            // средний цвет нижних краёв, затемнённый до фона под текст
+            val base = pal.getOrElse(2) { Color(0xFF14141A) }
+            val b2 = pal.getOrElse(3) { base }
+            androidx.compose.ui.graphics.lerp(
+                androidx.compose.ui.graphics.lerp(base, b2, 0.5f), Color(0xFF07070A), 0.55f)
+        }
         Box(
             Modifier.fillMaxSize().background(
                 Brush.verticalGradient(
-                    0f to Color.Black.copy(alpha = 0.34f),
-                    0.42f to Color.Transparent,
-                    0.66f to Color.Black.copy(alpha = 0.30f),
-                    1f to Color.Black.copy(alpha = 0.90f),
+                    0f to Color.Transparent,                 // верх — обложка как есть
+                    0.45f to Color.Transparent,
+                    0.62f to tint.copy(alpha = 0.35f),
+                    0.80f to tint.copy(alpha = 0.75f),       // низ отливает палитрой
+                    1f to tint.copy(alpha = 0.96f),
                 ),
             ),
         )

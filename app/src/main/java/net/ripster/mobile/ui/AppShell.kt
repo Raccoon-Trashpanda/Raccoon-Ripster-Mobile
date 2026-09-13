@@ -632,25 +632,28 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                                     )
                                 }
                             }
-                            // Закрыть (×) — остаётся отдельной аккуратной кнопкой
-                            // в правом верхнем углу, приглушённо.
+                            // Свернуть — еле заметный шеврон-вниз ВВЕРХУ ПО ЦЕНТРУ,
+                            // без бокса и рамки. Владелец 13.09.2026: крестик не
+                            // должен бросаться в глаза «клодовской подписью». Это
+                            // стандартный жест «свернуть Now Playing», ненавязчиво;
+                            // мишень остаётся крупной (44dp), сам глиф — тонкий.
                             Box(
-                                Modifier.align(Alignment.TopEnd)
+                                Modifier.align(Alignment.TopCenter)
                                     .windowInsetsPadding(WindowInsets.systemBars)
-                                    .padding(top = 8.dp, end = 8.dp)
-                                    .clip(RoundedCornerShape(50))
-                                    .background(Color.Black.copy(alpha = 0.26f))
-                                    .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(50))
-                                    .size(width = 40.dp, height = 34.dp)
-                                    .clickable { close() },
+                                    .padding(top = 6.dp)
+                                    .size(width = 56.dp, height = 30.dp)
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                    ) { close() },
                                 contentAlignment = Alignment.Center,
                             ) {
-                                val glyph = Color.White.copy(alpha = 0.60f)
-                                Canvas(Modifier.size(14.dp)) {
-                                    drawLine(glyph, Offset(size.width * 0.2f, size.height * 0.2f),
-                                        Offset(size.width * 0.8f, size.height * 0.8f), 5f, androidx.compose.ui.graphics.StrokeCap.Round)
-                                    drawLine(glyph, Offset(size.width * 0.8f, size.height * 0.2f),
-                                        Offset(size.width * 0.2f, size.height * 0.8f), 5f, androidx.compose.ui.graphics.StrokeCap.Round)
+                                Canvas(Modifier.size(width = 26.dp, height = 10.dp)) {
+                                    val g = Color.White.copy(alpha = 0.38f)
+                                    drawLine(g, Offset(0f, size.height * 0.2f),
+                                        Offset(size.width * 0.5f, size.height * 0.8f), 4f, androidx.compose.ui.graphics.StrokeCap.Round)
+                                    drawLine(g, Offset(size.width * 0.5f, size.height * 0.8f),
+                                        Offset(size.width, size.height * 0.2f), 4f, androidx.compose.ui.graphics.StrokeCap.Round)
                                 }
                             }
                         }
