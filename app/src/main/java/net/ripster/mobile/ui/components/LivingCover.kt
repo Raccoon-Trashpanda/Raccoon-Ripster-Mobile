@@ -13,6 +13,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
@@ -56,7 +57,7 @@ fun LivingCover(
     val palette = rememberCoverEdgePalette(url)
 
     if (!animationsOn) {
-        Box(modifier) {
+        Box(modifier.clipToBounds()) {
             Cover(url = url, modifier = Modifier.fillMaxSize(), shape = androidx.compose.ui.graphics.RectangleShape,
                 fallbackModel = fallbackModel)
             AuraLayer(palette, kb = 0f, orbit1 = 0.12f, orbit2 = 0.6f, breath = 0.5f, modifier = Modifier.fillMaxSize())
@@ -82,7 +83,10 @@ fun LivingCover(
         0f, 1f, infiniteRepeatable(tween(11_000, easing = LinearEasing), RepeatMode.Reverse), label = "breath",
     )
 
-    Box(modifier) {
+    // clipToBounds ОБЯЗАТЕЛЕН: graphicsLayer-зум увеличивает картинку за пределы
+    // её бокса, а без клипа увеличенная обложка вылезает поверх соседней хром-
+    // панели (лого проекта, кнопка «Настройки») — жалоба владельца 13.09.2026.
+    Box(modifier.clipToBounds()) {
         // 1) Обложка с Ken Burns. Зум 1.0→1.09, лёгкий диагональный дрейф.
         val scale = 1f + 0.09f * kb
         val dx = (kb - 0.5f) * 0.06f
