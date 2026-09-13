@@ -199,6 +199,12 @@ class BeatportClient(
             ?: t["length_ms"]?.jsonPrimitive?.longOrNull
         val artId = (t["artists"]?.jsonArray?.firstOrNull()?.jsonObject
             ?.get("id"))?.jsonPrimitive?.longOrNull?.toString().orEmpty()
+        // Beatport — авторитет по электронным жанрам: у трека есть genre и
+        // sub_genre ({id,name}). Берём sub_genre (точнее: «Breakbeat / UK Bass»
+        // против общего «Breaks»), иначе genre. Это кормит фильтр станций
+        // настоящим жанром, а не «неизвестно».
+        val genre = (t["sub_genre"]?.jsonObject?.get("name")?.jsonPrimitive?.contentOrNull
+            ?: t["genre"]?.jsonObject?.get("name")?.jsonPrimitive?.contentOrNull)
         return Track(
             id = id,
             title = name,
@@ -209,6 +215,7 @@ class BeatportClient(
             isrc = t["isrc"]?.jsonPrimitive?.contentOrNull,
             year = (t["publish_date"]?.jsonPrimitive?.contentOrNull ?: "").take(4).toIntOrNull(),
             artworkUrl = img(rel) ?: img(t),
+            genre = genre,
             raw = mapOf("bpId" to id, "artId" to artId),
         )
     }

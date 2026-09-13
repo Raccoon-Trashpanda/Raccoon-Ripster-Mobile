@@ -81,6 +81,23 @@ object StationBuilder {
      * подходит: точность даёт сам запрос, а жанр отсекает ЧУЖОЕ — поп и рэп,
      * которые и приезжали вместо музыки.
      */
+    /**
+     * Трек ЯВНО чужого жанра — для отсева даже из курируемых (vetted) пулов.
+     *
+     * Возвращает true ТОЛЬКО когда оба ярлыка известны дирижёру и РАЗНЫЕ: тогда
+     * это точно не наш жанр (французский рэп в брейкбит-станции — владелец
+     * 13.09.2026). Нет жанра / ярлык не выучен → false: такие не трогаем, иначе
+     * вылетел бы весь канон и Deezer-топ (у них жанра в поиске нет) и станция
+     * снова опустела бы. То есть это осторожный «убрать заведомо чужое», а не
+     * «оставить только доказанно своё».
+     */
+    private fun explicitlyOffGenre(t: Track, station: String): Boolean {
+        val raw = declaredGenre(t) ?: return false
+        val tk = genres.of(raw) ?: return false
+        val sk = genres.of(station) ?: return false
+        return tk != sk
+    }
+
     private fun onGenre(t: Track, station: String, words: List<String>): Boolean {
         val raw = declaredGenre(t) ?: return false
         val g = norm(raw)
@@ -295,7 +312,11 @@ object StationBuilder {
         val words = genreWords(fallbackQuery)
         val kept = pools.map { pool ->
             val byGenre =
-                if (pool.vetted) pool.tracks
+                // Курируемые пулы (станции сервисов, канон, Apple) больше не
+                // проходят СЛЕПО: из них убирается ЯВНО чужое (известный ярлык,
+                // не совпавший со станцией) — так «чужое» перестаёт течь из
+                // vetted-источников, но треки без жанра остаются (канон цел).
+                if (pool.vetted) pool.tracks.filterNot { explicitlyOffGenre(it, fallbackQuery) }
                 else pool.tracks.filter { onGenre(it, fallbackQuery, words) }
             // Часовые сборки проходят сверку жанра ЧЕСТНО — слово «melodic
             // techno» в названии у них есть, — но станция из DJ-сетов
