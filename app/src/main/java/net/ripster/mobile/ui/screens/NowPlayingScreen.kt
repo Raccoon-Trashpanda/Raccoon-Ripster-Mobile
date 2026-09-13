@@ -66,6 +66,9 @@ data class NowPlayingState(
     /** Загружено в буфер, мс — для «полоски кэша» на шкале. */
     val bufferedMs: Long = 0,
     val isPlaying: Boolean,
+    /** Идёт подготовка/буферизация трека — кнопка Play показывает спиннер и
+     *  гасится, чтобы повторные тычки не перезапускали поток. */
+    val loading: Boolean = false,
     val shuffle: Boolean,
     val repeat: Boolean,
     val quality: QualityBadgeState,

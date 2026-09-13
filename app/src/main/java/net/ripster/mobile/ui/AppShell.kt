@@ -446,6 +446,7 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                             bufferedMs = playback.bufferedMs,
                             durationMs = playback.durationMs,
                             isPlaying = playback.isPlaying,
+                            loading = playback.loading,
                             shuffle = playback.shuffle,
                             repeat = playback.repeat,
                             // Бейдж говорит РОВНО то, что известно.
@@ -770,6 +771,7 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                         positionMs = playback.positionMs,
                         durationMs = playback.durationMs,
                         isPlaying = playback.isPlaying,
+                        loading = playback.loading,
                         artworkUrl = playback.artworkUrl,
                     ),
                     onPlayPause = { app.player.togglePlay() },

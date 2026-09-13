@@ -45,6 +45,10 @@ class PlayerController(context: Context) {
         val album: String = "",
         val artworkUrl: String? = null,
         val isPlaying: Boolean = false,
+        /** Идёт подготовка/буферизация трека (ExoPlayer STATE_BUFFERING или мы
+         *  только что нажали play и ещё не заиграло). UI показывает спиннер и
+         *  гасит кнопку, чтобы повторные тычки Play не плодили перезапуски. */
+        val loading: Boolean = false,
         val positionMs: Long = 0,
         /** Сколько уже загружено в буфер (для «полоски кэша» на перемотке). */
         val bufferedMs: Long = 0,
@@ -535,6 +539,17 @@ class PlayerController(context: Context) {
         c.playWhenReady = true
         c.prepare()
         c.play()
+        // МГНОВЕННАЯ реакция на нажатие: не ждём, пока ExoPlayer доедет до
+        // STATE_BUFFERING — сразу показываем «грузится» с названием трека. Без
+        // этого между тапом и первым событием плеера экран молчит, и человек
+        // жмёт play снова и снова (жалоба владельца 13.09.2026).
+        items.getOrNull(startIndex.coerceIn(0, items.size - 1))?.let { s ->
+            _state.value = _state.value.copy(
+                title = s.title, artist = s.artist, artworkUrl = s.artworkUrl,
+                hasItem = true, loading = true, isPlaying = false,
+                positionMs = 0, bufferedMs = 0,
+            )
+        }
         // Нативная передача СТРИМА на Oboe (bit-perfect) — код готов, но НЕ
         // включён: на x86-эмуляторе фиделити не проверить, а хэндофф в тесте не
         // сработал стабильно. Возврат к этому — на реальном arm64-устройстве.
@@ -928,6 +943,7 @@ class PlayerController(context: Context) {
                 bufferedMs = c.bufferedPosition.coerceAtLeast(0),
                 durationMs = c.duration.takeIf { it > 0 } ?: _state.value.durationMs,
                 isPlaying = c.isPlaying,
+                loading = c.playbackState == Player.STATE_BUFFERING,
             )
             return
         }
@@ -943,6 +959,7 @@ class PlayerController(context: Context) {
             album = tAlbum,
             artworkUrl = md.artworkUri?.toString(),
             isPlaying = c.isPlaying,
+            loading = c.playbackState == Player.STATE_BUFFERING,
             positionMs = c.currentPosition.coerceAtLeast(0),
             bufferedMs = c.bufferedPosition.coerceAtLeast(0),
             durationMs = c.duration.takeIf { it > 0 } ?: 0,

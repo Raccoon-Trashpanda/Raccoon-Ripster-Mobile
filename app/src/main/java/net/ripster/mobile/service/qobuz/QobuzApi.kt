@@ -93,13 +93,26 @@ class QobuzApi(
         authToken.isNotBlank()
     }
 
+    /** Тариф из последнего входа по email/паролю: (lossless, hires, offer, страна).
+     *  null — входили токеном, ответа логина нет, тариф честно неизвестен. */
+    @Volatile
+    var subInfo: net.ripster.mobile.service.qobuz.dto.QbSubParams? = null
+        private set
+
+    @Volatile
+    var country: String = ""
+        private set
+
     private suspend fun login(email: String, password: String): String {
         val raw = get("user/login", authed = false) {
             it.addQueryParameter("email", email)
             it.addQueryParameter("password", password)
             it.addQueryParameter("app_id", appId)
         }
-        return json.decodeFromString(QbLogin.serializer(), raw).userAuthToken
+        val parsed = json.decodeFromString(QbLogin.serializer(), raw)
+        subInfo = parsed.user.credential.parameters
+        country = parsed.user.country
+        return parsed.userAuthToken
     }
 
     suspend fun search(query: String): QbSearch {

@@ -112,7 +112,25 @@ data class QbLogin(
 )
 
 @Serializable
-data class QbUser(val id: Long = 0, val email: String = "")
+data class QbUser(
+    val id: Long = 0,
+    val email: String = "",
+    @SerialName("country_code") val country: String = "",
+    // Тариф лежит в `credential.parameters` ответа user/login — те же поля, что
+    // читает ПК (lossless_streaming / hires_streaming / label). Так мобилка
+    // меряет качество подписки вместо «не знаю».
+    val credential: QbCredential = QbCredential(),
+)
+
+@Serializable
+data class QbCredential(val parameters: QbSubParams? = null)
+
+@Serializable
+data class QbSubParams(
+    @SerialName("lossless_streaming") val lossless: Boolean = false,
+    @SerialName("hires_streaming") val hires: Boolean = false,
+    val label: String = "",
+)
 
 @Serializable
 data class QbFileUrl(

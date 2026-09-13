@@ -155,7 +155,13 @@ fun ImmersivePlayerScreen(
                     Modifier.size(60.dp).clip(CircleShape).background(c.accent_fill),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Canvas(Modifier.size(24.dp)) {
+                    if (state.loading) {
+                        // Индикация загрузки: видно, что нажатие сработало и трек
+                        // готовится (жалоба владельца 13.09.2026 — «нет реакции»).
+                        androidx.compose.material3.CircularProgressIndicator(
+                            Modifier.size(26.dp), color = Color(0xFF0D0F13), strokeWidth = 2.5.dp,
+                        )
+                    } else Canvas(Modifier.size(24.dp)) {
                         val w = size.width
                         if (state.isPlaying) {
                             drawRect(Color(0xFF0D0F13), androidx.compose.ui.geometry.Offset(w * 0.16f, 0f), androidx.compose.ui.geometry.Size(w * 0.22f, w))
@@ -167,9 +173,10 @@ fun ImmersivePlayerScreen(
                             drawPath(p, Color(0xFF0D0F13))
                         }
                     }
-                    // прозрачная кнопка поверх
-                    Box(Modifier.fillMaxSize().clip(CircleShape).pointerInput(Unit) {
-                        detectTapGestures(onTap = { onPlayPause() })
+                    // прозрачная кнопка поверх — пока грузится, тап игнорируем,
+                    // чтобы повторные нажатия не перезапускали поток.
+                    Box(Modifier.fillMaxSize().clip(CircleShape).pointerInput(state.loading) {
+                        detectTapGestures(onTap = { if (!state.loading) onPlayPause() })
                     })
                 }
                 GlyphBtn(48.dp, onNext) { w ->

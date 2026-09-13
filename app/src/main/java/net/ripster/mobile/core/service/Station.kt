@@ -560,31 +560,80 @@ object StreamResolver {
         // показывал «Ripster isn't responding» при нажатии ▶ — жалоба тестера с
         // ANR-диалогом на треке Tidal. То же касается resolve() и search() ниже.
         tracks.take(limit).map { tr ->
-            async {
-                runCatching {
-                    val client = ServiceRegistry.get(tr.service) ?: return@runCatching null
-                    val info = client.streamInfo(tr, quality)
-                    if (info.url.isBlank()) null
-                    else PlayerController.StreamItem(
-                        // Зашифрованный Deezer-поток метим для DataSource плеера,
-                        // иначе ExoPlayer играет шифр-байты (тишина).
-                        url = when (val d = info.decryption) {
-                            is net.ripster.mobile.core.model.Decryption.DeezerBlowfish ->
-                                net.ripster.mobile.player.tagDeezerBlowfish(info.url, d.trackId)
-                            is net.ripster.mobile.core.model.Decryption.YandexAesCtr ->
-                                net.ripster.mobile.player.tagYandexAesCtr(info.url, d.keyHex)
-                            else -> info.url
-                        },
-                        title = tr.title,
-                        artist = tr.artist,
-                        artworkUrl = tr.artworkUrl?.takeIf { it.isNotBlank() } ?: fallbackArtwork,
-                        lossless = info.quality.lossless,
-                        container = info.quality.container,
-                    )
-                }.onFailure { lastStreamError = it }.getOrNull()
-            }
+            async { resolveOne(tr, quality, fallbackArtwork) }
         }.awaitAll().filterNotNull()
     }
+
+    /** Один трек → поток. Сперва родной сервис; не смог — ищем ТОТ ЖЕ трек в
+     *  стримабельных сервисах и играем оттуда.
+     *
+     *  Зачем фолбэк: станция собирает треки из разных источников, и часть их
+     *  приходит из сервиса, который на телефоне не отдаёт поток (Apple без
+     *  сопряжения, гео-блок и т.п.). Раньше `toStreamItems` пробовал ТОЛЬКО
+     *  родной сервис — и станция целиком падала в «Couldn't build the stream»,
+     *  хотя тот же трек лежит в Deezer/Tidal/Yandex (жалоба владельца 13.09.2026:
+     *  «нажал на электронику — играет 1 трек, трек-лист пуст»). */
+    private suspend fun resolveOne(
+        tr: Track, quality: List<String>, fallbackArtwork: String?,
+    ): PlayerController.StreamItem? {
+        // 1) родной сервис трека
+        runCatching {
+            ServiceRegistry.get(tr.service)?.let { c ->
+                val info = c.streamInfo(tr, quality)
+                if (info.url.isNotBlank()) return streamItem(tr, info, fallbackArtwork)
+            }
+        }.onFailure { lastStreamError = it }
+
+        // 2) кросс-сервис: ищем «artist title» в стримабельных и играем найденное
+        val order = listOf(Service.DEEZER, Service.TIDAL, Service.QOBUZ,
+                           Service.YANDEX, Service.SOUNDCLOUD)
+        val q = "${tr.artist} ${tr.title}".trim()
+        for (svc in order) {
+            if (svc == tr.service) continue
+            val c = ServiceRegistry.get(svc) ?: continue
+            if (!runCatching { c.isConfigured() }.getOrDefault(false)) continue
+            val alt = runCatching {
+                val hit = c.search(q).tracks.firstOrNull { m ->
+                    val t = m.title.lowercase(); val want = tr.title.lowercase()
+                    (t.contains(want) || want.contains(t)) &&
+                        m.artist.lowercase().split(",", "&", " x ", " feat")
+                            .any { it.isNotBlank() && tr.artist.lowercase().contains(it.trim().take(6)) }
+                } ?: return@runCatching null
+                val info = c.streamInfo(hit, quality)
+                if (info.url.isBlank()) null
+                else {
+                    // Название — от исходного трека станции, но артистов берём
+                    // БОГАЧЕ: если стриминговый источник джойнит коллаб («A, B»),
+                    // а исходник дал одного, показываем полный состав (владелец
+                    // 13.09.2026: «вижу 1 артиста, а их несколько»).
+                    val richer = if (hit.artist.length > tr.artist.length &&
+                        hit.artist.contains(tr.artist.take(4), ignoreCase = true)) hit.artist else tr.artist
+                    streamItem(tr.copy(service = svc, artist = richer), info, fallbackArtwork)
+                }
+            }.onFailure { lastStreamError = it }.getOrNull()
+            if (alt != null) return alt
+        }
+        return null
+    }
+
+    private fun streamItem(
+        tr: Track, info: net.ripster.mobile.core.model.StreamInfo, fallbackArtwork: String?,
+    ): PlayerController.StreamItem = PlayerController.StreamItem(
+        // Зашифрованный Deezer-поток метим для DataSource плеера, иначе ExoPlayer
+        // играет шифр-байты (тишина).
+        url = when (val d = info.decryption) {
+            is net.ripster.mobile.core.model.Decryption.DeezerBlowfish ->
+                net.ripster.mobile.player.tagDeezerBlowfish(info.url, d.trackId)
+            is net.ripster.mobile.core.model.Decryption.YandexAesCtr ->
+                net.ripster.mobile.player.tagYandexAesCtr(info.url, d.keyHex)
+            else -> info.url
+        },
+        title = tr.title,
+        artist = tr.artist,
+        artworkUrl = tr.artworkUrl?.takeIf { it.isNotBlank() } ?: fallbackArtwork,
+        lossless = info.quality.lossless,
+        container = info.quality.container,
+    )
 
     /**
      * Почему не удалось собрать ни одного потока.

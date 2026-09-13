@@ -52,6 +52,7 @@ fun PlayPauseButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     size: androidx.compose.ui.unit.Dp = 64.dp,
+    loading: Boolean = false,
 ) {
     val colors = RipsterTheme.colors
     val interaction = remember { MutableInteractionSource() }
@@ -63,18 +64,30 @@ fun PlayPauseButton(
             .clickable(
                 interactionSource = interaction,
                 indication = null,
+                // Пока трек грузится — тычки игнорируем: иначе повторные нажатия
+                // Play плодят перезапуски потока (жалоба владельца 13.09.2026).
+                enabled = !loading,
                 role = Role.Button,
                 onClick = onClick,
             )
-            .semantics { contentDescription = if (isPlaying) "Pause" else "Play" }
+            .semantics { contentDescription = if (loading) "Loading" else if (isPlaying) "Pause" else "Play" }
             .background(
                 if (pressed) colors.accent_active else colors.accent_fill,
                 Radii.CardShape,
             ),
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(modifier = Modifier.size(size * 0.4f)) {
-            if (isPlaying) drawPauseGlyph(colors.text_on_fill) else drawPlayGlyph(colors.text_on_fill)
+        if (loading) {
+            // Явная индикация загрузки прямо в кнопке — видно, что реакция ЕСТЬ.
+            androidx.compose.material3.CircularProgressIndicator(
+                modifier = Modifier.size(size * 0.5f),
+                color = colors.text_on_fill,
+                strokeWidth = 2.dp,
+            )
+        } else {
+            Canvas(modifier = Modifier.size(size * 0.4f)) {
+                if (isPlaying) drawPauseGlyph(colors.text_on_fill) else drawPlayGlyph(colors.text_on_fill)
+            }
         }
     }
 }

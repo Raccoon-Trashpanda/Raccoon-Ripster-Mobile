@@ -80,8 +80,28 @@ class QobuzClient(
         val H = net.ripster.mobile.core.service.AccountHealth
         if (!isConfigured()) return H.dead("ключи не заданы")
         return try {
+            api.ensureAuth()          // при email/пароле логин отдаёт тариф
             api.search("a")
-            net.ripster.mobile.core.service.AccountHealth(alive = true)
+            val sub = api.subInfo
+            if (sub != null) {
+                // Тариф известен (входили email/паролем): меряем как ПК.
+                val q = when {
+                    sub.hires -> "HI_RES"
+                    sub.lossless -> "LOSSLESS"
+                    else -> "MP3"
+                }
+                net.ripster.mobile.core.service.AccountHealth(
+                    alive = true,
+                    lossless = sub.hires || sub.lossless,
+                    quality = sub.label.ifBlank { q },
+                    country = api.country,
+                    losslessPossible = true,
+                )
+            } else {
+                // Входили токеном — ответа логина нет, тариф честно неизвестен
+                // (`lossless=false` здесь = «не знаю», не «нет»).
+                net.ripster.mobile.core.service.AccountHealth(alive = true)
+            }
         } catch (e: Exception) {
             val msg = e.message.orEmpty()
             when {

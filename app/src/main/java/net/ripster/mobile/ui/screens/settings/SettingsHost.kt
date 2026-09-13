@@ -203,6 +203,15 @@ private val ACCOUNT_SERVICES = listOf(
     Service.SPOTIFY, Service.YANDEX, Service.BEATPORT, Service.BBC,
 )
 
+/** ISO-3166 alpha-2 → эмодзи-флаг. Пусто/мусор → "" (строку не ломаем). */
+private fun countryFlag(cc: String?): String {
+    val s = (cc ?: "").trim().uppercase()
+    if (s.length != 2 || !s.all { it in 'A'..'Z' }) return ""
+    val base = 0x1F1E6
+    return String(Character.toChars(base + (s[0] - 'A'))) +
+        String(Character.toChars(base + (s[1] - 'A')))
+}
+
 @Composable
 private fun AccountsList(lang: AppLang, c: RipsterColors, open: (Service) -> Unit) {
     val app = RipsterApp.from(androidx.compose.ui.platform.LocalContext.current)
@@ -266,6 +275,9 @@ private fun AccountsList(lang: AppLang, c: RipsterColors, open: (Service) -> Uni
             )
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(c.border_subtle))
+        // Результаты проверки по сервисам — чтобы строка ниже показывала не голое
+        // «Connected», а реквизиты: флаг · страна · тариф (владелец 13.09.2026).
+        val byService = checked.associateBy { it.service }
         ACCOUNT_SERVICES.forEach { svc ->
             var status by remember(svc) { mutableStateOf<Boolean?>(null) }
             LaunchedEffect(svc) {
@@ -279,12 +291,29 @@ private fun AccountsList(lang: AppLang, c: RipsterColors, open: (Service) -> Uni
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 BasicText(svc.label, Modifier.weight(1f), style = TextStyle(color = c.text_primary, fontSize = 15.sp))
-                val (txt, col) = when (status) {
-                    null -> tr("svc.status_public", lang) to c.text_tertiary
-                    true -> tr("svc.status_connected", lang) to c.accent_text
-                    false -> tr("svc.status_off", lang) to c.text_tertiary
+                val h = byService[svc]?.let { it.after ?: it.before }
+                if (h != null && h.alive != false) {
+                    // Богатая карточка: флаг · страна · тариф/качество.
+                    val flag = countryFlag(h.country)
+                    val bits = listOf(h.country.uppercase(), h.plan, h.quality)
+                        .filter { it.isNotBlank() }.joinToString(" · ")
+                    val col = when {
+                        h.alive == null -> c.text_tertiary
+                        !h.lossless -> c.warning_text
+                        else -> c.success_text
+                    }
+                    BasicText(
+                        (if (flag.isNotBlank()) "$flag " else "") + bits.ifBlank { tr("svc.status_connected", lang) },
+                        style = TextStyle(color = col, fontSize = 11.sp),
+                    )
+                } else {
+                    val (txt, col) = when (status) {
+                        null -> tr("svc.status_public", lang) to c.text_tertiary
+                        true -> tr("svc.status_connected", lang) to c.accent_text
+                        false -> tr("svc.status_off", lang) to c.text_tertiary
+                    }
+                    BasicText(txt, style = TextStyle(color = col, fontSize = 11.sp))
                 }
-                BasicText(txt, style = TextStyle(color = col, fontSize = 11.sp))
                 Box(Modifier.padding(start = 8.dp))
                 BasicText("›", style = TextStyle(color = c.text_tertiary, fontSize = 16.sp))
             }

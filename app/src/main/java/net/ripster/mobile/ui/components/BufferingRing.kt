@@ -90,10 +90,22 @@ fun Modifier.bufferingRing(
 ): Modifier = composed {
     if (!active) return@composed this
     val tr = rememberInfiniteTransition(label = "buffering-ring")
+    // Голова кометы. Один непрерывный оборот 0→1: на прямоугольном контуре точки
+    // 0 и 1 совпадают, поэтому RestartMode.Restart не даёт разрыва — «магия»
+    // едет по кругу без рывка. 2600 мс — спокойный, «волшебный» ход, а не суетня
+    // (владелец 13.09.2026: «плавно и без рывков»).
     val phase by tr.animateFloat(
         initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1200, easing = LinearEasing)),
+        animationSpec = infiniteRepeatable(tween(2600, easing = LinearEasing)),
         label = "phase",
+    )
+    // Медленное переливание: амбиентный контур сам плывёт цветами палитры в
+    // ДРУГУЮ сторону — обложка будто дышит светом. Отдельный, более долгий цикл,
+    // чтобы шиммер не совпадал с бегом кометы и картинка не «пульсировала» в такт.
+    val shimmer by tr.animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(7000, easing = LinearEasing)),
+        label = "shimmer",
     )
     drawWithContent {
         drawContent()
@@ -103,16 +115,26 @@ fun Modifier.bufferingRing(
             sw * 0.5f, sw * 0.5f, size.width - sw * 0.5f, size.height - sw * 0.5f,
             CornerRadius(cr, cr),
         )
-        val outline = Path().apply { addRoundRect(rr) }
+        // Direction.Clockwise: комета обязана ехать ПО ЧАСОВОЙ (явный контракт от
+        // владельца), а дефолт addRoundRect по платформам не гарантирован.
+        val outline = Path().apply {
+            addRoundRect(rr, androidx.compose.ui.graphics.Path.Direction.Clockwise)
+        }
+
+        // Палитра, провёрнутая на shimmer — тот самый «переливающийся по палитре»
+        // эффект: цвета плавно текут по контуру, не дёргаясь.
+        val shimPal = List(palette.size) { i ->
+            paletteAt(palette, i.toFloat() / (palette.size - 1).coerceAtLeast(1) + shimmer)
+        }
 
         // 0) тёмная подложка-контур — чтобы ореол читался и на светлой обложке
-        drawPath(outline, color = Color.Black.copy(alpha = 0.30f), style = Stroke(sw * 2.4f, cap = StrokeCap.Round))
-        // 1) весь контур — тусклый sweep палитры (амбиент)
+        drawPath(outline, color = Color.Black.copy(alpha = 0.28f), style = Stroke(sw * 2.4f, cap = StrokeCap.Round))
+        // 1) весь контур — тусклый переливающийся sweep (амбиент, «дыхание»)
         drawPath(
             outline,
-            brush = Brush.sweepGradient(palette, center = center),
+            brush = Brush.sweepGradient(shimPal, center = center),
             style = Stroke(sw, cap = StrokeCap.Round),
-            alpha = 0.34f,
+            alpha = 0.38f,
         )
 
         val pm = PathMeasure().apply { setPath(outline, false) }
@@ -128,35 +150,45 @@ fun Modifier.bufferingRing(
             return out
         }
 
-        val headLen = 0.16f          // доля периметра
-        val tailLen = 0.34f
-        val headCol = paletteAt(palette, phase + headLen * 0.6f)
+        // Комета: голова + мягко затухающий хвост из нескольких слоёв. Вместо
+        // резкого белого ядра и одного аддитивного пятна — плавная лесенка
+        // ширины/прозрачности, поэтому свет «тает», а не обрывается.
+        val headLen = 0.14f
+        val headCol = paletteAt(palette, phase + headLen * 0.5f + shimmer)
 
-        // 2) хвост — затухающий, позади головы
-        drawPath(
-            seg(phase - tailLen, phase),
-            brush = Brush.sweepGradient(palette, center = center),
-            style = Stroke(sw * 2.0f, cap = StrokeCap.Round),
-            alpha = 0.5f,
+        // хвост: три слоя от толстого-тусклого к тонкому-яркому
+        val tail = listOf(
+            Triple(0.40f, 2.6f, 0.16f),  // (длина доли, множитель ширины, alpha)
+            Triple(0.26f, 2.0f, 0.28f),
+            Triple(0.14f, 1.4f, 0.44f),
         )
-        // 3) широкий мягкий ореол головы (аддитивно — свечение)
+        for ((tl, wMul, a) in tail) {
+            drawPath(
+                seg(phase - tl, phase),
+                brush = Brush.sweepGradient(shimPal, center = center),
+                style = Stroke(sw * wMul, cap = StrokeCap.Round),
+                alpha = a,
+            )
+        }
+        // мягкий широкий ореол головы (аддитивно — свечение, но без белого)
         drawPath(
-            seg(phase, phase + headLen),
-            color = headCol.copy(alpha = 0.85f),
-            style = Stroke(sw * 7f, cap = StrokeCap.Round),
+            seg(phase - headLen * 0.4f, phase + headLen),
+            color = headCol.copy(alpha = 0.55f),
+            style = Stroke(sw * 6f, cap = StrokeCap.Round),
             blendMode = BlendMode.Plus,
         )
-        // 4) насыщенное ядро головы — цветом палитры, поверх (видно на любой обложке)
+        // насыщенное ядро головы — цвет палитры
         drawPath(
             seg(phase, phase + headLen),
             color = headCol,
-            style = Stroke(sw * 3f, cap = StrokeCap.Round),
+            style = Stroke(sw * 2.6f, cap = StrokeCap.Round),
         )
-        // 5) раскалённая сердцевина
+        // тонкая светлая искра на самом кончике — не чистый белый, а осветлённый
+        // цвет палитры, чтобы «магия», а не фара
         drawPath(
-            seg(phase + headLen * 0.45f, phase + headLen),
-            color = Color.White,
-            style = Stroke(sw * 1.5f, cap = StrokeCap.Round),
+            seg(phase + headLen * 0.7f, phase + headLen),
+            color = lerp(headCol, Color.White, 0.6f),
+            style = Stroke(sw * 1.2f, cap = StrokeCap.Round),
         )
     }
 }

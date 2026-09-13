@@ -324,7 +324,8 @@ fun ReferencePlayerScreen(
                         SideGlyph(onClick = onToggleShuffle, cd = tr("a11y.shuffle", lang), box = sideBox, glyph = 22.dp,
                             tint = if (state.shuffle) c.accent_text else c.text_tertiary) { drawShuffleGlyph(it) }
                         SideGlyph(onClick = onPrevious, cd = tr("a11y.prev", lang), box = sideBox, glyph = 22.dp) { drawPrevGlyph(it) }
-                        RefPlayButton(isPlaying = state.isPlaying, onClick = onPlayPause)
+                        RefPlayButton(isPlaying = state.isPlaying, onClick = onPlayPause,
+                            loading = state.loading)
                         SideGlyph(onClick = onNext, cd = tr("a11y.next", lang), box = sideBox, glyph = 22.dp) { drawNextGlyph(it) }
                         SideGlyph(onClick = onToggleRepeat, cd = tr("a11y.repeat", lang), box = sideBox, glyph = 22.dp,
                             tint = if (state.repeat) c.accent_text else c.text_tertiary) { drawRepeatGlyph(it) }
@@ -809,7 +810,7 @@ private fun Centered(text: String, c: net.ripster.mobile.ui.theme.RipsterColors)
 // ── детали ──────────────────────────────────────────────────────────────
 
 @Composable
-private fun RefPlayButton(isPlaying: Boolean, onClick: () -> Unit) {
+private fun RefPlayButton(isPlaying: Boolean, onClick: () -> Unit, loading: Boolean = false) {
     val c = RipsterTheme.colors
     // Главная кнопка экрана была для озвучки безымянной. Подпись зависит от
     // состояния: «пауза» на играющем и «воспроизвести» на остановленном —
@@ -837,11 +838,16 @@ private fun RefPlayButton(isPlaying: Boolean, onClick: () -> Unit) {
             .clip(CircleShape)
             .background(brush)
             .clickable(interactionSource = interaction, indication = null,
+                       enabled = !loading,
                        onClickLabel = playCd, role = Role.Button, onClick = onClick)
-            .semantics { contentDescription = playCd },
+            .semantics { contentDescription = if (loading) tr("a11y.loading", lang) else playCd },
         contentAlignment = Alignment.Center,
       ) {
-        Canvas(Modifier.size(26.dp)) {
+        if (loading) {
+            androidx.compose.material3.CircularProgressIndicator(
+                Modifier.size(28.dp), color = c.text_on_fill, strokeWidth = 2.5.dp,
+            )
+        } else Canvas(Modifier.size(26.dp)) {
             val col = c.text_on_fill
             if (isPlaying) {
                 val bw = size.width * 0.26f

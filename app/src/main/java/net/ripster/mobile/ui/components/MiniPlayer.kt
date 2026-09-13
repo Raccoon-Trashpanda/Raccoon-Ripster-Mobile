@@ -46,6 +46,8 @@ data class MiniPlayerState(
     val positionMs: Long,
     val durationMs: Long,
     val isPlaying: Boolean,
+    /** Идёт подготовка/буферизация — кнопка показывает спиннер и не реагирует. */
+    val loading: Boolean = false,
     val artworkUrl: String? = null,
 )
 
@@ -131,7 +133,8 @@ fun MiniPlayer(
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 MiniGlyph(onClick = onPrev, cd = tr("a11y.prev", lang)) { drawPrevGlyph(colors.text_secondary) }
-                PlayPauseButton(isPlaying = state.isPlaying, onClick = onPlayPause, size = 34.dp)
+                PlayPauseButton(isPlaying = state.isPlaying, onClick = onPlayPause, size = 34.dp,
+                    loading = state.loading)
                 MiniGlyph(onClick = onNext, cd = tr("a11y.next", lang)) { drawNextGlyph(colors.text_secondary) }
                 MiniGlyph(onClick = onClose, cd = tr("a11y.close_player", lang), icon = 12.dp) {
                     drawLine(colors.text_tertiary, androidx.compose.ui.geometry.Offset(size.width * 0.15f, size.height * 0.15f),
