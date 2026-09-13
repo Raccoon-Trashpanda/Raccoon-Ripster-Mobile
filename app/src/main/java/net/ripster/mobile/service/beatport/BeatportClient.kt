@@ -275,11 +275,22 @@ class BeatportClient(
 
     override suspend fun streamInfo(track: Track, preference: List<String>): StreamInfo {
         val id = track.raw["bpId"] ?: throw IOException("Beatport: no track id")
-        val wantLossless = preference.firstOrNull().let {
-            it == null || it.startsWith("flac") || it == "lossless" || it.contains("hires")
+        // Честим ТОЧНЫЙ выбор: раньше всё не-lossless сваливалось в один порядок
+        // [high, medium], поэтому выбор «AAC 128» молча отдавал AAC 256. Ставим
+        // запрошенный тир первым, а остальные — как деградацию вниз по качеству.
+        // Владелец 13.09.2026: выбор качества Beatport должен работать по его
+        // реальным значениям (FLAC / AAC 256 / AAC 128).
+        val want = preference.firstOrNull().orEmpty()
+        val order = when {
+            want.startsWith("flac") || want == "lossless" || want.contains("hires") ->
+                listOf("lossless" to flac, "high" to aac, "medium" to aacLo)
+            want == "aac_256" || want == "high" || want == "aac" ->
+                listOf("high" to aac, "medium" to aacLo, "lossless" to flac)
+            want == "aac_128" || want == "medium" || want == "minimum" || want == "low" ->
+                listOf("medium" to aacLo, "high" to aac, "lossless" to flac)
+            else -> // выбора нет — лучшее доступное
+                listOf("lossless" to flac, "high" to aac, "medium" to aacLo)
         }
-        val order = if (wantLossless) listOf("lossless" to flac, "high" to aac, "medium" to aacLo)
-        else listOf("high" to aac, "medium" to aacLo, "lossless" to flac)
         var last: Exception? = null
         for ((q, tier) in order) {
             // Транзиентный 401 на ЛУЧШЕМ качестве не должен ронять в AAC: apiGet
