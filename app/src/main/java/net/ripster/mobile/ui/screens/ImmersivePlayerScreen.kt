@@ -67,8 +67,10 @@ fun ImmersivePlayerScreen(
                 ) { _, d -> dragAcc += d }
             },
     ) {
-        // обложка — на весь экран
-        Cover(
+        // обложка — на весь экран, ЖИВАЯ: наш собственный моушн (дыхание +
+        // магический перелив по палитре), генерим из статики, а не тащим чужое
+        // видео (решение владельца 13.09.2026).
+        net.ripster.mobile.ui.components.LivingCover(
             url = state.artworkUrl,
             modifier = Modifier.fillMaxSize(),
         )
