@@ -564,9 +564,35 @@ internal fun LyricsPanel(
             }
         }
         !body.plain.isNullOrBlank() ->
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 12.dp)) {
-                BasicText(body.plain, style = TextStyle(color = c.text_secondary, fontSize = 15.sp, lineHeight = 24.sp))
-                Spacer(Modifier.height(24.dp))
+            // Нет тайминга по времени — но это НЕ повод вываливать текст серой
+            // стеной, «как вордовский документ» (владелец 13.09.2026). Подаём
+            // построчно, крупно и по центру, с воздухом — статичный экран текста
+            // в духе Apple: пустая строка между куплетами = ♪-пауза.
+            Column(
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                    .padding(horizontal = 26.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Spacer(Modifier.height(28.dp))
+                body.plain!!.split('\n').forEach { raw ->
+                    val line = raw.trim()
+                    if (line.isEmpty()) {
+                        BasicText("♪", Modifier.padding(vertical = 10.dp),
+                            style = TextStyle(color = c.text_tertiary.copy(alpha = 0.5f), fontSize = 15.sp))
+                    } else {
+                        BasicText(
+                            line,
+                            Modifier.fillMaxWidth().padding(vertical = 7.dp),
+                            style = TextStyle(
+                                color = c.text_primary.copy(alpha = 0.9f),
+                                fontSize = 20.sp, lineHeight = 27.sp,
+                                fontWeight = FontWeight.W600, textAlign = TextAlign.Center,
+                                letterSpacing = (-0.2).sp,
+                            ),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(40.dp))
             }
         lyricsFailed ->
             Centered(tr("ref.lyrics_failed", lang), c)
