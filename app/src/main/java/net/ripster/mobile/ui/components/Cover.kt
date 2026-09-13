@@ -55,8 +55,24 @@ fun Cover(
             if (loading) {
                 ShimmerFill(base = c.surface_raised, sweep = c.surface_active)
             }
+            // Плавная смена обложки (владелец 13.09.2026: «должна плавно меняться,
+            // а не пересчитываться с резким обрывом; если идентична — не менять»):
+            //  • crossfade — новый кавер проявляется поверх старого, без «моргания»;
+            //  • memoryCacheKey/diskCacheKey по URL — тот же URL берётся из кэша
+            //    мгновенно и БЕЗ переустановки (Coil видит тот же ключ и не дёргает
+            //    загрузку заново), поэтому одинаковая обложка просто остаётся на месте.
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            val request = remember(model) {
+                coil.request.ImageRequest.Builder(ctx)
+                    .data(model)
+                    .crossfade(280)
+                    .apply {
+                        (model as? String)?.let { memoryCacheKey(it); diskCacheKey(it) }
+                    }
+                    .build()
+            }
             AsyncImage(
-                model = model,
+                model = request,
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,

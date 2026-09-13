@@ -372,7 +372,7 @@ fun ReferencePlayerScreen(
                     BasicText(
                         tr(when (sheet) {
                             1 -> "ref.tracklist"; 2 -> "ref.lyrics"; 3 -> "ref.spectrum"
-                            5 -> "ref.stream_info"; 6 -> "ref.cast"; else -> "ref.equalizer"
+                            5 -> "path.title"; 6 -> "ref.cast"; else -> "ref.equalizer"
                         }, lang),
                         style = TextStyle(color = c.text_primary, fontSize = 17.sp, fontWeight = FontWeight.W700),
                     )
@@ -383,7 +383,7 @@ fun ReferencePlayerScreen(
                         1 -> TracklistPanel(app, c) { sheet = 0 }
                         2 -> LyricsPanel(state, c, lang)
                         3 -> SpectrumPanel(app, c, lang)
-                        5 -> StreamInfoPanel(app, c, lang)
+                        5 -> AudioPathPanel(app, c, lang)
                         6 -> androidx.compose.foundation.layout.Column(
                             Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
                         ) { net.ripster.mobile.ui.screens.cast.YandexStationBlock() }
@@ -1296,6 +1296,300 @@ private fun fmt(ms: Long): String {
     if (ms <= 0) return "0:00"
     val s = ms / 1000
     return "${s / 60}:${(s % 60).toString().padStart(2, '0')}"
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Audio path — тракт сигнала «как в bitXact» (референс владельца 13.09.2026).
+// Это ПОДАЧА поверх того, что движок и так измеряет: источник (StreamProbe),
+// декодер и частота (NativeAudioEngine.rateNote/formatLine), DSP (AudioEffects).
+// Ничего не выдумываем: если данных нет — узел честно пустой.
+// ═══════════════════════════════════════════════════════════════════════════
+
+private val PATH_GOOD = Color(0xFF3FCF6A)   // зелёный «хорошо» (lossless/clean/bypassed)
+
+private enum class NodeTone { GOOD, NEUTRAL, WARN }
+
+@Composable
+internal fun AudioPathPanel(
+    app: RipsterApp,
+    c: net.ripster.mobile.ui.theme.RipsterColors,
+    lang: net.ripster.mobile.ui.i18n.AppLang,
+) {
+    val ctx = LocalContext.current
+    val pb by app.player.state.collectAsState()
+    val fx by net.ripster.mobile.player.AudioEffects.config.collectAsState()
+    val path = pb.currentPath
+
+    val info by produceState<net.ripster.mobile.core.audio.StreamInfo?>(initialValue = null, path) {
+        value = if (path == null) null
+        else runCatching { net.ripster.mobile.core.audio.StreamProbe.probe(ctx, path) }.getOrNull()
+    }
+
+    // Нативный тракт активен, когда движок отдал пометку частоты.
+    val native = pb.rateNote != null
+    val bitPerfect = pb.rateNote == net.ripster.mobile.player.NativeAudioEngine.RateNote.BIT_PERFECT
+    val resampled = pb.rateNote == net.ripster.mobile.player.NativeAudioEngine.RateNote.RESAMPLED
+    val dspOn = fx.enabled
+    val lossless = pb.lossless && !pb.fakeLossless
+    val i = info
+
+    // ── Signal Integrity: честный скор из измеримого ────────────────────
+    var score = 100
+    if (!lossless) score -= 40
+    if (pb.fakeLossless) score -= 40
+    if (resampled) score -= 20
+    if (dspOn) score -= 15
+    score = score.coerceIn(0, 100)
+
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 8.dp)) {
+        // Заголовок «DSP APPLIED»
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            BasicText(tr("path.dsp_applied", lang).uppercase(),
+                style = TextStyle(color = c.text_tertiary, fontSize = 11.sp, letterSpacing = 1.sp, fontWeight = FontWeight.W600))
+        }
+        Spacer(Modifier.height(4.dp))
+        BasicText(
+            if (dspOn) tr("path.dsp_on", lang) else tr("path.dsp_none", lang),
+            style = TextStyle(color = if (dspOn) c.warning_text else PATH_GOOD, fontSize = 22.sp, fontWeight = FontWeight.W700),
+        )
+        Spacer(Modifier.height(18.dp))
+        BasicText(tr("path.signal_flow", lang).uppercase(),
+            style = TextStyle(color = c.text_tertiary, fontSize = 11.sp, letterSpacing = 1.sp, fontWeight = FontWeight.W600))
+        Spacer(Modifier.height(10.dp))
+
+        // ── Signal flow: ноды с коннекторами ───────────────────────────
+        FlowNode(
+            c = c, first = true,
+            title = tr("path.source", lang),
+            badge = if (lossless) "LOSSLESS" else "LOSSY",
+            tone = if (lossless) NodeTone.GOOD else NodeTone.WARN,
+            glyph = { musicGlyph(it) },
+            rows = buildList {
+                (i?.codec?.takeIf { it.isNotBlank() } ?: pb.format.takeIf { it.isNotBlank() })?.let {
+                    add(tr("path.codec", lang) to it)
+                }
+                if ((i?.bitDepth ?: 0) > 0 && (i?.sampleRateHz ?: 0) > 0)
+                    add(tr("path.resolution", lang) to "${i!!.bitDepth}-bit / %.1f kHz".format(i.sampleRateHz / 1000f))
+                if ((i?.bitrateKbps ?: 0) > 0) add(tr("path.bitrate", lang) to "${i!!.bitrateKbps} kbps")
+                if ((i?.fileBytes ?: 0L) > 0) add(tr("path.filesize", lang) to "%.1f MB".format(i!!.fileBytes / 1_048_576f))
+            },
+        )
+        FlowNode(
+            c = c,
+            title = tr("path.decoder", lang),
+            badge = if (native) "NATIVE" else "EXOPLAYER",
+            tone = if (native) NodeTone.GOOD else NodeTone.NEUTRAL,
+            glyph = { chipGlyph(it) },
+            rows = buildList {
+                add(tr("path.engine", lang) to if (native) "Native Reader" else "ExoPlayer")
+                if (native) add(tr("path.precision", lang) to "32-bit float")
+            },
+        )
+        FlowNode(
+            c = c,
+            title = tr("path.src", lang),
+            badge = if (resampled) "ACTIVE" else "BYPASSED",
+            tone = if (resampled) NodeTone.WARN else NodeTone.GOOD,
+            glyph = { waveGlyph(it) },
+            rows = buildList {
+                add(tr("path.resampling", lang) to if (resampled) tr("path.on", lang) else tr("path.none", lang))
+                if (pb.grantedRateHz > 0) add(tr("path.stream_rate", lang) to "%.1f kHz".format(pb.grantedRateHz / 1000f))
+            },
+        )
+        FlowNode(
+            c = c,
+            title = tr("path.dsp_chain", lang),
+            badge = if (dspOn) "ACTIVE" else "BYPASSED",
+            tone = if (dspOn) NodeTone.NEUTRAL else NodeTone.GOOD,
+            glyph = { sliderGlyph(it) },
+            rows = listOf(
+                tr("path.status", lang) to
+                    if (dspOn) tr("path.dsp_in_path", lang) else tr("path.dsp_not_in_path", lang),
+            ),
+        )
+        FlowNode(
+            c = c, last = true,
+            title = tr("path.output", lang),
+            badge = if (bitPerfect) "EXCLUSIVE" else "MIXER",
+            tone = if (bitPerfect) NodeTone.GOOD else NodeTone.NEUTRAL,
+            glyph = { speakerGlyph(it) },
+            rows = buildList {
+                add(tr("path.device", lang) to if (native) "Oboe / AAudio" else "AudioTrack")
+                if (pb.grantedRateHz > 0 && (i?.bitDepth ?: 0) > 0)
+                    add(tr("path.stream", lang) to "%.1f kHz / ${i!!.bitDepth}-bit".format(pb.grantedRateHz / 1000f))
+            },
+        )
+
+        Spacer(Modifier.height(16.dp))
+
+        // ── Signal Integrity ───────────────────────────────────────────
+        val scoreCol = when { score >= 90 -> PATH_GOOD; score >= 60 -> c.warning_text; else -> c.danger_text }
+        Column(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                .background(c.surface_raised).border(1.dp, c.border_subtle, RoundedCornerShape(16.dp))
+                .padding(18.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                BasicText(tr("path.integrity", lang),
+                    modifier = Modifier.weight(1f),
+                    style = TextStyle(color = c.text_primary, fontSize = 19.sp, fontWeight = FontWeight.W700))
+                BasicText("$score/100",
+                    style = TextStyle(color = scoreCol, fontSize = 26.sp, fontWeight = FontWeight.W800))
+            }
+            Spacer(Modifier.height(10.dp))
+            Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(50)).background(c.surface_active)) {
+                Box(Modifier.fillMaxWidth(score / 100f).height(6.dp).clip(RoundedCornerShape(50)).background(scoreCol))
+            }
+            Spacer(Modifier.height(14.dp))
+            CheckRow(c, tr("path.chk_lossless", lang), lossless)
+            CheckRow(c, tr("path.chk_src", lang), !resampled)
+            CheckRow(c, tr("path.chk_dsp", lang), !dspOn)
+            CheckRow(c, tr("path.chk_authentic", lang), !pb.fakeLossless)
+            CheckRow(c, tr("path.chk_native", lang), native)
+        }
+
+        Spacer(Modifier.height(14.dp))
+
+        // ── Fix My Sound — сброс DSP в flat/transparent ────────────────
+        Box(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp))
+                .background(c.accent_fill)
+                .clickable { runCatching { net.ripster.mobile.player.AudioEffects.resetFlat() } }
+                .padding(vertical = 15.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            BasicText(tr("path.fix_sound", lang),
+                style = TextStyle(color = c.text_on_fill, fontSize = 15.sp, fontWeight = FontWeight.W700))
+        }
+        Spacer(Modifier.height(8.dp))
+        BasicText(tr("path.fix_sound_hint", lang),
+            style = TextStyle(color = c.text_tertiary, fontSize = 11.5.sp, lineHeight = 17.sp))
+        Spacer(Modifier.height(24.dp))
+    }
+}
+
+/** Узел тракта: слева кружок-иконка с вертикальным коннектором, справа карточка. */
+@Composable
+private fun FlowNode(
+    c: net.ripster.mobile.ui.theme.RipsterColors,
+    title: String,
+    badge: String,
+    tone: NodeTone,
+    rows: List<Pair<String, String>>,
+    glyph: DrawScope.(Color) -> Unit,
+    first: Boolean = false,
+    last: Boolean = false,
+) {
+    val badgeCol = when (tone) { NodeTone.GOOD -> PATH_GOOD; NodeTone.WARN -> c.warning_text; NodeTone.NEUTRAL -> c.text_secondary }
+    Row(Modifier.fillMaxWidth().heightIn(min = 92.dp)) {
+        // рельс с кружком
+        Column(Modifier.width(52.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(Modifier.width(2.dp).height(if (first) 10.dp else 16.dp)
+                .background(if (first) Color.Transparent else c.border_subtle))
+            Box(
+                Modifier.size(40.dp).clip(CircleShape).background(c.surface_raised)
+                    .border(1.dp, c.border_subtle, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) { Canvas(Modifier.size(18.dp)) { glyph(c.text_secondary) } }
+            Box(Modifier.width(2.dp).weight(1f).background(if (last) Color.Transparent else c.border_subtle))
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(
+            Modifier.weight(1f).padding(bottom = 12.dp).clip(RoundedCornerShape(14.dp))
+                .background(c.surface_raised).border(1.dp, c.border_subtle, RoundedCornerShape(14.dp))
+                .padding(16.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                BasicText(title, modifier = Modifier.weight(1f),
+                    style = TextStyle(color = c.text_primary, fontSize = 17.sp, fontWeight = FontWeight.W700))
+                Box(
+                    Modifier.clip(RoundedCornerShape(50)).background(badgeCol.copy(alpha = 0.14f))
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                ) {
+                    BasicText(badge, style = TextStyle(color = badgeCol, fontSize = 11.sp, fontWeight = FontWeight.W700, letterSpacing = 0.5.sp))
+                }
+            }
+            if (rows.isNotEmpty()) Spacer(Modifier.height(10.dp))
+            rows.forEach { (k, v) ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+                    BasicText(k, modifier = Modifier.weight(1f),
+                        style = TextStyle(color = c.text_tertiary, fontSize = 13.sp))
+                    BasicText(v, style = TextStyle(color = c.text_primary, fontSize = 13.sp, fontWeight = FontWeight.W600))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CheckRow(c: net.ripster.mobile.ui.theme.RipsterColors, label: String, ok: Boolean) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+        BasicText(label, modifier = Modifier.weight(1f),
+            style = TextStyle(color = c.text_secondary, fontSize = 13.5.sp))
+        val col = if (ok) PATH_GOOD else c.warning_text
+        BasicText(if (ok) tr("path.ok", LocalAppLang.current) else tr("path.no", LocalAppLang.current),
+            style = TextStyle(color = col, fontSize = 12.5.sp, fontWeight = FontWeight.W700))
+        Spacer(Modifier.width(8.dp))
+        Canvas(Modifier.size(16.dp)) {
+            val w = size.width
+            if (ok) {
+                drawCircle(col.copy(alpha = 0.16f), w * 0.5f)
+                drawLine(col, Offset(w * 0.28f, w * 0.52f), Offset(w * 0.44f, w * 0.68f), w * 0.1f, StrokeCap.Round)
+                drawLine(col, Offset(w * 0.44f, w * 0.68f), Offset(w * 0.74f, w * 0.34f), w * 0.1f, StrokeCap.Round)
+            } else {
+                drawCircle(col.copy(alpha = 0.16f), w * 0.5f)
+                drawLine(col, Offset(w * 0.5f, w * 0.28f), Offset(w * 0.5f, w * 0.58f), w * 0.11f, StrokeCap.Round)
+                drawCircle(col, w * 0.07f, Offset(w * 0.5f, w * 0.74f))
+            }
+        }
+    }
+}
+
+// ── глифы узлов тракта ──────────────────────────────────────────────────
+private fun DrawScope.musicGlyph(color: Color) {
+    val w = size.width; val h = size.height
+    drawCircle(color, w * 0.12f, Offset(w * 0.3f, h * 0.78f))
+    drawLine(color, Offset(w * 0.42f, h * 0.72f), Offset(w * 0.42f, h * 0.2f), w * 0.08f, StrokeCap.Round)
+    drawLine(color, Offset(w * 0.42f, h * 0.2f), Offset(w * 0.72f, h * 0.12f), w * 0.08f, StrokeCap.Round)
+    drawCircle(color, w * 0.12f, Offset(w * 0.6f, h * 0.68f))
+    drawLine(color, Offset(w * 0.72f, h * 0.62f), Offset(w * 0.72f, h * 0.12f), w * 0.08f, StrokeCap.Round)
+}
+private fun DrawScope.chipGlyph(color: Color) {
+    val w = size.width; val h = size.height; val sw = w * 0.08f
+    drawRect(color, topLeft = Offset(w * 0.24f, h * 0.24f),
+        size = androidx.compose.ui.geometry.Size(w * 0.52f, h * 0.52f), style = Stroke(sw))
+    for (f in listOf(0.36f, 0.6f)) {
+        drawLine(color, Offset(w * f, h * 0.1f), Offset(w * f, h * 0.24f), sw, StrokeCap.Round)
+        drawLine(color, Offset(w * f, h * 0.76f), Offset(w * f, h * 0.9f), sw, StrokeCap.Round)
+        drawLine(color, Offset(h * 0.1f, w * f), Offset(w * 0.24f, w * f), sw, StrokeCap.Round)
+        drawLine(color, Offset(w * 0.76f, w * f), Offset(w * 0.9f, w * f), sw, StrokeCap.Round)
+    }
+}
+private fun DrawScope.waveGlyph(color: Color) {
+    val w = size.width; val h = size.height
+    val hs = listOf(0.4f, 0.8f, 0.55f, 0.9f, 0.5f)
+    hs.forEachIndexed { idx, fh ->
+        val x = w * (0.14f + idx * 0.18f)
+        drawLine(color, Offset(x, h * (0.5f + fh / 2)), Offset(x, h * (0.5f - fh / 2)), w * 0.08f, StrokeCap.Round)
+    }
+}
+private fun DrawScope.sliderGlyph(color: Color) {
+    val w = size.width; val h = size.height; val sw = w * 0.07f
+    val ys = listOf(0.28f, 0.5f, 0.72f); val knobX = listOf(0.66f, 0.34f, 0.58f)
+    ys.forEachIndexed { idx, y ->
+        drawLine(color.copy(alpha = 0.5f), Offset(w * 0.14f, h * y), Offset(w * 0.86f, h * y), sw, StrokeCap.Round)
+        drawCircle(color, w * 0.09f, Offset(w * knobX[idx], h * y))
+    }
+}
+private fun DrawScope.speakerGlyph(color: Color) {
+    val w = size.width; val h = size.height; val sw = w * 0.08f
+    val p = Path().apply {
+        moveTo(w * 0.2f, h * 0.38f); lineTo(w * 0.36f, h * 0.38f); lineTo(w * 0.54f, h * 0.22f)
+        lineTo(w * 0.54f, h * 0.78f); lineTo(w * 0.36f, h * 0.62f); lineTo(w * 0.2f, h * 0.62f); close()
+    }
+    drawPath(p, color)
+    drawArc(color, -35f, 70f, false, Offset(w * 0.5f, h * 0.32f),
+        androidx.compose.ui.geometry.Size(w * 0.3f, h * 0.36f), style = Stroke(sw, cap = StrokeCap.Round))
 }
 
 
