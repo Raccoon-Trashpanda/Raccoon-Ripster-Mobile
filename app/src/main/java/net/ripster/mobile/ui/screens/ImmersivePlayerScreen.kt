@@ -138,10 +138,27 @@ fun ImmersivePlayerScreen(
             )
             if (state.format.isNotBlank()) {
                 Spacer(Modifier.height(2.dp))
-                BasicText(
-                    state.format,
-                    style = TextStyle(color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp),
-                )
+                // Тап по строке формата → «Паспорт трека» (вердикт качества +
+                // спектр + метаданные). Вход в диагностику из иммерсива.
+                Row(
+                    Modifier.clickable(
+                        interactionSource = remember { MutableInteractionSource() }, indication = null,
+                    ) { sheet = 5 },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    BasicText(
+                        state.format,
+                        style = TextStyle(color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp),
+                    )
+                    Canvas(Modifier.size(11.dp)) {
+                        val w = size.width
+                        drawCircle(Color.White.copy(alpha = 0.4f), w * 0.46f, style = Stroke(w * 0.1f))
+                        drawLine(Color.White.copy(alpha = 0.4f), androidx.compose.ui.geometry.Offset(w * 0.5f, w * 0.42f),
+                            androidx.compose.ui.geometry.Offset(w * 0.5f, w * 0.74f), w * 0.13f, StrokeCap.Round)
+                        drawCircle(Color.White.copy(alpha = 0.4f), w * 0.07f, androidx.compose.ui.geometry.Offset(w * 0.5f, w * 0.28f))
+                    }
+                }
             }
 
             Spacer(Modifier.height(16.dp))
@@ -255,7 +272,7 @@ fun ImmersivePlayerScreen(
                     BasicText(
                         tr(when (sheet) {
                             1 -> "ref.tracklist"; 2 -> "ref.lyrics"; 3 -> "ref.spectrum"
-                            6 -> "ref.cast"; else -> "ref.equalizer"
+                            5 -> "pass.title"; 6 -> "ref.cast"; else -> "ref.equalizer"
                         }, lang),
                         style = TextStyle(color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.W700),
                     )
@@ -266,6 +283,7 @@ fun ImmersivePlayerScreen(
                         1 -> TracklistPanel(app, c) { sheet = 0 }
                         2 -> LyricsPanel(state, c, lang)
                         3 -> SpectrumPanel(app, c, lang)
+                        5 -> StreamInfoPanel(app, c, lang)
                         6 -> Column(
                             Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
                         ) { net.ripster.mobile.ui.screens.cast.YandexStationBlock() }

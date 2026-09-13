@@ -372,7 +372,7 @@ fun ReferencePlayerScreen(
                     BasicText(
                         tr(when (sheet) {
                             1 -> "ref.tracklist"; 2 -> "ref.lyrics"; 3 -> "ref.spectrum"
-                            5 -> "ref.stream_info"; 6 -> "ref.cast"; else -> "ref.equalizer"
+                            5 -> "pass.title"; 6 -> "ref.cast"; else -> "ref.equalizer"
                         }, lang),
                         style = TextStyle(color = c.text_primary, fontSize = 17.sp, fontWeight = FontWeight.W700),
                     )
@@ -749,6 +749,54 @@ internal fun StreamInfoPanel(
     if (path == null) { Centered("—", c); return }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
+        // ── ВЕРДИКТ-ГЕРОЙ: «Паспорт трека» ведёт с честности качества — это НАШЕ
+        //    (детект поддельного lossless по спектру), а не сигнал-флоу референса.
+        //    Крупный статус + пояснение + строка формата. Пока спектр считается —
+        //    «Измеряю…».
+        run {
+            val v = spec?.verdict
+            val (word, vcol) = when {
+                specPhase == 0 || (specPhase == 1 && v == null) ->
+                    tr("pass.measuring", lang) to c.text_tertiary
+                v == net.ripster.mobile.core.audio.Spectrogram.Verdict.LOSSLESS ->
+                    tr("pass.ok", lang) to c.accent_text
+                v == net.ripster.mobile.core.audio.Spectrogram.Verdict.LOSSLESS_SOFT ->
+                    tr("pass.soft", lang) to c.text_secondary
+                v == net.ripster.mobile.core.audio.Spectrogram.Verdict.LOSSY ->
+                    tr("pass.lossy", lang) to c.text_secondary
+                v == net.ripster.mobile.core.audio.Spectrogram.Verdict.FAKE ->
+                    tr("pass.fake", lang) to c.warning_text
+                else -> tr("pass.raw", lang) to c.text_tertiary
+            }
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                    .background(c.surface_raised).border(1.dp, vcol.copy(alpha = 0.45f), RoundedCornerShape(16.dp))
+                    .padding(18.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    // индикатор-точка цвета вердикта
+                    Canvas(Modifier.size(14.dp)) {
+                        drawCircle(vcol.copy(alpha = 0.22f), size.minDimension / 2f)
+                        drawCircle(vcol, size.minDimension * 0.28f)
+                    }
+                    BasicText(word, style = TextStyle(color = vcol, fontSize = 21.sp, fontWeight = FontWeight.W800, letterSpacing = (-0.3).sp))
+                }
+                if (pb.format.isNotBlank()) {
+                    Spacer(Modifier.height(6.dp))
+                    BasicText(pb.format, style = TextStyle(color = c.text_secondary, fontSize = 13.sp))
+                }
+                spec?.let { r ->
+                    Spacer(Modifier.height(6.dp))
+                    BasicText(
+                        tr("spec.v_${r.verdict.name.lowercase()}", lang)
+                            .replace("{cut}", "%.1f".format(r.cutoffKHz))
+                            .replace("{ny}", "%.1f".format(r.sampleRateHz / 2000f)),
+                        style = TextStyle(color = c.text_tertiary, fontSize = 11.5.sp, lineHeight = 16.sp),
+                    )
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+        }
         // таблица характеристик
         info?.let { i ->
             i.row().forEach { (k, v) ->
