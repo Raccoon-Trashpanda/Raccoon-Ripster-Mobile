@@ -678,6 +678,50 @@ class PcBridge(context: Context) {
         }
     }
 
+    /** Одно слово/слог караоке-строки: старт (мс), длительность (мс), текст,
+     *  `sp` = добавить пробел после (Apple режет на слоги — слоги слова без пробела). */
+    data class WordToken(val t: Long, val d: Long, val w: String, val sp: Boolean)
+    /** Строка пословной лирики: диапазон строки + слова по таймингам. */
+    data class WordLine(val s: Long, val e: Long, val words: List<WordToken>)
+
+    /**
+     * Пословная (караоке) лирика из Apple по ИСКОМОМУ треку — независимо от того,
+     * из какого сервиса он играет или скачан ли он (владелец 14.09.2026). ПК
+     * матчит трек по ISRC/названию к каталогу Apple и отдаёт word-timed TTML.
+     * Пусто ⇒ нет пары / токена / совпадения — телефон падает на построчный LRCLIB.
+     */
+    suspend fun wordLyrics(title: String, artist: String, isrc: String = ""): List<WordLine> = withContext(Dispatchers.IO) {
+        val tok = token ?: return@withContext emptyList()
+        fun enc(s: String) = java.net.URLEncoder.encode(s, "UTF-8")
+        runCatching {
+            viaBase { base ->
+                val q = "title=${enc(title)}&artist=${enc(artist)}&isrc=${enc(isrc)}"
+                val req = Request.Builder().url("$base/api/pair/lyrics-word?$q")
+                    .header("Authorization", "Bearer $tok").build()
+                RipsterHttp.client.newCall(req).execute().use { r ->
+                    if (!r.isSuccessful) return@use emptyList<WordLine>()
+                    val o = json.parseToJsonElement(r.body?.string().orEmpty()).jsonObject
+                    (o["lines"]?.jsonArray ?: emptyList()).map { el ->
+                        val lo = el.jsonObject
+                        fun ln(k: String) = lo[k]?.jsonPrimitive?.contentOrNull?.toLongOrNull() ?: 0L
+                        WordLine(
+                            s = ln("s"), e = ln("e"),
+                            words = (lo["words"]?.jsonArray ?: emptyList()).map { we ->
+                                val wo = we.jsonObject
+                                WordToken(
+                                    t = wo["t"]?.jsonPrimitive?.contentOrNull?.toLongOrNull() ?: 0L,
+                                    d = wo["d"]?.jsonPrimitive?.contentOrNull?.toLongOrNull() ?: 0L,
+                                    w = wo["w"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                                    sp = wo["sp"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: true,
+                                )
+                            },
+                        )
+                    }
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
     /**
      * «Жду» — артист уходит в вишлист на ПК.
      *

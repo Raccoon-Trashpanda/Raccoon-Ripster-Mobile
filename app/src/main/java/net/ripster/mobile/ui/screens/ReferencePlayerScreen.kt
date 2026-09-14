@@ -66,6 +66,9 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
@@ -518,9 +521,64 @@ internal fun LyricsPanel(
         }
     }
 
+    // Пословная (караоке) лирика из Apple через ПК — по ИСКОМОМУ треку, независимо
+    // от источника (владелец 14.09.2026). Пусто ⇒ нет пары/совпадения → падаем на
+    // построчный LRCLIB ниже. Грузится параллельно; когда придёт — показываем её.
+    val wordLines by produceState<List<net.ripster.mobile.core.pair.PcBridge.WordLine>>(
+        initialValue = emptyList(), key1 = state.title, key2 = state.artist,
+    ) {
+        value = runCatching { app.pcBridge.wordLyrics(state.title, state.artist) }.getOrDefault(emptyList())
+    }
+
     val listState = rememberLazyListState()
     val body = lyrics
     when {
+        // ── КАРАОКЕ ПО СЛОВАМ (Apple syllable) ──
+        wordLines.isNotEmpty() -> {
+            val activeIdx = wordLines.indexOfLast { it.s <= livePos }.coerceAtLeast(0)
+            LaunchedEffect(activeIdx) {
+                val info = listState.layoutInfo
+                val vp = info.viewportSize.height
+                val lineH = info.visibleItemsInfo.firstOrNull { it.index == activeIdx }?.size ?: 0
+                val off = -((vp / 2) - (lineH / 2)).coerceAtLeast(0)
+                runCatching { listState.animateScrollToItem(activeIdx, off) }
+            }
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
+                contentPadding = PaddingValues(vertical = 240.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                itemsIndexed(wordLines) { i, line ->
+                    val active = i == activeIdx
+                    val past = i < activeIdx
+                    val fs by animateFloatAsState(if (active) 21f else 16f, tween(220), label = "kw-fs")
+                    val ann = buildAnnotatedString {
+                        line.words.forEach { w ->
+                            val sung = livePos >= w.t
+                            val current = active && sung && livePos < w.t + w.d + 60
+                            val col = when {
+                                current -> c.accent_text
+                                active && sung -> c.text_primary
+                                active -> c.text_primary.copy(alpha = 0.32f)   // ещё не спетые в текущей строке
+                                past -> c.text_secondary.copy(alpha = 0.30f)
+                                else -> c.text_secondary.copy(alpha = 0.55f)
+                            }
+                            withStyle(SpanStyle(color = col)) {
+                                append(w.w)
+                            }
+                            if (w.sp) append(" ")
+                        }
+                    }
+                    BasicText(
+                        ann,
+                        Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        style = TextStyle(fontSize = fs.sp, lineHeight = (fs + 8f).sp,
+                            fontWeight = if (active) FontWeight.W700 else FontWeight.W600),
+                    )
+                }
+            }
+        }
         body == null ->
             Centered(tr("search.checking", lang), c)
         body.synced.isNotEmpty() -> {
