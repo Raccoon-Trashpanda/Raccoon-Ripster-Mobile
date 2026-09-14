@@ -205,6 +205,11 @@ class DownloadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
                         )
                     }
                     is DownloadEvent.Error -> {
+                        // Tidal 403/410 → другая учётка из пула (авто-починка).
+                        if (rotateTidal(app, id, track.service, ev.reason)) {
+                            dao.setState(id, DownloadState.QUEUED.name, now())
+                            retryLater = true; return@collect
+                        }
                         // Ограничение частоты и сетевые обрывы проходят сами —
                         // см. TransientFailure. Возвращаем в очередь и уходим на
                         // откат, а не рисуем человеку окончательный отказ.
@@ -234,6 +239,11 @@ class DownloadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
             // диагностика.
             android.util.Log.w("RipsterDownload", "task $id failed: ${t.javaClass.name}", t)
             val reason = t.message ?: t.javaClass.simpleName
+            // Tidal 403/410 → попробовать другую учётку из пула (авто-починка).
+            if (rotateTidal(app, id, track.service, reason)) {
+                dao.setState(id, DownloadState.QUEUED.name, now())
+                return Result.retry()
+            }
             // ТО ЖЕ ПРАВИЛО, ЧТО И ДЛЯ СОБЫТИЙ ОШИБКИ.
             //
             // Правило «сейчас не вышло ≠ не выйдет никогда» жило только в
@@ -264,6 +274,34 @@ class DownloadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
             // очередь — отказ, который выглядит как «зависло».
             gate.release()
         }
+    }
+
+    /**
+     * Tidal 403 на сегменте = у ЭТОЙ учётки нет прав/региона на трек (проверено
+     * 14.09.2026: те же треки на другом аккаунте отдаются 206). Если в пуле есть
+     * ещё рабочая учётка — переключаемся на неё и повторяем закачку, а не рисуем
+     * человеку окончательный отказ. Пробованные держим в prefs по id задачи,
+     * чтобы не пинг-понговать между двумя и не крутить бесконечно.
+     */
+    private fun rotateTidal(app: RipsterApp, id: String, service: net.ripster.mobile.core.model.Service, reason: String): Boolean {
+        if (service != net.ripster.mobile.core.model.Service.TIDAL) return false
+        val r = reason.lowercase()
+        val denied = r.contains("tidal_segment_denied") || r.contains("tidal segment") ||
+            (r.contains("tidal") && (r.contains("403") || r.contains("410")))
+        if (!denied) return false
+        val pool = net.ripster.mobile.core.settings.CredentialPool(app.credentials)
+        val prefs = applicationContext.getSharedPreferences("tidal_rot", android.content.Context.MODE_PRIVATE)
+        val key = "tried:$id"
+        val tried = (prefs.getString(key, "") ?: "").split(",").filter { it.isNotBlank() }.toMutableSet()
+        pool.activeId(net.ripster.mobile.core.model.Service.TIDAL)?.let { tried.add(it) }
+        val next = pool.nextUsable(net.ripster.mobile.core.model.Service.TIDAL, exclude = tried)
+        if (next == null) { prefs.edit().remove(key).apply(); return false }
+        pool.activate(net.ripster.mobile.core.model.Service.TIDAL, next.id)
+        app.registerClients()
+        tried.add(next.id)
+        prefs.edit().putString(key, tried.joinToString(",")).apply()
+        android.util.Log.i("RipsterDownloads", "tidal 403 → switch account to ${next.label} (${next.country})")
+        return true
     }
 
     private fun foregroundInfo(title: String): ForegroundInfo {
