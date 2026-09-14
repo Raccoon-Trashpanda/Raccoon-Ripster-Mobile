@@ -91,7 +91,22 @@ fun ArtistScreen(
 
     val page by produceState<PcBridge.ArtistPage?>(initialValue = null, name, service, artistId, isLabel) {
         value = null
-        // 1. НАТИВНО из клиента сервиса — работает БЕЗ ПК: своя дискография
+        // 1. Если ЕСТЬ ПАРА с ПК — берём ПК ПЕРВЫМ: у десктопного get_artist самый
+        //    полный источник (вся дискография + «грядущие/демо», которых у нативного
+        //    пути нет — он тянет только уже вышедшие альбомы сервиса). Регрессия
+        //    14.09.2026: когда нативный путь стал ПРИМАРИ (для работы без ПК), у
+        //    спаренных пропали «предстоящие» и часть дискографии. Порядок исправлен:
+        //    пара → ПК, иначе → натив.
+        var pcPage: PcBridge.ArtistPage? = null
+        if (app.pcBridge.paired && (isLabel || artistId.isNotBlank())) {
+            pcPage = withTimeoutOrNull(25_000) {
+                if (isLabel) app.pcBridge.label(name) else app.pcBridge.artist(service, artistId)
+            }?.getOrNull()
+            if (pcPage != null && pcPage.error == null && pcPage.releases.isNotEmpty()) {
+                value = pcPage; return@produceState
+            }
+        }
+        // 2. НАТИВНО из клиента сервиса — работает БЕЗ ПК: своя дискография
         //    + секция «С этим артистом» (компиляции/миксы с треком артиста).
         if (!isLabel && artistId.isNotBlank()) {
             val svc = Service.entries.firstOrNull { it.id == service }
@@ -102,16 +117,6 @@ fun ArtistScreen(
             }
             if (native != null && native.error == null && native.releases.isNotEmpty()) {
                 value = native; return@produceState
-            }
-        }
-        // 2. с ПК (релизы лейбла; или если натив ничего не дал)
-        var pcPage: PcBridge.ArtistPage? = null
-        if (app.pcBridge.paired && (isLabel || artistId.isNotBlank())) {
-            pcPage = withTimeoutOrNull(25_000) {
-                if (isLabel) app.pcBridge.label(name) else app.pcBridge.artist(service, artistId)
-            }?.getOrNull()
-            if (pcPage != null && pcPage.error == null && pcPage.releases.isNotEmpty()) {
-                value = pcPage; return@produceState
             }
         }
         // 2. фолбэк: поиск по имени в «простых» сервисах (для лейбла слабее, но лучше пустоты).
