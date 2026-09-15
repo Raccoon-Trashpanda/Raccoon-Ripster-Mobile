@@ -202,6 +202,21 @@ fun NowPlayingScreen(
                 QualityBadge(state = state.quality)
             }
 
+            if (state.title.isNotBlank()) {
+                val route = rememberOutputRoute(lang)
+                Spacer(Modifier.height(9.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Canvas(Modifier.size(13.dp)) { outGlyph(route.kind, Color.White.copy(alpha = 0.42f)) }
+                    BasicText(
+                        route.label, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        style = TextStyle(color = Color.White.copy(alpha = 0.42f), fontSize = 11.sp),
+                    )
+                }
+            }
+
             Spacer(Modifier.height(26.dp))
             SeekStrip(
                 positionMs = state.positionMs, durationMs = state.durationMs,

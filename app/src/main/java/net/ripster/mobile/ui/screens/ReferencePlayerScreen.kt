@@ -42,6 +42,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -1402,6 +1403,66 @@ internal fun DrawScope.moonGlyph(color: Color) {
         fillType = androidx.compose.ui.graphics.PathFillType.EvenOdd
     }
     drawPath(p, color)
+}
+
+/** Куда сейчас идёт звук. kind: 0 динамик, 1 проводные, 2 Bluetooth, 3 USB. */
+internal data class OutRoute(val label: String, val kind: Int)
+
+/** Текущий маршрут вывода звука; пересчитывается при подключении/отключении
+ *  устройств. Bluetooth/USB/проводные важнее встроенного динамика. */
+@Composable
+internal fun rememberOutputRoute(lang: net.ripster.mobile.ui.i18n.AppLang): OutRoute {
+    val ctx = LocalContext.current
+    val am = remember {
+        ctx.applicationContext.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
+    }
+    fun compute(): OutRoute {
+        val devs = runCatching { am.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS) }.getOrNull() ?: emptyArray()
+        val bt = devs.firstOrNull {
+            it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                it.type == android.media.AudioDeviceInfo.TYPE_BLE_HEADSET ||
+                it.type == android.media.AudioDeviceInfo.TYPE_HEARING_AID
+        }
+        if (bt != null) return OutRoute(bt.productName?.toString()?.trim()?.takeIf { it.isNotEmpty() } ?: tr("out.bt", lang), 2)
+        val usb = devs.firstOrNull {
+            it.type == android.media.AudioDeviceInfo.TYPE_USB_HEADSET || it.type == android.media.AudioDeviceInfo.TYPE_USB_DEVICE
+        }
+        if (usb != null) return OutRoute(tr("out.usb", lang), 3)
+        val wired = devs.firstOrNull {
+            it.type == android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES || it.type == android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET
+        }
+        if (wired != null) return OutRoute(tr("out.wired", lang), 1)
+        return OutRoute(tr("out.speaker", lang), 0)
+    }
+    var route by remember { mutableStateOf(compute()) }
+    DisposableEffect(Unit) {
+        val cb = object : android.media.AudioDeviceCallback() {
+            override fun onAudioDevicesAdded(added: Array<out android.media.AudioDeviceInfo>?) { route = compute() }
+            override fun onAudioDevicesRemoved(removed: Array<out android.media.AudioDeviceInfo>?) { route = compute() }
+        }
+        am.registerAudioDeviceCallback(cb, android.os.Handler(android.os.Looper.getMainLooper()))
+        onDispose { am.unregisterAudioDeviceCallback(cb) }
+    }
+    return route
+}
+
+/** Иконка маршрута: динамик для встроенного, наушники для всего остального. */
+internal fun DrawScope.outGlyph(kind: Int, color: Color) {
+    val w = size.width; val h = size.height; val sw = w * 0.08f
+    if (kind == 0) {
+        drawRoundRect(
+            color, topLeft = Offset(w * 0.24f, h * 0.16f),
+            size = androidx.compose.ui.geometry.Size(w * 0.34f, h * 0.68f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.08f, w * 0.08f),
+            style = Stroke(sw),
+        )
+        drawCircle(color, w * 0.085f, Offset(w * 0.41f, h * 0.6f))
+        drawArc(color, -40f, 80f, false, Offset(w * 0.58f, h * 0.28f), androidx.compose.ui.geometry.Size(w * 0.3f, h * 0.44f), style = Stroke(sw, cap = StrokeCap.Round))
+    } else {
+        drawArc(color, 200f, 140f, false, Offset(w * 0.15f, h * 0.16f), androidx.compose.ui.geometry.Size(w * 0.7f, h * 0.7f), style = Stroke(sw, cap = StrokeCap.Round))
+        drawRoundRect(color, topLeft = Offset(w * 0.13f, h * 0.5f), size = androidx.compose.ui.geometry.Size(w * 0.16f, h * 0.32f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.05f, w * 0.05f))
+        drawRoundRect(color, topLeft = Offset(w * 0.71f, h * 0.5f), size = androidx.compose.ui.geometry.Size(w * 0.16f, h * 0.32f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.05f, w * 0.05f))
+    }
 }
 
 @Composable

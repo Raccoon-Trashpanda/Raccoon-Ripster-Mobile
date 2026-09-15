@@ -176,6 +176,20 @@ fun ImmersivePlayerScreen(
                     }
                 }
             }
+            if (state.title.isNotBlank()) {
+                val route = rememberOutputRoute(lang)
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Canvas(Modifier.size(12.dp)) { outGlyph(route.kind, Color.White.copy(alpha = 0.4f)) }
+                    BasicText(
+                        route.label, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        style = TextStyle(color = Color.White.copy(alpha = 0.4f), fontSize = 10.5.sp),
+                    )
+                }
+            }
 
             Spacer(Modifier.height(16.dp))
 
