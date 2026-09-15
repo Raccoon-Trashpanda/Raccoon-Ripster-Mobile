@@ -1223,6 +1223,78 @@ internal fun EqPanel(
     }
 }
 
+/** Таймер сна: интервалы + «в конце трека», обратный отсчёт и отмена.
+ *  Общая панель — переиспользуют иммерсив и Studio. */
+@Composable
+internal fun SleepPanel(
+    app: net.ripster.mobile.RipsterApp,
+    c: net.ripster.mobile.ui.theme.RipsterColors,
+    lang: net.ripster.mobile.ui.i18n.AppLang,
+) {
+    val player = app.player
+    val sleep by player.sleep.collectAsState()
+    // Тикер обратного отсчёта — раз в секунду и только пока таймер активен.
+    var tick by remember { mutableStateOf(0L) }
+    LaunchedEffect(sleep.active) {
+        while (sleep.active) {
+            tick = android.os.SystemClock.elapsedRealtime()
+            kotlinx.coroutines.delay(1000)
+        }
+    }
+    val remainingMs = if (sleep.active && !sleep.endOfTrack)
+        (sleep.fireAtElapsed - (tick.takeIf { it > 0 } ?: android.os.SystemClock.elapsedRealtime()))
+            .coerceAtLeast(0L) else 0L
+
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp)) {
+        BasicText(tr("sleep.desc", lang), style = TextStyle(color = c.text_tertiary, fontSize = 12.sp, lineHeight = 17.sp))
+        Spacer(Modifier.height(16.dp))
+
+        if (sleep.active) {
+            val label = if (sleep.endOfTrack) tr("sleep.until_track_end", lang)
+            else "${remainingMs / 60000}:${((remainingMs / 1000) % 60).toString().padStart(2, '0')}"
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Canvas(Modifier.size(18.dp)) { moonGlyph(c.accent_text) }
+                Spacer(Modifier.width(10.dp))
+                BasicText(label, style = TextStyle(color = c.accent_text, fontSize = 24.sp, fontWeight = FontWeight.W700))
+            }
+            Spacer(Modifier.height(4.dp))
+            BasicText(tr("sleep.will_pause", lang), style = TextStyle(color = c.text_tertiary, fontSize = 11.sp))
+            Spacer(Modifier.height(14.dp))
+            Box(
+                Modifier.clip(RoundedCornerShape(10.dp)).background(c.surface_raised)
+                    .border(1.dp, c.border_subtle, RoundedCornerShape(10.dp))
+                    .clickable { player.cancelSleepTimer() }
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+            ) { BasicText(tr("sleep.cancel", lang), style = TextStyle(color = c.text_secondary, fontSize = 13.sp)) }
+            Spacer(Modifier.height(20.dp))
+            BasicText(tr("sleep.change", lang), style = TextStyle(color = c.text_tertiary, fontSize = 11.sp))
+            Spacer(Modifier.height(8.dp))
+        }
+
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            listOf(15, 30, 45, 60).forEach { m ->
+                Box(
+                    Modifier.clip(RoundedCornerShape(16.dp)).background(c.surface_raised)
+                        .border(1.dp, c.border_subtle, RoundedCornerShape(16.dp))
+                        .clickable { player.startSleepTimer(m) }
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                ) { BasicText("$m ${tr("sleep.min_short", lang)}", style = TextStyle(color = c.text_secondary, fontSize = 13.sp)) }
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Box(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.surface_raised)
+                .border(1.dp, c.border_subtle, RoundedCornerShape(12.dp))
+                .clickable { player.startSleepEndOfTrack() }
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+        ) { BasicText(tr("sleep.end_of_track", lang), style = TextStyle(color = c.text_secondary, fontSize = 13.sp)) }
+        Spacer(Modifier.height(24.dp))
+    }
+}
+
 @Composable
 private fun Toggle(on: Boolean, onChange: (Boolean) -> Unit) {
     val c = RipsterTheme.colors
@@ -1315,6 +1387,21 @@ internal fun DrawScope.castGlyph(color: Color) {
     drawArc(color, 210f, 60f, false, Offset(w * 0.02f, h * 0.5f), androidx.compose.ui.geometry.Size(w * 0.34f, h * 0.34f), style = Stroke(sw, cap = StrokeCap.Round))
     drawArc(color, 210f, 60f, false, Offset(w * -0.06f, h * 0.42f), androidx.compose.ui.geometry.Size(w * 0.5f, h * 0.5f), style = Stroke(sw, cap = StrokeCap.Round))
     drawCircle(color, w * 0.06f, Offset(w * 0.16f, h * 0.82f))
+}
+
+/** Полумесяц — таймер сна. «Укус» из диска вырезаем через EvenOdd. */
+internal fun DrawScope.moonGlyph(color: Color) {
+    val w = size.width; val h = size.height
+    val r = minOf(w, h) * 0.42f
+    val cx = w * 0.46f; val cy = h * 0.52f
+    val br = r * 0.82f
+    val bx = cx + r * 0.5f; val by = cy - r * 0.28f
+    val p = androidx.compose.ui.graphics.Path().apply {
+        addOval(androidx.compose.ui.geometry.Rect(cx - r, cy - r, cx + r, cy + r))
+        addOval(androidx.compose.ui.geometry.Rect(bx - br, by - br, bx + br, by + br))
+        fillType = androidx.compose.ui.graphics.PathFillType.EvenOdd
+    }
+    drawPath(p, color)
 }
 
 @Composable

@@ -23,6 +23,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
@@ -115,6 +118,20 @@ fun NowPlayingScreen(
     val lang = LocalAppLang.current
     val app = RipsterApp.from(LocalContext.current)
     var sheet by remember { mutableStateOf(0) }
+    // Таймер сна: подпись кнопки — обратный отсчёт, пока активен.
+    val sleep by app.player.sleep.collectAsState()
+    var sleepTick by remember { mutableStateOf(0L) }
+    LaunchedEffect(sleep.active) {
+        while (sleep.active) { sleepTick = android.os.SystemClock.elapsedRealtime(); kotlinx.coroutines.delay(1000) }
+    }
+    val sleepLabel = when {
+        !sleep.active -> tr("ref.sleep", lang)
+        sleep.endOfTrack -> "♪ →"
+        else -> {
+            val left = (sleep.fireAtElapsed - (sleepTick.takeIf { it > 0 } ?: android.os.SystemClock.elapsedRealtime())).coerceAtLeast(0L)
+            "${left / 60000}:${((left / 1000) % 60).toString().padStart(2, '0')}"
+        }
+    }
 
     // Палитра краёв обложки → цвет заливки/свечения. Затемняем к near-black.
     val palette = rememberCoverEdgePalette(state.artworkUrl)
@@ -210,7 +227,7 @@ fun NowPlayingScreen(
             Spacer(Modifier.height(24.dp))
             // Ряд действий (как в других темах) + компактная «Скачать».
             Row(
-                Modifier.fillMaxWidth(),
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
                 verticalAlignment = Alignment.Top,
             ) {
@@ -218,6 +235,7 @@ fun NowPlayingScreen(
                 StudioAction(tr("ref.lyrics", lang), onClick = { sheet = 2 }) { lyricsGlyph(it) }
                 StudioAction(tr("ref.spectrum", lang), onClick = { sheet = 3 }) { barsGlyph(it) }
                 StudioAction(tr("ref.equalizer", lang), onClick = { sheet = 4 }) { eqGlyph(it) }
+                StudioAction(sleepLabel, onClick = { sheet = 7 }, active = sleep.active) { moonGlyph(it) }
                 StudioAction(tr("ref.cast", lang), onClick = { sheet = 6 }) { castGlyph(it) }
                 StudioAction(tr("np.dl_album", lang), onClick = onDownloadAlbum) { dlGlyph(it) }
             }
@@ -237,7 +255,7 @@ fun NowPlayingScreen(
                     BasicText(
                         tr(when (sheet) {
                             1 -> "ref.tracklist"; 2 -> "ref.lyrics"; 3 -> "ref.spectrum"
-                            5 -> "pass.title"; 6 -> "ref.cast"; else -> "ref.equalizer"
+                            5 -> "pass.title"; 6 -> "ref.cast"; 7 -> "sleep.title"; else -> "ref.equalizer"
                         }, lang),
                         style = TextStyle(color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.W700),
                     )
@@ -252,6 +270,7 @@ fun NowPlayingScreen(
                         6 -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                             net.ripster.mobile.ui.screens.cast.YandexStationBlock()
                         }
+                        7 -> SleepPanel(app, c, lang)
                         else -> EqPanel(c, lang)
                     }
                 }
@@ -321,21 +340,22 @@ private fun AccentPlay(isPlaying: Boolean, loading: Boolean, accent: Color, onCl
 
 /** Компактная кнопка действия (иконка + мелкая подпись). */
 @Composable
-private fun StudioAction(label: String, onClick: () -> Unit, draw: DrawScope.(Color) -> Unit) {
+private fun StudioAction(label: String, onClick: () -> Unit, active: Boolean = false, draw: DrawScope.(Color) -> Unit) {
+    val accent = Color(0xFFFF6B8B)
     Column(
         Modifier.width(52.dp), horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         Box(
             Modifier.size(44.dp).clip(RoundedCornerShape(13.dp))
-                .background(Color.White.copy(alpha = 0.07f))
-                .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(13.dp))
+                .background(if (active) accent.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.07f))
+                .border(1.dp, if (active) accent.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.12f), RoundedCornerShape(13.dp))
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick),
             contentAlignment = Alignment.Center,
-        ) { Canvas(Modifier.size(19.dp)) { draw(Color.White.copy(alpha = 0.82f)) } }
+        ) { Canvas(Modifier.size(19.dp)) { draw(if (active) accent else Color.White.copy(alpha = 0.82f)) } }
         BasicText(
             label, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            style = TextStyle(color = Color.White.copy(alpha = 0.5f), fontSize = 9.5.sp, textAlign = TextAlign.Center),
+            style = TextStyle(color = if (active) accent.copy(alpha = 0.95f) else Color.White.copy(alpha = 0.5f), fontSize = 9.5.sp, textAlign = TextAlign.Center),
         )
     }
 }

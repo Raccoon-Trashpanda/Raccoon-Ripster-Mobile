@@ -1030,6 +1030,21 @@ private val STRINGS: Map<String, Row> = mapOf(
     // список устройств (04.09.2026). Перевод обязан называть то, что кнопка
     // делает, а не то, что звучит красивее.
     "ref.cast" to row("На колонку", "To speaker", "स्पीकर पर", "スピーカーへ", "投放到音箱"),
+    "ref.sleep" to row("Сон", "Sleep", "स्लीप", "スリープ", "睡眠"),
+    "sleep.title" to row("Таймер сна", "Sleep timer", "स्लीप टाइमर", "スリープタイマー", "睡眠定时器"),
+    "sleep.desc" to row(
+        "Плеер сам встанет на паузу — с мягким затуханием.",
+        "Playback pauses on its own, with a gentle fade.",
+        "प्लेबैक अपने आप रुक जाएगा, धीरे-धीरे आवाज़ कम करके।",
+        "再生はやわらかくフェードして自動で一時停止します。",
+        "播放会自动暂停，并轻柔淡出。",
+    ),
+    "sleep.min_short" to row("мин", "min", "मिनट", "分", "分钟"),
+    "sleep.end_of_track" to row("В конце трека", "At end of track", "ट्रैक के अंत में", "曲の終わりで", "曲末"),
+    "sleep.until_track_end" to row("До конца трека", "Until the track ends", "ट्रैक ख़त्म होने तक", "曲が終わるまで", "直到曲末"),
+    "sleep.will_pause" to row("Пауза по истечении", "Pauses when it runs out", "समय पूरा होने पर रुकेगा", "時間になると一時停止", "到时暂停"),
+    "sleep.cancel" to row("Отменить", "Cancel", "रद्द करें", "キャンセル", "取消"),
+    "sleep.change" to row("Изменить", "Change", "बदलें", "変更", "更改"),
     "ref.tracklist" to row("Трек-лист", "Tracklist", "ट्रैकलिस्ट", "トラックリスト", "曲目"),
     "ref.lyrics" to row("Текст", "Lyrics", "बोल", "歌詞", "歌词"),
     "ref.download" to row("Скачать", "Download", "डाउनलोड", "ダウンロード", "下载"),

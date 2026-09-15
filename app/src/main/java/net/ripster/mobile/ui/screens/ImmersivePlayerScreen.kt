@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
@@ -76,6 +78,20 @@ fun ImmersivePlayerScreen(
     // Те же панели, что у Mockup-плеера (владелец 13.09.2026: «в иммерсиве только
     // три кнопки, где эквалайзер и прочие»). Переиспользуем их 1-в-1.
     var sheet by remember { mutableStateOf(0) }
+    // Таймер сна: подпись кнопки показывает обратный отсчёт, пока он активен.
+    val sleep by app.player.sleep.collectAsState()
+    var sleepTick by remember { mutableStateOf(0L) }
+    LaunchedEffect(sleep.active) {
+        while (sleep.active) { sleepTick = android.os.SystemClock.elapsedRealtime(); kotlinx.coroutines.delay(1000) }
+    }
+    val sleepLabel = when {
+        !sleep.active -> tr("ref.sleep", lang)
+        sleep.endOfTrack -> "♪ →"
+        else -> {
+            val left = (sleep.fireAtElapsed - (sleepTick.takeIf { it > 0 } ?: android.os.SystemClock.elapsedRealtime())).coerceAtLeast(0L)
+            "${left / 60000}:${((left / 1000) % 60).toString().padStart(2, '0')}"
+        }
+    }
 
     Box(
         Modifier.fillMaxSize().background(Color(0xFF07070A))
@@ -245,7 +261,7 @@ fun ImmersivePlayerScreen(
             // Действия — те же, что в Mockup-плеере, но в стекле под иммерсив:
             // трек-лист, текст, спектр, эквалайзер, каст. Открывают панель поверх.
             Row(
-                Modifier.fillMaxWidth(),
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
                 verticalAlignment = Alignment.Top,
             ) {
@@ -253,6 +269,7 @@ fun ImmersivePlayerScreen(
                 ImmAction(tr("ref.lyrics", lang), onClick = { sheet = 2 }) { lyricsGlyph(it) }
                 ImmAction(tr("ref.spectrum", lang), onClick = { sheet = 3 }) { barsGlyph(it) }
                 ImmAction(tr("ref.equalizer", lang), onClick = { sheet = 4 }) { eqGlyph(it) }
+                ImmAction(sleepLabel, onClick = { sheet = 7 }, active = sleep.active) { moonGlyph(it) }
                 ImmAction(tr("ref.cast", lang), onClick = { sheet = 6 }) { castGlyph(it) }
             }
         }
@@ -272,7 +289,7 @@ fun ImmersivePlayerScreen(
                     BasicText(
                         tr(when (sheet) {
                             1 -> "ref.tracklist"; 2 -> "ref.lyrics"; 3 -> "ref.spectrum"
-                            5 -> "pass.title"; 6 -> "ref.cast"; else -> "ref.equalizer"
+                            5 -> "pass.title"; 6 -> "ref.cast"; 7 -> "sleep.title"; else -> "ref.equalizer"
                         }, lang),
                         style = TextStyle(color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.W700),
                     )
@@ -284,6 +301,7 @@ fun ImmersivePlayerScreen(
                         2 -> LyricsPanel(state, c, lang)
                         3 -> SpectrumPanel(app, c, lang)
                         5 -> StreamInfoPanel(app, c, lang)
+                        7 -> SleepPanel(app, c, lang)
                         6 -> Column(
                             Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
                         ) { net.ripster.mobile.ui.screens.cast.YandexStationBlock() }
@@ -301,8 +319,12 @@ fun ImmersivePlayerScreen(
 private fun ImmAction(
     label: String,
     onClick: () -> Unit,
+    active: Boolean = false,
     draw: DrawScope.(Color) -> Unit,
 ) {
+    // Активное действие (напр. заведённый таймер сна) — акцентная подсветка плитки.
+    val accent = Color(0xFFFF6B8B)
+    val glyphColor = if (active) accent else Color.White.copy(alpha = 0.9f)
     Column(
         modifier = Modifier.width(58.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -310,17 +332,17 @@ private fun ImmAction(
     ) {
         Box(
             Modifier.size(46.dp).clip(RoundedCornerShape(14.dp))
-                .background(Color.White.copy(alpha = 0.12f))
-                .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(14.dp))
+                .background(if (active) accent.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.12f))
+                .border(1.dp, if (active) accent.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.16f), RoundedCornerShape(14.dp))
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick),
             contentAlignment = Alignment.Center,
-        ) { Canvas(Modifier.size(20.dp)) { draw(Color.White.copy(alpha = 0.9f)) } }
+        ) { Canvas(Modifier.size(20.dp)) { draw(glyphColor) } }
         BasicText(
             label,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             style = TextStyle(
-                color = Color.White.copy(alpha = 0.62f),
+                color = if (active) accent.copy(alpha = 0.95f) else Color.White.copy(alpha = 0.62f),
                 fontSize = 10.sp, lineHeight = 12.sp, textAlign = TextAlign.Center,
             ),
         )

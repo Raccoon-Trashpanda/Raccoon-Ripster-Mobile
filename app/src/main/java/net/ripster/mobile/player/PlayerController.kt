@@ -3,6 +3,7 @@ package net.ripster.mobile.player
 import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
+import android.os.SystemClock
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -16,9 +17,11 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import net.ripster.mobile.core.db.LibraryEntity
 
@@ -96,6 +99,20 @@ class PlayerController(context: Context) {
     private val scope = CoroutineScope(Dispatchers.Main)
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state.asStateFlow()
+
+    /** Таймер сна — гасит воспроизведение по времени или в конце текущего трека. */
+    data class SleepState(
+        val active: Boolean = false,
+        /** true — «до конца трека»; false — по таймеру. */
+        val endOfTrack: Boolean = false,
+        /** Момент срабатывания в шкале elapsedRealtime(); 0 для endOfTrack. */
+        val fireAtElapsed: Long = 0L,
+        /** Полный выбранный интервал, мс (для прогресса/подписи). */
+        val totalMs: Long = 0L,
+    )
+    private val _sleep = MutableStateFlow(SleepState())
+    val sleep: StateFlow<SleepState> = _sleep.asStateFlow()
+    private var sleepJob: Job? = null
 
     private val prefs = appContext.getSharedPreferences("playback_state", android.content.Context.MODE_PRIVATE)
     /** Отдаёт [LibraryEntity] по id — ставится из [net.ripster.mobile.RipsterApp] после сборки БД. */
@@ -798,6 +815,69 @@ class PlayerController(context: Context) {
         runCatching { controller?.clearMediaItems() }
         queueEntities = emptyList()
         pushState()
+    }
+
+    // ── Таймер сна ────────────────────────────────────────────────────────
+    /** Заснуть через [minutes] минут: по истечении — мягкий фейд и пауза. */
+    fun startSleepTimer(minutes: Int) {
+        val ms = minutes.toLong() * 60_000L
+        if (ms <= 0L) { cancelSleepTimer(); return }
+        sleepJob?.cancel()
+        val fireAt = SystemClock.elapsedRealtime() + ms
+        _sleep.value = SleepState(active = true, endOfTrack = false, fireAtElapsed = fireAt, totalMs = ms)
+        sleepJob = scope.launch {
+            while (true) {
+                val left = fireAt - SystemClock.elapsedRealtime()
+                if (left <= 0L) break
+                delay(left.coerceAtMost(1_000L))
+            }
+            fadeAndPause()
+            _sleep.value = SleepState()
+        }
+    }
+
+    /** Заснуть в конце текущего трека (следующий уже не начнётся играть). */
+    fun startSleepEndOfTrack() {
+        sleepJob?.cancel()
+        _sleep.value = SleepState(active = true, endOfTrack = true)
+        val armedIndex = _state.value.queueIndex
+        val armedTitle = _state.value.title
+        sleepJob = scope.launch {
+            // Ждём первого состояния, где текущий трек уже сменился (пошёл
+            // следующий) или воспроизведение доиграло до конца.
+            state.first { s ->
+                s.queueIndex != armedIndex ||
+                    (s.title.isNotEmpty() && s.title != armedTitle) ||
+                    (!s.isPlaying && s.hasItem && s.durationMs > 0 &&
+                        s.positionMs >= s.durationMs - 1_500)
+            }
+            fadeAndPause()
+            _sleep.value = SleepState()
+        }
+    }
+
+    fun cancelSleepTimer() {
+        sleepJob?.cancel(); sleepJob = null
+        if (_sleep.value.active) _sleep.value = SleepState()
+    }
+
+    /** Мягкий фейд (только нативный движок умеет громкость) и пауза; усиление
+     *  возвращаем в 1, чтобы следующий Resume играл на полной громкости. */
+    private suspend fun fadeAndPause() {
+        if (nativeActive && NativeAudioEngine.isPlaying()) {
+            val steps = 12
+            for (i in steps - 1 downTo 0) {
+                NativeAudioEngine.setGain(i.toFloat() / steps)
+                delay(120)
+            }
+            NativeAudioEngine.pause()
+            NativeAudioEngine.setGain(1f)
+            pushNativeState()
+        } else if (nativeActive) {
+            if (NativeAudioEngine.isPlaying()) { NativeAudioEngine.pause(); pushNativeState() }
+        } else {
+            controller?.let { if (it.isPlaying) it.pause() }
+        }
     }
 
     fun seekTo(ms: Long) {
