@@ -1239,6 +1239,7 @@ private val STRINGS: Map<String, Row> = mapOf(
     "dl.with_error" to row("с ошибкой", "failed", "विफल", "失敗", "失败"),
     "dl.done_n" to row("готово", "done", "पूर्ण", "完了", "完成"),
     "np.dl_album" to row("Скачать альбом", "Download album", "एल्बम डाउनलोड करें", "アルバムを保存", "下载专辑"),
+    "np.dl_short" to row("Скачать", "Download", "डाउनलोड", "保存", "下载"),
     "probe.container" to row("Контейнер", "Container", "कंटेनर", "コンテナ", "容器"),
     "probe.codec" to row("Кодек", "Codec", "कोडेक", "コーデック", "编解码"),
     "probe.mime" to row("MIME", "MIME", "MIME", "MIME", "MIME"),

@@ -156,12 +156,13 @@ fun NowPlayingScreen(
             ),
         )
 
-        val coverSide = (maxHeight * 0.36f).coerceAtMost(320.dp)
+        val coverSide = (maxHeight * 0.30f).coerceAtMost(280.dp)
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 26.dp),
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                .padding(horizontal = 26.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Spacer(Modifier.height(34.dp))
+            Spacer(Modifier.height(20.dp))
             // Обложка с мягким цветным свечением снизу.
             Box(contentAlignment = Alignment.Center) {
                 Canvas(Modifier.size(coverSide + 60.dp)) {
@@ -218,15 +219,15 @@ fun NowPlayingScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Canvas(Modifier.size(13.dp)) { outGlyph(route.kind, Color.White.copy(alpha = 0.42f)) }
+                    Canvas(Modifier.size(13.dp)) { outGlyph(route.kind, Color.White.copy(alpha = 0.6f)) }
                     BasicText(
                         route.label, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        style = TextStyle(color = Color.White.copy(alpha = 0.42f), fontSize = 11.sp),
+                        style = TextStyle(color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp),
                     )
                 }
             }
 
-            Spacer(Modifier.height(26.dp))
+            Spacer(Modifier.height(20.dp))
             val wf = peaks
             if (wf != null && state.durationMs > 0) {
                 WaveformSeek(
@@ -244,7 +245,7 @@ fun NowPlayingScreen(
                 )
             }
 
-            Spacer(Modifier.height(22.dp))
+            Spacer(Modifier.height(18.dp))
             // Транспорт: шафл · prev · [Play] · next · повтор
             Row(
                 Modifier.fillMaxWidth(),
@@ -258,20 +259,20 @@ fun NowPlayingScreen(
                 ToggleGlyph(active = state.repeat, onClick = onToggleRepeat, accent = c.accent_text) { drawRepeatGlyph(it) }
             }
 
-            Spacer(Modifier.height(24.dp))
-            // Ряд действий (как в других темах) + компактная «Скачать».
+            Spacer(Modifier.height(18.dp))
+            // Ряд действий: ширина раздаётся поровну (все влезают, без скролла).
             Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
                 verticalAlignment = Alignment.Top,
             ) {
-                StudioAction(tr("ref.tracklist", lang), onClick = { sheet = 1 }) { listGlyph(it) }
-                StudioAction(tr("ref.lyrics", lang), onClick = { sheet = 2 }) { lyricsGlyph(it) }
-                StudioAction(tr("ref.spectrum", lang), onClick = { sheet = 3 }) { barsGlyph(it) }
-                StudioAction(tr("ref.equalizer", lang), onClick = { sheet = 4 }) { eqGlyph(it) }
-                StudioAction(sleepLabel, onClick = { sheet = 7 }, active = sleep.active) { moonGlyph(it) }
-                StudioAction(tr("ref.cast", lang), onClick = { sheet = 6 }) { castGlyph(it) }
-                StudioAction(tr("np.dl_album", lang), onClick = onDownloadAlbum) { dlGlyph(it) }
+                StudioAction(tr("ref.tracklist", lang), onClick = { sheet = 1 }, modifier = Modifier.weight(1f)) { listGlyph(it) }
+                StudioAction(tr("ref.lyrics", lang), onClick = { sheet = 2 }, modifier = Modifier.weight(1f)) { lyricsGlyph(it) }
+                StudioAction(tr("ref.spectrum", lang), onClick = { sheet = 3 }, modifier = Modifier.weight(1f)) { barsGlyph(it) }
+                StudioAction(tr("ref.equalizer", lang), onClick = { sheet = 4 }, modifier = Modifier.weight(1f)) { eqGlyph(it) }
+                StudioAction(sleepLabel, onClick = { sheet = 7 }, active = sleep.active, modifier = Modifier.weight(1f)) { moonGlyph(it) }
+                StudioAction(tr("ref.cast", lang), onClick = { sheet = 6 }, modifier = Modifier.weight(1f)) { castGlyph(it) }
+                StudioAction(tr("np.dl_short", lang), onClick = onDownloadAlbum, modifier = Modifier.weight(1f)) { dlGlyph(it) }
             }
             Spacer(Modifier.height(30.dp))
         }
@@ -372,24 +373,28 @@ private fun AccentPlay(isPlaying: Boolean, loading: Boolean, accent: Color, onCl
     }
 }
 
-/** Компактная кнопка действия (иконка + мелкая подпись). */
+/** Компактная кнопка действия (иконка + мелкая подпись). Ширину даёт родитель
+ *  (weight) — плитка центрируется, все кнопки ряда влезают без скролла. */
 @Composable
-private fun StudioAction(label: String, onClick: () -> Unit, active: Boolean = false, draw: DrawScope.(Color) -> Unit) {
+private fun StudioAction(label: String, onClick: () -> Unit, active: Boolean = false, modifier: Modifier = Modifier, draw: DrawScope.(Color) -> Unit) {
     val accent = Color(0xFFFF6B8B)
+    // Контраст поднят: плитка и подпись раньше тонули в near-black (жалоба
+    // «сливаются, нечитаемо»). Фон/рамка/глиф/подпись стали заметно светлее.
     Column(
-        Modifier.width(52.dp), horizontalAlignment = Alignment.CenterHorizontally,
+        modifier, horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         Box(
-            Modifier.size(44.dp).clip(RoundedCornerShape(13.dp))
-                .background(if (active) accent.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.07f))
-                .border(1.dp, if (active) accent.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.12f), RoundedCornerShape(13.dp))
+            Modifier.size(42.dp).clip(RoundedCornerShape(13.dp))
+                .background(if (active) accent.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.11f))
+                .border(1.dp, if (active) accent.copy(alpha = 0.6f) else Color.White.copy(alpha = 0.22f), RoundedCornerShape(13.dp))
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick),
             contentAlignment = Alignment.Center,
-        ) { Canvas(Modifier.size(19.dp)) { draw(if (active) accent else Color.White.copy(alpha = 0.82f)) } }
+        ) { Canvas(Modifier.size(19.dp)) { draw(if (active) accent else Color.White.copy(alpha = 0.95f)) } }
         BasicText(
             label, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            style = TextStyle(color = if (active) accent.copy(alpha = 0.95f) else Color.White.copy(alpha = 0.5f), fontSize = 9.5.sp, textAlign = TextAlign.Center),
+            modifier = Modifier.fillMaxWidth(),
+            style = TextStyle(color = if (active) accent else Color.White.copy(alpha = 0.72f), fontSize = 9.sp, textAlign = TextAlign.Center),
         )
     }
 }
