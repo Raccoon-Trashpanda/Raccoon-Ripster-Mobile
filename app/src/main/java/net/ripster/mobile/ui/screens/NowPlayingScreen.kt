@@ -26,7 +26,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.derivedStateOf
 import net.ripster.mobile.ui.components.WaveformSeek
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -138,7 +137,7 @@ fun NowPlayingScreen(
     // Волновой сик-бар: честные пики трека. Декод локального файла на IO + кэш;
     // нет пути/стрим/не вышло → null → откат на обычную полосу.
     val ctx = LocalContext.current
-    val currentPath by remember { derivedStateOf { app.player.state.value.currentPath } }
+    val currentPath = app.player.state.collectAsState().value.currentPath
     val peaks by androidx.compose.runtime.produceState<FloatArray?>(null, currentPath) {
         value = net.ripster.mobile.core.audio.Waveform.peaks(ctx, currentPath)
     }

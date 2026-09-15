@@ -133,6 +133,11 @@ fun ReferencePlayerScreen(
     val app = RipsterApp.from(LocalContext.current)
     val settings by app.settings.state.collectAsState()
     val pbState by app.player.state.collectAsState()
+    // Честная волна для сик-бара (декод локального файла, кэш); нет/стрим → полоса.
+    val wfCtx = LocalContext.current
+    val wfPeaks by androidx.compose.runtime.produceState<FloatArray?>(null, pbState.currentPath) {
+        value = net.ripster.mobile.core.audio.Waveform.peaks(wfCtx, pbState.currentPath)
+    }
 
     // 0 — нет, 1 — трек-лист, 2 — текст, 3 — спектр, 4 — эквалайзер, 5 — инфо
     var sheet by remember { mutableStateOf(0) }
@@ -285,20 +290,34 @@ fun ReferencePlayerScreen(
 
             Spacer(Modifier.height(10.dp))
 
-            // ── полоса перемотки (общий SeekStrip: толщина 6/14dp, ручка,
-            //     реальное ведение пальцем, строка времени с целью и дельтой) ──
-            SeekStrip(
-                positionMs = state.positionMs,
-                durationMs = state.durationMs,
-                onSeek = onSeek,
-                modifier = Modifier.fillMaxWidth(),
-                bufferedMs = state.bufferedMs.coerceAtLeast(state.positionMs),
-                state = if (state.isPlaying) SeekPlaybackState.Playing else SeekPlaybackState.Paused,
-                tint = coverAvg?.let {
-                    net.ripster.mobile.ui.theme.clampCoverTint(it, c.surface_canvas)
-                } ?: c.accent_text,
-                surfaceBehind = c.surface_canvas,
-            )
+            // ── полоса перемотки ──
+            // Есть честные пики локального трека → волновой бар; иначе общий
+            // SeekStrip (толщина 6/14dp, ручка, ведение пальцем, строка времени).
+            val wfTint = coverAvg?.let {
+                net.ripster.mobile.ui.theme.clampCoverTint(it, c.surface_canvas)
+            } ?: c.accent_text
+            val wf = wfPeaks
+            if (wf != null && state.durationMs > 0) {
+                net.ripster.mobile.ui.components.WaveformSeek(
+                    peaks = wf,
+                    positionMs = state.positionMs,
+                    durationMs = state.durationMs,
+                    onSeek = onSeek,
+                    tint = wfTint,
+                    modifier = Modifier.fillMaxWidth().height(44.dp),
+                )
+            } else {
+                SeekStrip(
+                    positionMs = state.positionMs,
+                    durationMs = state.durationMs,
+                    onSeek = onSeek,
+                    modifier = Modifier.fillMaxWidth(),
+                    bufferedMs = state.bufferedMs.coerceAtLeast(state.positionMs),
+                    state = if (state.isPlaying) SeekPlaybackState.Playing else SeekPlaybackState.Paused,
+                    tint = wfTint,
+                    surfaceBehind = c.surface_canvas,
+                )
+            }
 
             Spacer(Modifier.height(10.dp))
 

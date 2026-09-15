@@ -92,6 +92,12 @@ fun ImmersivePlayerScreen(
             "${left / 60000}:${((left / 1000) % 60).toString().padStart(2, '0')}"
         }
     }
+    // Честная волна для сик-бара (декод локального файла, кэш); нет/стрим → линия.
+    val wfCtx = LocalContext.current
+    val currentPath = app.player.state.collectAsState().value.currentPath
+    val wfPeaks by androidx.compose.runtime.produceState<FloatArray?>(null, currentPath) {
+        value = net.ripster.mobile.core.audio.Waveform.peaks(wfCtx, currentPath)
+    }
 
     Box(
         Modifier.fillMaxSize().background(Color(0xFF07070A))
@@ -193,23 +199,37 @@ fun ImmersivePlayerScreen(
 
             Spacer(Modifier.height(16.dp))
 
-            // тонкая полоса позиции, тап по ней = перемотка
-            val frac = if (state.durationMs > 0)
-                (state.positionMs.toFloat() / state.durationMs).coerceIn(0f, 1f) else 0f
-            Canvas(
-                Modifier.fillMaxWidth().height(18.dp).pointerInput(state.durationMs) {
-                    detectHorizontalDragGestures { change, _ ->
-                        if (state.durationMs > 0)
-                            onSeek((change.position.x / size.width * state.durationMs).toLong().coerceIn(0, state.durationMs))
-                    }
-                },
-            ) {
-                val y = size.height / 2
-                drawLine(Color.White.copy(alpha = 0.22f), androidx.compose.ui.geometry.Offset(0f, y),
-                    androidx.compose.ui.geometry.Offset(size.width, y), 3f, StrokeCap.Round)
-                drawLine(Color.White, androidx.compose.ui.geometry.Offset(0f, y),
-                    androidx.compose.ui.geometry.Offset(size.width * frac, y), 3f, StrokeCap.Round)
-                drawCircle(Color.White, 5f, androidx.compose.ui.geometry.Offset(size.width * frac, y))
+            // Полоса позиции. Есть честные пики локального трека → волновой бар
+            // (белым, читаемо на любой обложке); иначе тонкая линия.
+            val wf = wfPeaks
+            if (wf != null && state.durationMs > 0) {
+                net.ripster.mobile.ui.components.WaveformSeek(
+                    peaks = wf,
+                    positionMs = state.positionMs,
+                    durationMs = state.durationMs,
+                    onSeek = onSeek,
+                    tint = Color.White,
+                    idle = Color.White.copy(alpha = 0.28f),
+                    modifier = Modifier.fillMaxWidth().height(40.dp),
+                )
+            } else {
+                val frac = if (state.durationMs > 0)
+                    (state.positionMs.toFloat() / state.durationMs).coerceIn(0f, 1f) else 0f
+                Canvas(
+                    Modifier.fillMaxWidth().height(18.dp).pointerInput(state.durationMs) {
+                        detectHorizontalDragGestures { change, _ ->
+                            if (state.durationMs > 0)
+                                onSeek((change.position.x / size.width * state.durationMs).toLong().coerceIn(0, state.durationMs))
+                        }
+                    },
+                ) {
+                    val y = size.height / 2
+                    drawLine(Color.White.copy(alpha = 0.22f), androidx.compose.ui.geometry.Offset(0f, y),
+                        androidx.compose.ui.geometry.Offset(size.width, y), 3f, StrokeCap.Round)
+                    drawLine(Color.White, androidx.compose.ui.geometry.Offset(0f, y),
+                        androidx.compose.ui.geometry.Offset(size.width * frac, y), 3f, StrokeCap.Round)
+                    drawCircle(Color.White, 5f, androidx.compose.ui.geometry.Offset(size.width * frac, y))
+                }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 BasicText(fmtT(state.positionMs), style = TextStyle(color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp))
