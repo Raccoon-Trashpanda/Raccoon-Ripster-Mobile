@@ -1049,6 +1049,7 @@ private val STRINGS: Map<String, Row> = mapOf(
     "out.wired" to row("Наушники", "Headphones", "हेडफ़ोन", "ヘッドフォン", "耳机"),
     "out.usb" to row("USB-звук", "USB audio", "USB ऑडियो", "USBオーディオ", "USB 音频"),
     "out.bt" to row("Bluetooth", "Bluetooth", "ब्लूटूथ", "Bluetooth", "蓝牙"),
+    "pass.stream" to row("поток", "stream", "स्ट्रीम", "ストリーム", "流"),
     "ref.tracklist" to row("Трек-лист", "Tracklist", "ट्रैकलिस्ट", "トラックリスト", "曲目"),
     "ref.lyrics" to row("Текст", "Lyrics", "बोल", "歌詞", "歌词"),
     "ref.download" to row("Скачать", "Download", "डाउनलोड", "ダウンロード", "下载"),

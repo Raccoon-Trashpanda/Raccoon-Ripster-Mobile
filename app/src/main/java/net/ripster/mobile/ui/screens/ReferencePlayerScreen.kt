@@ -799,6 +799,24 @@ internal fun SpectrumPanel(
 }
 
 // ── «всё про поток» — инспектор: метаданные + спектр + вердикт ──
+/** Локальный файл для измерения спектра: сам локальный трек ИЛИ скачанная копия
+ *  играющего потока (владелец 15.09.2026: «если трек качается — он всё равно в
+ *  кэше, там и мерим»). Возвращает (путь, расширение); null — копии нет, значит
+ *  надо тянуть сам поток во временный файл (Deezer/Tidal там расшифровываются). */
+internal suspend fun resolveLocalMeasure(
+    app: RipsterApp, pb: net.ripster.mobile.player.PlayerController.State,
+): Pair<String?, String?> {
+    val p = pb.currentPath ?: return null to null
+    fun extOf(s: String) = s.substringAfterLast('.', "").lowercase().take(5)
+    if (!p.startsWith("http", ignoreCase = true)) return p to extOf(p)
+    val local = runCatching { app.db.library().localCopy(pb.title.trim(), pb.artist.trim()) }.getOrNull()
+    val lp = local?.filePath
+    if (lp != null && (lp.startsWith("content://") || runCatching { java.io.File(lp).exists() }.getOrDefault(false))) {
+        return lp to extOf(lp)
+    }
+    return null to null
+}
+
 @Composable
 internal fun StreamInfoPanel(
     app: RipsterApp,
@@ -808,19 +826,35 @@ internal fun StreamInfoPanel(
     val ctx = LocalContext.current
     val pb by app.player.state.collectAsState()
     val path = pb.currentPath
-    val ext = path?.substringAfterLast('.', "")?.lowercase()?.take(5)
 
+    // Источник для измерения: скачанная копия важнее недекодируемого потока.
+    var measurePath by remember(path) { mutableStateOf<String?>(null) }
+    var measureLocal by remember(path) { mutableStateOf(false) }
     val info by produceState<net.ripster.mobile.core.audio.StreamInfo?>(initialValue = null, path) {
-        value = if (path == null) null else runCatching { net.ripster.mobile.core.audio.StreamProbe.probe(ctx, path) }.getOrNull()
+        val (src, _) = resolveLocalMeasure(app, pb)
+        value = if (src == null) null else runCatching { net.ripster.mobile.core.audio.StreamProbe.probe(ctx, src) }.getOrNull()
     }
     var specPhase by remember(path) { mutableStateOf(0) }
     var spec by remember(path) { mutableStateOf<net.ripster.mobile.core.audio.Spectrogram.Result?>(null) }
     LaunchedEffect(path) {
-        specPhase = 0; spec = null
+        specPhase = 0; spec = null; measurePath = null; measureLocal = false
         if (path == null) { specPhase = 2; return@LaunchedEffect }
+        // 1) Локальная копия (сам файл или скачанное) — мерим её.
+        val (localSrc, localExt) = resolveLocalMeasure(app, pb)
+        var src = localSrc; var sext = localExt; var temp: java.io.File? = null
+        // 2) Копии нет и это поток — тянем начало во временный (Deezer/Tidal
+        //    там расшифровываются системным путём), как делает панель спектра.
+        if (src == null && path.startsWith("http", ignoreCase = true)) {
+            temp = runCatching { net.ripster.mobile.core.audio.SpectrumSource.fetchPlayingToTemp(ctx, path) }.getOrNull()
+            src = temp?.absolutePath
+            sext = src?.substringAfterLast('.', "")?.lowercase()?.take(5)
+        }
+        measurePath = localSrc; measureLocal = localSrc != null
+        if (src == null) { specPhase = 2; return@LaunchedEffect }
         val r = runCatching {
-            net.ripster.mobile.core.audio.Spectrogram.analyze(ctx, path, net.ripster.mobile.core.audio.Spectrogram.Style.RIPSTER, heightPx = 360, containerExt = ext)
+            net.ripster.mobile.core.audio.Spectrogram.analyze(ctx, src, net.ripster.mobile.core.audio.Spectrogram.Style.RIPSTER, heightPx = 360, containerExt = sext)
         }.getOrNull()
+        runCatching { temp?.delete() }
         spec = r; specPhase = if (r != null) 1 else 2
     }
 
@@ -947,7 +981,17 @@ internal fun StreamInfoPanel(
             }
         }
         Spacer(Modifier.height(14.dp))
-        BasicText(path, style = TextStyle(color = c.text_tertiary, fontSize = 10.sp, lineHeight = 14.sp))
+        // Источник — без сырой подписанной ссылки (в ней токен/hmac/user_id;
+        // светить её в UI нельзя). Локальный файл → имя; поток → только хост.
+        val srcLabel = when {
+            measureLocal && measurePath != null ->
+                measurePath!!.substringAfterLast('/').substringBefore('?')
+            path.startsWith("http", ignoreCase = true) ->
+                runCatching { android.net.Uri.parse(path).host }.getOrNull()
+                    ?.let { "${tr("pass.stream", lang)} · $it" } ?: tr("pass.stream", lang)
+            else -> path.substringAfterLast('/')
+        }
+        BasicText(srcLabel, style = TextStyle(color = c.text_tertiary, fontSize = 10.sp, lineHeight = 14.sp))
         Spacer(Modifier.height(24.dp))
     }
 }

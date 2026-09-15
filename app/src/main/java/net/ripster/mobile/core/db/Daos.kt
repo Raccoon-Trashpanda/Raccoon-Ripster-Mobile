@@ -92,6 +92,16 @@ interface LibraryDao {
     )
     fun search(q: String): Flow<List<LibraryEntity>>
 
+    /** Скачанная копия трека по названию (+ артисту, если известен). Нужна
+     *  «Паспорту»/спектру: поток (напр. Deezer) системный декодер не читает, а
+     *  вот локальный файл той же вещи — читает. Совпадение по названию, среди них
+     *  — где артист совпал (иначе первый по свежести). */
+    @Query(
+        "SELECT * FROM library WHERE title = :title AND (:artist = '' OR artist = :artist) " +
+            "ORDER BY addedAt DESC LIMIT 1"
+    )
+    suspend fun localCopy(title: String, artist: String): LibraryEntity?
+
     /** Пути всего, что уже заведено. Импорт папки сверяется с этим списком,
      *  чтобы повторный проход не плодил дубли и не тратил время на разбор
      *  файлов, которые уже разобраны. */
