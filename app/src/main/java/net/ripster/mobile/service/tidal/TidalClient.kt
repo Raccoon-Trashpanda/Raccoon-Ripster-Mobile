@@ -314,34 +314,43 @@ class TidalClient(
                 // Просроченная подпись — помеха: берём свежий манифест и
                 // продолжаем с того же места. Отказ ПОСЛЕ обновления — это уже
                 // про доступ, и так и скажем.
+                var initUrl = s.initUrl
                 var urls = s.mediaUrls
                 var refreshed = false
                 var denied = false
                 out.outputStream().buffered().use { sink ->
-                    streamAppend(s.initUrl, sink)
+                    // i==0 — init-сегмент, i>=1 — media[i-1]. Единый проход, чтобы
+                    // 403 на ЛЮБОМ (в т.ч. на init) лечился одинаково.
                     var i = 0
-                    while (i < urls.size) {
+                    while (i <= urls.size) {
                         currentCoroutineContext().ensureActive()
+                        val url = if (i == 0) initUrl else urls[i - 1]
                         try {
-                            streamAppend(urls[i], sink)
+                            streamAppend(url, sink)
                         } catch (d: SegmentDenied) {
                             if (refreshed) { denied = true; break }
                             refreshed = true
+                            // СНАЧАЛА свежий токен именно стрим-клиентом: если
+                            // текущий выписан не стрим-client_id, новый манифест тем
+                            // же токеном снова отобьётся на сегментах (тестер BR,
+                            // 15.09.2026: токен рабочий — сегмент 206 в прямом тесте).
+                            accessToken = ""
+                            runCatching { ensureToken(preferRefresh = true) }
                             // Свежий манифест обязан описывать ТУ ЖЕ нарезку —
-                            // иначе склеим куски от двух разных потоков и
-                            // получим битый файл, который выглядит целым.
+                            // иначе склеим куски от двух разных потоков и получим
+                            // битый файл, который выглядит целым.
                             val fresh = (resolveStream(id, preference, refused) as? TdStream.Dash)
                                 ?.takeIf { it.mediaUrls.size == urls.size }
                             if (fresh == null) { denied = true; break }
-                            urls = fresh.mediaUrls
+                            initUrl = fresh.initUrl; urls = fresh.mediaUrls
                             android.util.Log.i(
                                 "RipsterTidal",
-                                "segment ${'$'}i denied (HTTP ${'$'}{d.code}) — refreshed manifest, continuing",
+                                "segment ${'$'}i denied (HTTP ${'$'}{d.code}) — refreshed token+manifest, continuing",
                             )
-                            continue
+                            continue   // повторяем ТОТ ЖЕ индекс свежим токеном
                         }
                         i++
-                        emit(DownloadEvent.Progress(i.toFloat() / urls.size, i.toLong(), urls.size.toLong()))
+                        if (i > 1) emit(DownloadEvent.Progress((i - 1).toFloat() / urls.size, (i - 1).toLong(), urls.size.toLong()))
                     }
                 }
                 if (denied) {
@@ -403,11 +412,21 @@ class TidalClient(
 
     // --- внутреннее ---
 
-    private suspend fun ensureToken(): Boolean = mutex.withLock {
-        if (accessToken.isNotBlank()) return true
+    /**
+     * [preferRefresh] — не доверять хранимому access-токену, а взять свежий по
+     * refresh стриминговым client_id. Нужно после отказа CDN (403/410): хранимый
+     * токен мог быть выписан НЕ стрим-клиентом (метадата/чужой cid), тогда
+     * playbackinfo проходит, а сегменты отбиваются — и обновление одного лишь
+     * манифеста тем же токеном не помогает (тестер, BR-аккаунт, 15.09.2026:
+     * токен рабочий — сегмент 206 в прямом тесте, ломался именно этот путь).
+     */
+    private suspend fun ensureToken(preferRefresh: Boolean = false): Boolean = mutex.withLock {
+        if (!preferRefresh && accessToken.isNotBlank()) return true
         val s = stored ?: return false
-        // 1) живой access-токен из синка с ПК — если ещё не истёк, берём как есть
-        if (s.accessToken.isNotBlank() && !jwtExpired(s.accessToken)) {
+        // 1) живой access-токен из синка с ПК — если ещё не истёк, берём как есть.
+        //    После 403 (preferRefresh) ЭТОТ путь пропускаем: именно он мог дать
+        //    нестримовый токен.
+        if (!preferRefresh && s.accessToken.isNotBlank() && !jwtExpired(s.accessToken)) {
             accessToken = s.accessToken
             ccFromJwt(s.accessToken)?.let { cc = it }
             return true
