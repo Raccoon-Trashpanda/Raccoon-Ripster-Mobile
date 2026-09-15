@@ -106,8 +106,12 @@ fun ArtistScreen(
                 value = pcPage; return@produceState
             }
         }
-        // 2. НАТИВНО из клиента сервиса — работает БЕЗ ПК: своя дискография
-        //    + секция «С этим артистом» (компиляции/миксы с треком артиста).
+        // 2. НАТИВНО из клиента сервиса — работает БЕЗ ПК. ВАЖНО: у сервиса бывает
+        //    НЕСКОЛЬКО artist_id под одним именем (у Tidal сплошь: напр. Navjaxx —
+        //    три id, полный лишь один), и по id с трека приходит мало. Поэтому
+        //    объединяем дискографию по id С ПОИСКОМ по имени — так добираем всё
+        //    независимо от того, какой id пришёл. Регресс «мало песен» (тестер,
+        //    15.09.2026) был именно от опоры на один id.
         if (!isLabel && artistId.isNotBlank()) {
             val svc = Service.entries.firstOrNull { it.id == service }
             val native = svc?.let { s ->
@@ -115,8 +119,10 @@ fun ArtistScreen(
                     runCatching { ServiceRegistry.get(s)?.getArtist(artistId) }.getOrNull()
                 }
             }
-            if (native != null && native.error == null && native.releases.isNotEmpty()) {
-                value = native; return@produceState
+            val extra = withTimeoutOrNull(15_000) { searchFallback(name) }
+            val merged = mergeArtistPages(native, extra)
+            if (merged != null && merged.releases.isNotEmpty()) {
+                value = merged; return@produceState
             }
         }
         // 2. фолбэк: поиск по имени в «простых» сервисах (для лейбла слабее, но лучше пустоты).
@@ -394,6 +400,41 @@ private suspend fun deezerArtistPic(name: String): String? = runCatching {
             ?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
     }
 }.getOrNull()
+
+/** Объединить дискографию из [native] (артист-эндпоинт по id) и [extra] (поиск по
+ *  имени) в одну, без дублей — по названию альбома. Нужно, потому что у одного
+ *  имени бывает несколько artist_id, и полнота приходит только вместе. Записи
+ *  из native приоритетнее (у них id/обложка/точный тип), поиск добирает недостающее. */
+private fun mergeArtistPages(
+    native: PcBridge.ArtistPage?, extra: PcBridge.ArtistPage?,
+): PcBridge.ArtistPage? {
+    if (native == null && extra == null) return null
+    val base = native ?: extra!!
+    val byTitle = LinkedHashMap<String, PcBridge.ArtistRelease>()
+    fun addAll(rels: List<PcBridge.ArtistRelease>?) {
+        rels?.forEach { r ->
+            val k = r.title.trim().lowercase()
+            if (k.isBlank()) return@forEach
+            val cur = byTitle[k]
+            // Оставляем более «богатую» запись: с id и обложкой.
+            if (cur == null ||
+                (cur.id.isBlank() && r.id.isNotBlank()) ||
+                (cur.coverUrl.isNullOrBlank() && !r.coverUrl.isNullOrBlank())
+            ) byTitle[k] = r
+        }
+    }
+    addAll(native?.releases)      // сначала артист-эндпоинт (приоритет)
+    addAll(extra?.releases)       // затем добор из поиска
+    val ordered = byTitle.values.sortedWith(
+        compareBy({ it.type == "compilation" }, { -(it.year.toIntOrNull() ?: 0) }),
+    )
+    return PcBridge.ArtistPage(
+        name = base.name,
+        pictureUrl = native?.pictureUrl ?: extra?.pictureUrl,
+        releases = ordered,
+        error = null,
+    )
+}
 
 private suspend fun searchFallback(name: String): PcBridge.ArtistPage {
     val clients = listOf(Service.DEEZER, Service.QOBUZ, Service.TIDAL, Service.SOUNDCLOUD)
