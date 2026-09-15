@@ -26,6 +26,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
+import net.ripster.mobile.ui.components.WaveformSeek
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
@@ -133,6 +135,14 @@ fun NowPlayingScreen(
         }
     }
 
+    // Волновой сик-бар: честные пики трека. Декод локального файла на IO + кэш;
+    // нет пути/стрим/не вышло → null → откат на обычную полосу.
+    val ctx = LocalContext.current
+    val currentPath by remember { derivedStateOf { app.player.state.value.currentPath } }
+    val peaks by androidx.compose.runtime.produceState<FloatArray?>(null, currentPath) {
+        value = net.ripster.mobile.core.audio.Waveform.peaks(ctx, currentPath)
+    }
+
     // Палитра краёв обложки → цвет заливки/свечения. Затемняем к near-black.
     val palette = rememberCoverEdgePalette(state.artworkUrl)
     val deep = Color(0xFF07070A)
@@ -218,12 +228,22 @@ fun NowPlayingScreen(
             }
 
             Spacer(Modifier.height(26.dp))
-            SeekStrip(
-                positionMs = state.positionMs, durationMs = state.durationMs,
-                onSeek = onSeek, onScrubChange = onScrubPreview,
-                state = if (state.isPlaying) SeekPlaybackState.Playing else SeekPlaybackState.Paused,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            val wf = peaks
+            if (wf != null && state.durationMs > 0) {
+                WaveformSeek(
+                    peaks = wf, positionMs = state.positionMs, durationMs = state.durationMs,
+                    onSeek = onSeek, onScrubChange = onScrubPreview,
+                    tint = c.accent_fill,
+                    modifier = Modifier.fillMaxWidth().height(46.dp),
+                )
+            } else {
+                SeekStrip(
+                    positionMs = state.positionMs, durationMs = state.durationMs,
+                    onSeek = onSeek, onScrubChange = onScrubPreview,
+                    state = if (state.isPlaying) SeekPlaybackState.Playing else SeekPlaybackState.Paused,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
 
             Spacer(Modifier.height(22.dp))
             // Транспорт: шафл · prev · [Play] · next · повтор
