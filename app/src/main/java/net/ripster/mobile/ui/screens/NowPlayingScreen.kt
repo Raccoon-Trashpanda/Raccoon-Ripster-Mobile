@@ -149,16 +149,10 @@ fun NowPlayingScreen(
     val glow = palette.getOrElse(1) { c.accent_fill }
 
     BoxWithConstraints(modifier.fillMaxSize().background(deep)) {
-        // ── амбиент: вертикальная заливка цветами обложки → тьма ──
-        Box(
-            Modifier.fillMaxSize().background(
-                Brush.verticalGradient(0f to topTint, 0.55f to lerp(topTint, deep, 0.7f), 1f to deep),
-            ),
-        )
-        // Дизер: тонкое зерно поверх градиента — ломает 8-битные полосы (бандинг)
-        // на тёмном переходе, чтобы не было видно «ступенек» цвета.
-        val dither = net.ripster.mobile.ui.components.rememberDitherBrush()
-        Canvas(Modifier.fillMaxSize()) { drawRect(dither, alpha = 0.035f) }
+        // ── амбиент вынесен в отдельный композабл со стабильными Color-входами:
+        //    Compose ПРОПУСКАЕТ его на тик позиции (5×/сек), поэтому тяжёлый
+        //    полноэкранный градиент+дизер не перерисовываются зря — плавнее. ──
+        StudioAmbient(topTint = topTint, deep = deep)
 
         val coverSide = (maxHeight * 0.30f).coerceAtMost(280.dp)
         Column(
@@ -375,6 +369,20 @@ private fun AccentPlay(isPlaying: Boolean, loading: Boolean, accent: Color, onCl
             }
         }
     }
+}
+
+/** Полноэкранный амбиент Studio: палитровый градиент + дизер. Вынесен отдельно
+ *  со стабильными Color-входами — Compose пропускает его на тик позиции, и
+ *  тяжёлый фон не перерисовывается зря (плавнее свёртка/развёртка). */
+@Composable
+private fun StudioAmbient(topTint: Color, deep: Color) {
+    val dither = net.ripster.mobile.ui.components.rememberDitherBrush()
+    Box(
+        Modifier.fillMaxSize().background(
+            Brush.verticalGradient(0f to topTint, 0.55f to lerp(topTint, deep, 0.7f), 1f to deep),
+        ),
+    )
+    Canvas(Modifier.fillMaxSize()) { drawRect(dither, alpha = 0.035f) }
 }
 
 /** Компактная кнопка действия (иконка + мелкая подпись). Ширину даёт родитель
