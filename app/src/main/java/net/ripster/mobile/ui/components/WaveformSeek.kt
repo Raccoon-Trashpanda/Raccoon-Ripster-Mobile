@@ -1,10 +1,15 @@
 package net.ripster.mobile.ui.components
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -43,6 +48,17 @@ fun WaveformSeek(
     var scrub by remember { mutableFloatStateOf(-1f) }
     val headFraction = if (scrub >= 0f) scrub else realFraction
 
+    // Появление после сканирования: столбики распускаются слева-направо из тонкой
+    // линии в полную высоту + плавный fade. Не сбивает с толку — читается как
+    // «волна проявилась», а не мигание.
+    var shown by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { shown = true }
+    val reveal by animateFloatAsState(
+        targetValue = if (shown) 1f else 0f,
+        animationSpec = tween(durationMillis = 620, easing = LinearEasing),
+        label = "wave-reveal",
+    )
+
     fun emitSeek(f: Float) = onSeek((f.coerceIn(0f, 1f) * durationMs).roundToLong())
 
     Canvas(
@@ -73,18 +89,23 @@ fun WaveformSeek(
         val minH = h * 0.06f
         val cr = CornerRadius(barW / 2f, barW / 2f)
         val headX = headFraction * w
+        // Сдвиг фазы по бару даёт «пробегающий» расцвет слева-направо.
+        val stagger = 0.35f
         for (i in 0 until n) {
+            // Локальное появление этого столбика (0..1) с учётом бегущей фазы.
+            val local = (((reveal - (i.toFloat() / n) * stagger) / (1f - stagger))).coerceIn(0f, 1f)
+            if (local <= 0f) continue
             val peak = peaks[i].coerceIn(0f, 1f)
-            val barH = (minH + peak * (h - minH)).coerceAtMost(h)
+            val barH = (minH + peak * (h - minH) * local).coerceAtMost(h)
             val x = i * slot + gap
             val y = (h - barH) / 2f
             val centerX = x + barW / 2f
             val color = if (centerX <= headX) tint else idle
-            drawRoundRect(color, topLeft = Offset(x, y), size = Size(barW, barH), cornerRadius = cr)
+            drawRoundRect(color.copy(alpha = color.alpha * local), topLeft = Offset(x, y), size = Size(barW, barH), cornerRadius = cr)
         }
-        // Тонкая головка на текущей позиции.
+        // Тонкая головка на текущей позиции (появляется вместе с волной).
         drawRoundRect(
-            Color.White,
+            Color.White.copy(alpha = reveal),
             topLeft = Offset((headX - 1.2.dp.toPx()).coerceIn(0f, w - 2.4.dp.toPx()), 0f),
             size = Size(2.4.dp.toPx(), h),
             cornerRadius = CornerRadius(1.2.dp.toPx(), 1.2.dp.toPx()),

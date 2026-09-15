@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import net.ripster.mobile.ui.theme.RipsterTheme
@@ -46,13 +47,23 @@ fun Modifier.glassBar(top: Boolean = true, alpha: Float = GLASS_ALPHA): Modifier
         if (top) listOf(base.copy(alpha = alpha), fadeTo)
         else listOf(fadeTo, base.copy(alpha = alpha)),
     )
-    val hair = c.border_subtle.copy(alpha = 0.75f)
+    // Была жёсткая волосяная линия (alpha 0.75) — она резала экран пополам на
+    // стыке шапки с контентом (жалоба владельца: «нет плавного перехода»). Вместо
+    // одной чёткой линии — мягкая градиентная кромка: узкая полоса тона, гаснущая
+    // в прозрачность у внутреннего края, поэтому шапка «перетекает» в контент.
+    val edge = c.border_subtle.copy(alpha = 0.32f)
+    val edgeH = 6f
     return this
         .background(brush)
         .drawWithContent {
             drawContent()
-            val y = if (top) size.height else 0f
-            drawLine(hair, Offset(0f, y), Offset(size.width, y), strokeWidth = 1f)
+            val edgeBrush = Brush.verticalGradient(
+                if (top) listOf(edge, edge.copy(alpha = 0f)) else listOf(edge.copy(alpha = 0f), edge),
+                startY = if (top) size.height - edgeH else 0f,
+                endY = if (top) size.height else edgeH,
+            )
+            val top0 = if (top) size.height - edgeH else 0f
+            drawRect(edgeBrush, topLeft = Offset(0f, top0), size = Size(size.width, edgeH))
         }
 }
 

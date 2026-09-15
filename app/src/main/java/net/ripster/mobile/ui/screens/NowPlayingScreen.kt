@@ -155,6 +155,10 @@ fun NowPlayingScreen(
                 Brush.verticalGradient(0f to topTint, 0.55f to lerp(topTint, deep, 0.7f), 1f to deep),
             ),
         )
+        // Дизер: тонкое зерно поверх градиента — ломает 8-битные полосы (бандинг)
+        // на тёмном переходе, чтобы не было видно «ступенек» цвета.
+        val dither = net.ripster.mobile.ui.components.rememberDitherBrush()
+        Canvas(Modifier.fillMaxSize()) { drawRect(dither, alpha = 0.035f) }
 
         val coverSide = (maxHeight * 0.30f).coerceAtMost(280.dp)
         Column(
