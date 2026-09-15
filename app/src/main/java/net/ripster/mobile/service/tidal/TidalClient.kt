@@ -364,7 +364,15 @@ class TidalClient(
                     // потому что берёт качество попроще.
                     out.delete()
                     refused += s.quality
+                    // Сначала — тир ниже (может быть тоже DASH). Если DASH-тиры
+                    // кончились — ПОСЛЕДНЯЯ попытка ПРЯМЫМ URL (BTS), тем же, что
+                    // ИГРАЕТ у пользователя: LOSSLESS FLAC / HIGH AAC одним файлом.
+                    // Он лежит на ДРУГОМ endpoint CDN и часто проходит там, где
+                    // DASH-сегменты 403 — поэтому «треки играют, но не качаются»
+                    // (тестер 15.09.2026). Так скачивание работает везде, где идёт
+                    // воспроизведение, пусть и лоси-качеством вместо HI-RES.
                     val next = runCatching { resolveStream(id, preference, refused) }.getOrNull()
+                        ?: runCatching { resolveStream(id, listOf("lossless_direct"), refused) }.getOrNull()
                         ?: throw IOException(EngineErrors.TIDAL_SEGMENT_DENIED)
                     emit(DownloadEvent.Log("Tidal: ${'$'}{s.tier.label} refused by CDN, falling back"))
                     attempt = next
