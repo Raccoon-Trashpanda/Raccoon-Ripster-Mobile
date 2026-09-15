@@ -117,6 +117,9 @@ class PlayerController(context: Context) {
     private val prefs = appContext.getSharedPreferences("playback_state", android.content.Context.MODE_PRIVATE)
     /** Отдаёт [LibraryEntity] по id — ставится из [net.ripster.mobile.RipsterApp] после сборки БД. */
     @Volatile private var idsToEntities: (suspend (List<String>) -> List<LibraryEntity>)? = null
+    /** Забыть мёртвый путь (файл пропал) — ставится из RipsterApp (чистит БД). */
+    @Volatile private var deadPathSink: (suspend (String) -> Unit)? = null
+    fun bindDeadPath(sink: suspend (String) -> Unit) { deadPathSink = sink }
 
     private var controller: MediaController? = null
     private var queueEntities: List<LibraryEntity> = emptyList()
@@ -302,6 +305,19 @@ class PlayerController(context: Context) {
             controller = future.get().also { c ->
                 c.addListener(object : Player.Listener {
                     override fun onEvents(player: Player, events: Player.Events) = pushState()
+                    override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                        val ctl = controller ?: return
+                        val uri = ctl.currentMediaItem?.localConfiguration?.uri?.toString()
+                        // Локальный файл, которого больше нет (удалён/перемещён),
+                        // раньше давал невнятную ошибку декодера и вешал очередь.
+                        // Теперь: забываем мёртвую запись и идём к следующему треку.
+                        if (uri != null && !uri.startsWith("http", ignoreCase = true)) {
+                            deadPathSink?.let { sink -> scope.launch { runCatching { sink(uri) } } }
+                            if (ctl.hasNextMediaItem()) { ctl.seekToNextMediaItem(); ctl.prepare(); ctl.play() }
+                            else runCatching { ctl.stop() }
+                        }
+                        pushState()
+                    }
                 })
             }
             maybeRestore()

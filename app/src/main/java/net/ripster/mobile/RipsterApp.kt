@@ -69,6 +69,9 @@ class RipsterApp : Application() {
             val rows = db.library().byIds(ids)
             ids.mapNotNull { id -> rows.firstOrNull { it.id == id } }   // сохранить порядок
         }
+        // Файл пропал (удалён/перемещён) → плеер зовёт это, чтобы вычистить
+        // мёртвую библиотечную запись и не спотыкаться об неё снова.
+        player.bindDeadPath { path -> runCatching { db.library().forgetPath(path) } }
         // История прослушивания — «память» того, что игралось, даже вне библиотеки.
         // Вкус слушателя для станций — те же 200 последних прослушиваний.
         player.bindTaste { db.plays().recent(200).map { it.artist } }
