@@ -120,7 +120,45 @@ object Spectrogram {
 
     private class Decoded(val pcm: FloatArray, val sampleRateHz: Int)
 
+    /** Системный путь + фолбэк на наши нативные декодеры. MediaCodec не знает
+     *  ALAC на многих устройствах/эмуляторе — тогда декодим сами (FLAC/ALAC/WAV/
+     *  WavPack/DSD), чтобы «Паспорт»/спектр строились и для Apple-lossless. */
     private fun decodeMono(context: Context, source: String): Decoded {
+        val viaCodec = runCatching { decodeMonoMediaCodec(context, source) }.getOrNull()
+        if (viaCodec != null && viaCodec.pcm.size >= FFT) return viaCodec
+        decodeMonoNative(context, source)?.let { return it }
+        return viaCodec ?: error("no decoder for $source")
+    }
+
+    /** Коды формата нативного движка: 0 flac,1 wav,2 alac(m4a),3 wavpack,4 dsd. */
+    private fun nativeFmt(source: String): Int? =
+        when (source.substringBefore('?').substringAfterLast('.', "").lowercase()) {
+            "flac" -> 0
+            "wav", "wave" -> 1
+            "m4a", "m4b", "mp4", "alac", "aac" -> 2   // m4a может быть ALAC — пробуем
+            "wv" -> 3
+            "dsf", "dff", "dsd" -> 4
+            else -> null
+        }
+
+    private fun decodeMonoNative(context: Context, source: String): Decoded? {
+        val fmt = nativeFmt(source) ?: return null
+        val pfd: android.os.ParcelFileDescriptor = runCatching {
+            if (source.startsWith("content://"))
+                context.contentResolver.openFileDescriptor(Uri.parse(source), "r")
+            else
+                android.os.ParcelFileDescriptor.open(
+                    java.io.File(source.removePrefix("file://")),
+                    android.os.ParcelFileDescriptor.MODE_READ_ONLY,
+                )
+        }.getOrNull() ?: return null
+        return pfd.use {
+            val res = net.ripster.mobile.player.NativeAudioEngine.decodeMono(it.fd, fmt, 2_600_000) ?: return null
+            Decoded(res.first, res.second)
+        }
+    }
+
+    private fun decodeMonoMediaCodec(context: Context, source: String): Decoded {
         val ex = MediaExtractor()
         if (source.startsWith("content://") || source.startsWith("file://")) {
             ex.setDataSource(context, Uri.parse(source), null)

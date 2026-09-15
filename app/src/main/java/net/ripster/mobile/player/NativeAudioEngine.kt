@@ -126,6 +126,17 @@ object NativeAudioEngine {
     fun isPlaying(): Boolean = available && nIsPlaying()
     fun isEnded(): Boolean = available && nIsEnded()
 
+    /** Декод всего файла (до [cap] кадров) в моно float-PCM нашими нативными
+     *  декодерами — фолбэк для спектра/паспорта, когда системный MediaCodec
+     *  формат не тянет (напр. ALAC). fmt: 0 flac,1 wav,2 alac,3 wavpack,4 dsd.
+     *  Возвращает (моно PCM, sampleRate) или null. */
+    fun decodeMono(fd: Int, fmt: Int, cap: Int): Pair<FloatArray, Int>? {
+        if (!available) return null
+        val rate = IntArray(1)
+        val pcm = runCatching { nDecodeMono(fd, fmt, cap, rate) }.getOrNull() ?: return null
+        return pcm to rate[0].coerceAtLeast(1)
+    }
+
     /** Частота ИСТОЧНИКА текущего трека (для перевода мс↔кадры). */
     private fun currentRate(): Int = nSampleRate().coerceAtLeast(1)
 
@@ -276,4 +287,5 @@ object NativeAudioEngine {
     private external fun nResampled(): Boolean
     private external fun nIsPlaying(): Boolean
     private external fun nIsEnded(): Boolean
+    private external fun nDecodeMono(fd: Int, fmt: Int, capFrames: Int, rateOut: IntArray): FloatArray?
 }

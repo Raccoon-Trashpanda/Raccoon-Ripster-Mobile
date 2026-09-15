@@ -876,4 +876,39 @@ JNIEXPORT jboolean JNICALL Java_net_ripster_mobile_player_NativeAudioEngine_nRes
 JNIEXPORT jboolean JNICALL Java_net_ripster_mobile_player_NativeAudioEngine_nIsPlaying(JNIEnv*, jobject){ return g_engine.playing() ? JNI_TRUE : JNI_FALSE; }
 JNIEXPORT jboolean JNICALL Java_net_ripster_mobile_player_NativeAudioEngine_nIsEnded(JNIEnv*, jobject)  { return g_engine.ended() ? JNI_TRUE : JNI_FALSE; }
 
+// Декод ВСЕГО файла (до cap кадров) в МОНО float-PCM нашими нативными
+// декодерами (FLAC/WAV/ALAC/WavPack/DSD) — для спектрограммы/паспорта, когда
+// системный MediaCodec формат не тянет (напр. ALAC-эмулятор). fmt: 0 flac,
+// 1 wav, 2 alac(m4a), 3 wavpack, 4 dsd. rateOut[0] ← sampleRate. null при отказе.
+JNIEXPORT jfloatArray JNICALL
+Java_net_ripster_mobile_player_NativeAudioEngine_nDecodeMono(
+        JNIEnv* env, jobject, jint fd, jint fmt, jint capFrames, jintArray rateOut) {
+    Decoder d;
+    if (!d.open((int) fd, (int) fmt)) return nullptr;
+    const int ch = d.channels > 0 ? d.channels : 1;
+    const int64_t cap = capFrames > 0 ? (int64_t) capFrames : (int64_t) 2600000;
+    std::vector<float> mono;
+    mono.reserve((size_t) std::min<int64_t>(cap, 1 << 20));
+    const int64_t CHUNK = 8192;
+    std::vector<float> buf((size_t) CHUNK * ch);
+    while ((int64_t) mono.size() < cap) {
+        int64_t got = d.read(buf.data(), CHUNK);
+        if (got <= 0) break;
+        for (int64_t i = 0; i < got && (int64_t) mono.size() < cap; ++i) {
+            float acc = 0.f;
+            for (int c = 0; c < ch; ++c) acc += buf[(size_t) i * ch + c];
+            mono.push_back(acc / (float) ch);
+        }
+    }
+    if (mono.empty()) return nullptr;
+    if (rateOut && env->GetArrayLength(rateOut) > 0) {
+        jint sr = (jint) d.sampleRate;
+        env->SetIntArrayRegion(rateOut, 0, 1, &sr);
+    }
+    jfloatArray arr = env->NewFloatArray((jsize) mono.size());
+    if (!arr) return nullptr;
+    env->SetFloatArrayRegion(arr, 0, (jsize) mono.size(), mono.data());
+    return arr;
+}
+
 } // extern "C"
