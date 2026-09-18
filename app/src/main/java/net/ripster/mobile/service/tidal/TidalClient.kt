@@ -364,19 +364,30 @@ class TidalClient(
                     // потому что берёт качество попроще.
                     out.delete()
                     refused += s.quality
-                    // Сначала — тир ниже (может быть тоже DASH). Если DASH-тиры
-                    // кончились — ПОСЛЕДНЯЯ попытка ПРЯМЫМ URL (BTS), тем же, что
-                    // ИГРАЕТ у пользователя: LOSSLESS FLAC / HIGH AAC одним файлом.
-                    // Он лежит на ДРУГОМ endpoint CDN и часто проходит там, где
-                    // DASH-сегменты 403 — поэтому «треки играют, но не качаются»
-                    // (тестер 15.09.2026). Так скачивание работает везде, где идёт
-                    // воспроизведение, пусть и лоси-качеством вместо HI-RES.
+                    // Сначала — тир ниже (может быть тоже DASH).
                     val next = runCatching { resolveStream(id, preference, refused) }.getOrNull()
-                        ?: runCatching { resolveStream(id, listOf("lossless_direct"), refused) }.getOrNull()
-                        ?: throw IOException(EngineErrors.TIDAL_SEGMENT_DENIED)
-                    emit(DownloadEvent.Log("Tidal: ${'$'}{s.tier.label} refused by CDN, falling back"))
-                    attempt = next
-                    continue
+                    if (next != null) {
+                        emit(DownloadEvent.Log("Tidal: ${'$'}{s.tier.label} refused by CDN, falling back"))
+                        attempt = next
+                        continue
+                    }
+                    // DASH-тиры кончились. ПОСЛЕДНЯЯ попытка — качаем РОВНО ТЕМ, ЧЕМ
+                    // ИГРАЕТ ПЛЕЕР: streamInfo отдаёт прямой URL, который у
+                    // пользователя стримит трек ЦЕЛИКОМ (тестер 15.09.2026: «играю
+                    // любой трек от начала до конца»). Прямой URL — на другом
+                    // CDN-хосте, что проходит; DASH-сегменты лежат на 403-хосте.
+                    // Значит скачивание обязано работать везде, где идёт стрим.
+                    val si = runCatching { streamInfo(request.track, listOf("lossless_direct")) }.getOrNull()
+                    if (si != null && si.url.isNotBlank()) {
+                        emit(DownloadEvent.Log("Tidal: сегменты 403 — качаю прямым URL (${'$'}{si.quality.label})"))
+                        val df = File(cacheDir, "td_$id.${'$'}{si.quality.container}")
+                        val ok = runCatching {
+                            streamTo(si.url, df) { got, tot -> emit(DownloadEvent.Progress(tot?.let { got.toFloat() / it }, got, tot)) }
+                        }.isSuccess
+                        if (ok) { emit(DownloadEvent.Done(df.absolutePath, si.quality, df.length())); return@flow }
+                        runCatching { df.delete() }
+                    }
+                    throw IOException(EngineErrors.TIDAL_SEGMENT_DENIED)
                 }
                 emit(DownloadEvent.Done(out.absolutePath, s.tier, out.length()))
             }
