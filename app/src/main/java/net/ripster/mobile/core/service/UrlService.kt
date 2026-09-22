@@ -35,6 +35,7 @@ object UrlService {
             "music.yandex." in v -> "yandex"
             "music.amazon." in v -> "amazon"
             "bbc.co.uk" in v -> "bbc"
+            "jiosaavn.com" in v -> "jiosaavn"
             else -> ""
         }
     }

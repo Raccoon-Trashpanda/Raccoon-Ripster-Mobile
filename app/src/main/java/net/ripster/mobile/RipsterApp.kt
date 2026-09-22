@@ -17,6 +17,7 @@ import net.ripster.mobile.player.PlayerController
 import net.ripster.mobile.service.apple.AppleProxyClient
 import net.ripster.mobile.service.bbc.BbcClient
 import net.ripster.mobile.service.deezer.DeezerClient
+import net.ripster.mobile.service.jiosaavn.JioSaavnClient
 import net.ripster.mobile.service.qobuz.QobuzClient
 import net.ripster.mobile.service.soundcloud.SoundCloudClient
 import net.ripster.mobile.service.spotify.SpotifyConvertClient
@@ -212,6 +213,9 @@ class RipsterApp : Application() {
         )
         // BBC — аккаунт не нужен (nondrm-download), но по ссылке, не поиском.
         ServiceRegistry.register(BbcClient(cacheDir = cacheDir))
+        // JioSaavn — без логина и без ПК: поиск и ссылка, звук — локальной
+        // расшифровкой прямой ссылки на незащищённый CDN. Регистрируем всегда.
+        ServiceRegistry.register(JioSaavnClient(cacheDir = cacheDir))
         // Spotify — только конверсия (ISRC → Deezer/Qobuz). Регистрируем всегда;
         // isConfigured() сам вернёт false, если качать некуда.
         ServiceRegistry.register(SpotifyConvertClient())

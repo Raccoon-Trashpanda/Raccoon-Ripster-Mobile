@@ -72,6 +72,8 @@ object SearchRanker {
         Service.APPLE, Service.DEEZER -> 4.0
         Service.YANDEX -> 3.0
         Service.SOUNDCLOUD -> 1.0
+        // JioSaavn — надёжный публичный каталог, но только lossy: как SoundCloud.
+        Service.JIOSAAVN -> 1.0
         Service.SPOTIFY, Service.BBC -> 0.0
     }
 

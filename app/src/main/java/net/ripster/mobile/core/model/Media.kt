@@ -23,7 +23,9 @@ enum class Service(val id: String, val label: String) {
     YANDEX("yandex", "Yandex Music"),
     BEATPORT("beatport", "Beatport"),
     /** Только через сопряжение с ПК (Docker-враппер живёт там). */
-    APPLE("apple", "Apple Music");
+    APPLE("apple", "Apple Music"),
+    /** Без логина и без ПК: телефон сам ищет, расшифровывает ссылку и качает. */
+    JIOSAAVN("jiosaavn", "JioSaavn");
 
     companion object {
         fun byId(id: String): Service? = entries.firstOrNull { it.id == id }

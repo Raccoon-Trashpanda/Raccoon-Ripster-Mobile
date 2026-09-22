@@ -210,6 +210,7 @@ private fun NavRow(label: String, c: RipsterColors, glyph: SettingsGlyph, onClic
 private val ACCOUNT_SERVICES = listOf(
     Service.SOUNDCLOUD, Service.DEEZER, Service.QOBUZ, Service.TIDAL,
     Service.SPOTIFY, Service.YANDEX, Service.BEATPORT, Service.BBC,
+    Service.JIOSAAVN,
 )
 
 /** ISO-3166 alpha-2 → эмодзи-флаг. Пусто/мусор → "" (строку не ломаем). */
@@ -291,7 +292,7 @@ private fun AccountsList(lang: AppLang, c: RipsterColors, open: (Service) -> Uni
             var status by remember(svc) { mutableStateOf<Boolean?>(null) }
             LaunchedEffect(svc) {
                 status = when (svc) {
-                    Service.SOUNDCLOUD, Service.BBC -> null // публичный
+                    Service.SOUNDCLOUD, Service.BBC, Service.JIOSAAVN -> null // публичный
                     else -> runCatching { ServiceRegistry.get(svc)?.isConfigured() == true }.getOrDefault(false)
                 }
             }
@@ -385,6 +386,7 @@ private fun AccountScreen(svc: Service, lang: AppLang, c: RipsterColors) {
             Service.BBC -> "svc.d_bbc"
             Service.APPLE -> "svc.d_apple"
             Service.BEATPORT -> "svc.d_beatport"
+            Service.JIOSAAVN -> "svc.d_jiosaavn"
         }
         BasicText(tr(descKey, lang), style = TextStyle(color = c.text_tertiary, fontSize = 12.sp))
         Box(Modifier.height(16.dp))
