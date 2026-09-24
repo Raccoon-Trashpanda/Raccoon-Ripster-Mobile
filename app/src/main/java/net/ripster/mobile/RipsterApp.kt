@@ -1,5 +1,7 @@
 package net.ripster.mobile
 
+import net.ripster.mobile.core.errors.attempt
+
 import android.app.Application
 import android.content.Context
 import kotlinx.coroutines.MainScope
@@ -56,7 +58,7 @@ class RipsterApp : Application() {
     override fun onCreate() {
         super.onCreate()
         credentials = CredentialStore(this)
-        settings = AppSettings(this)
+        settings = AppSettings.of(this)
         pcBridge = PcBridge(this)
         storage = SafStorage(this)
         player = PlayerController(this)
@@ -72,7 +74,7 @@ class RipsterApp : Application() {
         }
         // Файл пропал (удалён/перемещён) → плеер зовёт это, чтобы вычистить
         // мёртвую библиотечную запись и не спотыкаться об неё снова.
-        player.bindDeadPath { path -> runCatching { db.library().forgetPath(path) } }
+        player.bindDeadPath { path -> attempt { db.library().forgetPath(path) } }
         // История прослушивания — «память» того, что игралось, даже вне библиотеки.
         // Вкус слушателя для станций — те же 200 последних прослушиваний.
         player.bindTaste { db.plays().recent(200).map { it.artist } }
@@ -81,7 +83,7 @@ class RipsterApp : Application() {
         player.bindQuality { settings.state.value.qualityFor(onWifi = true) }
 
         player.bindPlayLog { row ->
-            runCatching { db.plays().add(row) }
+            attempt { db.plays().add(row) }
             // отдать ПК свежую активность, но не чаще раза в минуту
             val now = System.currentTimeMillis()
             if (pcBridge.paired && now - lastActivityPush > 60_000) {
@@ -100,7 +102,7 @@ class RipsterApp : Application() {
         // «качается» после гибели процесса, некому продолжать — см.
         // DownloadQueue.reconcileOnStart.
         MainScope().launch(kotlinx.coroutines.Dispatchers.IO) {
-            runCatching { downloads.reconcileOnStart() }
+            attempt { downloads.reconcileOnStart() }
         }
 
         // Разовая уборка библиотеки при запуске: убрать записи о файлах,
@@ -108,7 +110,7 @@ class RipsterApp : Application() {
         // пока ключом записи был id задачи загрузки; ссылки в кэш ОС чистит
         // сама, и такие строки молча переставали играть.
         MainScope().launch(kotlinx.coroutines.Dispatchers.IO) {
-            runCatching {
+            attempt {
                 val dao = db.library()
                 val rows = dao.observeAll().first()
                 val plan = net.ripster.mobile.core.library.LibraryUpkeep.plan(rows) { path ->
@@ -162,7 +164,7 @@ class RipsterApp : Application() {
         // со следующего запуска, без ручного «Забрать учётки с ПК».
         if (pcBridge.paired) {
             MainScope().launch {
-                runCatching { pcBridge.syncCredentials(credentials) }
+                attempt { pcBridge.syncCredentials(credentials) }
                     .getOrNull()?.getOrNull()?.let { n -> if (n > 0) registerClients() }
                 runCatching { pushActivityToPc() }
             }
@@ -177,7 +179,7 @@ class RipsterApp : Application() {
     fun pushActivityToPc() {
         if (!pcBridge.paired) return
         MainScope().launch {
-            runCatching {
+            attempt {
                 val plays = db.plays().recent(100)
                 val dls = db.downloads().recent(100).filter { it.state == "DONE" || it.state == "FAILED" }
                 fun j(s: String?) = pcBridge.jsonEscape(s ?: "")
@@ -287,7 +289,7 @@ class RipsterApp : Application() {
         // за логин/скрейп внутри своего таймаута (жалоба: «Qobuz не ответил за
         // 15 с» + «software caused connection abort» на холодном старте).
         MainScope().launch(kotlinx.coroutines.Dispatchers.IO) {
-            ServiceRegistry.all().forEach { c -> runCatching { c.warmUp() } }
+            ServiceRegistry.all().forEach { c -> attempt { c.warmUp() } }
         }
     }
 

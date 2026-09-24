@@ -48,7 +48,9 @@ object NameTemplate {
         )
 
         var out = template.ifBlank { DEFAULT }
-        for (k in KEYS) out = out.replace("{$k}", values[k] ?: "")
+        // Значения чистятся ДО подстановки: иначе «AC/DC» добавляет в путь
+        // ступень, а не остаётся именем внутри сегмента.
+        for (k in KEYS) out = out.replace("{$k}", sanitizeSegment(values[k] ?: ""))
         out = stripLeftoverPlaceholders(out)
 
         val rel = out.split('/')
@@ -60,7 +62,11 @@ object NameTemplate {
         // MP4 там, где просили lossless, и файл уезжал в библиотеку с
         // именем `.flac` при содержимом MP4 (поймано 05.09.2026).
         val ext = (actualContainer ?: quality.container).ifBlank { "bin" }
-        return "$rel.$ext"
+        // Пустые метаданные дали бы файл «.flac»: в листере SAF его не видно,
+        // библиотека его молча теряет. Имя — не текст интерфейса, поэтому
+        // запасное остаётся ASCII.
+        val base = rel.ifBlank { "untitled" }
+        return "$base.$ext"
     }
 
     /** Убрать нераскрытые `{...}` без регэкспа. */

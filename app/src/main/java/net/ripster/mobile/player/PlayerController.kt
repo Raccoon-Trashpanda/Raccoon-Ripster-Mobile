@@ -1,5 +1,7 @@
 package net.ripster.mobile.player
 
+import net.ripster.mobile.core.errors.attempt
+
 import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
@@ -11,6 +13,7 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -18,12 +21,14 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import net.ripster.mobile.core.db.LibraryEntity
+import net.ripster.mobile.core.errors.isJobCancellation
 
 /**
  * Приложенческая обёртка над [PlaybackService]: подключает [MediaController],
@@ -81,6 +86,8 @@ class PlayerController(context: Context) {
         val rateNote: NativeAudioEngine.RateNote? = null,
         /** Частота, которую реально дало устройство, Hz. */
         val grantedRateHz: Int = 0,
+        /** Играет ли нативный движок (иначе — ExoPlayer: путь и формат меряются иначе). */
+        val isNative: Boolean = false,
     )
 
     data class QueueEntry(
@@ -96,7 +103,16 @@ class PlayerController(context: Context) {
     )
 
     private val appContext = context.applicationContext
-    private val scope = CoroutineScope(Dispatchers.Main)
+    // SupervisorJob — чтобы одна упавшая команда не выключала всю область: без
+    // неё следующий launch становился тихой пустотой (плеер переставал реагировать
+    // до перезапуска). Обработчик — чтобы непойманное исключение из тикания по
+    // JNI не уносило процесс: на Main его ловит диспетчер по умолчанию.
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Main +
+            CoroutineExceptionHandler { _, e ->
+                android.util.Log.e("RipsterPlayer", "uncaught exception in player scope", e)
+            },
+    )
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state.asStateFlow()
 
@@ -178,6 +194,7 @@ class PlayerController(context: Context) {
     private var streamTemps: List<java.io.File> = emptyList()
     private fun clearStreamTemps() {
         handoffJob?.cancel(); handoffJob = null
+        // catch-all-ok — File.delete — не suspend (имя-омоним); временные файлы чистят и под отменой
         streamTemps.forEach { runCatching { it.delete() } }
         streamTemps = emptyList()
     }
@@ -608,7 +625,7 @@ class PlayerController(context: Context) {
             // конкуренции за сеть. Тянем СНАЧАЛА только текущий трек.
             delay(3_000)
             val curFile = withContext(Dispatchers.IO) {
-                runCatching {
+                attempt {
                     net.ripster.mobile.core.audio.SpectrumSource.fetchPlayingToTemp(
                         appContext, cap[startIndex].url, capBytes = 160L * 1024 * 1024, prefix = "nae",
                     )
@@ -702,9 +719,11 @@ class PlayerController(context: Context) {
                         "queue extend: none of ${fresh.size} candidate tracks returned a stream",
                     )
                 }
-            } catch (_: Throwable) {
+            } catch (t: Throwable) {
                 // Молча: продолжение — удобство, а не обещание. Ошибка здесь не
-                // должна прерывать то, что уже играет.
+                // должна прерывать то, что уже играет. Отмена — не ошибка: её
+                // прятать нельзя, иначе добор не остановится вместе с плеером.
+                if (isJobCancellation(t)) throw t
             } finally {
                 extending = false
             }
@@ -912,7 +931,7 @@ class PlayerController(context: Context) {
     private fun pushNativeState() {
         // Заодно освежаем медиасессию: экран блокировки и Bluetooth читают её,
         // а не наше состояние.
-        runCatching { nativeSession.refresh() }
+        attempt { nativeSession.refresh() }
         val it = nativeCurrent() ?: run { pushState(); return }
         val idx = NativeAudioEngine.index().coerceIn(0, (nativeQueue.size - 1).coerceAtLeast(0))
         logPlayIfNew(it.title, it.artist, it.album.orEmpty(), it.artworkUrl, it)
@@ -927,6 +946,7 @@ class PlayerController(context: Context) {
             format = NativeAudioEngine.formatLine(),
             rateNote = NativeAudioEngine.rateNote().first,
             grantedRateHz = NativeAudioEngine.rateNote().second,
+            isNative = true,
             lossless = it.lossless,
             fakeLossless = it.fakeLossless,
             qualityMismatch = isQualityMismatch(it),
@@ -972,6 +992,34 @@ class PlayerController(context: Context) {
     fun livePositionMs(): Long =
         if (nativeActive) NativeAudioEngine.positionMs().coerceAtLeast(0)
         else controller?.currentPosition?.coerceAtLeast(0) ?: 0L
+
+    /**
+     * Формат декодированного аудио на системном тракте (ExoPlayer) — из Media3
+     * `currentTracks`. Это настоящий рантайм-источник: Media3 говорит частоту и
+     * число каналов того, что подобран и декодируется, а не обещание из тега.
+     *
+     * Разрядности тут обычно нет (сжатый поток её не сообщает) — наружу отдаём 0,
+     * и [net.ripster.mobile.player.SignalPath] покажет Unknown, а не выдуманное OK.
+     * Нативный тракт этим методом не пользуется — у него свои JNI-значения.
+     */
+    fun systemAudio(): SystemAudio {
+        val c = controller ?: return SystemAudio()
+        return runCatching {
+            for (g in c.currentTracks.groups) {
+                if (g.type != androidx.media3.common.C.TRACK_TYPE_AUDIO || !g.isSelected) continue
+                val f = g.getTrackFormat(0)
+                return@runCatching SystemAudio(
+                    rateHz = f.sampleRate.coerceAtLeast(0),
+                    channels = f.channelCount.coerceAtLeast(0),
+                    present = true,
+                )
+            }
+            SystemAudio()
+        }.getOrDefault(SystemAudio())
+    }
+
+    /** Что Media3 сообщает о выбранном аудиопотоке. present=false — дорожки ещё нет. */
+    data class SystemAudio(val rateHz: Int = 0, val channels: Int = 0, val present: Boolean = false)
 
     /** Убрать трек из очереди по позиции. Текущий убрать нельзя — молча игнор. */
     fun removeFromQueue(index: Int) {

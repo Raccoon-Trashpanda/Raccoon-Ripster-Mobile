@@ -1,13 +1,18 @@
 package net.ripster.mobile.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import net.ripster.mobile.ui.premium.PremiumPlayerFx
+import net.ripster.mobile.ui.premium.liquidGlass
 import net.ripster.mobile.ui.theme.RipsterTheme
 
 /**
@@ -37,20 +42,34 @@ const val GLASS_ALPHA = 0.83f
  * именно она и просвечивает.
  *
  * [top] — полоса вверху: градиент гаснет книзу, линия снизу. Иначе наоборот.
+ *
+ * [fx] — план «дорогих визуалов» этого телефона: когда стекло положено, полоса
+ * рисуется тем же органом-стеклом, что и кнопки плеера (блик, кромка, внутренняя
+ * тень, размытие ambilight). Когда стекла нет (режим выкл, телефон младше 12) —
+ * остаётся ровно та заливка с градиентом и кромкой, что рисовалась всегда.
  */
 @Composable
-fun Modifier.glassBar(top: Boolean = true, alpha: Float = GLASS_ALPHA): Modifier {
+fun Modifier.glassBar(
+    top: Boolean = true,
+    alpha: Float = GLASS_ALPHA,
+    fx: PremiumPlayerFx,
+): Modifier {
     val c = RipsterTheme.colors
     val base = c.surface_canvas
+    val shape = RoundedCornerShape(0.dp)
+    // Стекло положено → панель рисуется тем же органом-стеклом, что и кнопки
+    // плеера: тон из-под ambilight, размытие, блик по верхней кромке, светлая
+    // окантовка и внутренняя тень. Никакого навеса: только сама полоса.
+    if (fx.hasGlass) {
+        return this.clip(shape).liquidGlass(fx, shape, base, fallback = Color.Transparent)
+    }
+    // Стекла нет → ровно та заливка, что была до режима: слабая тонировка
+    // холста, градиент к прозрачному у внутреннего края и мягкая кромка.
     val fadeTo = base.copy(alpha = 0f)
     val brush = Brush.verticalGradient(
         if (top) listOf(base.copy(alpha = alpha), fadeTo)
         else listOf(fadeTo, base.copy(alpha = alpha)),
     )
-    // Была жёсткая волосяная линия (alpha 0.75) — она резала экран пополам на
-    // стыке шапки с контентом (жалоба владельца: «нет плавного перехода»). Вместо
-    // одной чёткой линии — мягкая градиентная кромка: узкая полоса тона, гаснущая
-    // в прозрачность у внутреннего края, поэтому шапка «перетекает» в контент.
     val edge = c.border_subtle.copy(alpha = 0.32f)
     val edgeH = 6f
     return this

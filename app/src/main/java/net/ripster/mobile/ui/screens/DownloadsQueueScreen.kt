@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -102,6 +103,18 @@ data class DownloadTask(
     val groupTitle: String? = null,
 )
 
+/** Вторая строка задачи: кто исполнитель и с какого сервиса скачано. */
+internal fun downloadSubtitle(artist: String, serviceLabel: String): String {
+    val a = artist.trim()
+    val s = serviceLabel.trim()
+    // У радио-программ (BBC) исполнитель и есть сервис — дважды одно и то же
+    // в строке читается как базз, а не как данные.
+    if (s.isBlank()) return a
+    if (a.isBlank()) return s
+    if (a.equals(s, ignoreCase = true)) return s
+    return "$a  ·  $s"
+}
+
 @Composable
 fun DownloadsQueueScreen(
     tasks: List<DownloadTask>,
@@ -172,10 +185,23 @@ fun DownloadsQueueScreen(
 
         if (tasks.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                BasicText(
-                    text = tr("dl.empty", lang),
-                    style = TextStyle(color = colors.text_secondary, fontSize = type.body),
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    BasicText(
+                        text = tr("dl.empty", lang),
+                        style = TextStyle(color = colors.text_secondary, fontSize = type.body),
+                    )
+                    // «Очередь пуста» без ответа «а где вообще качать» — это
+                    // тупик, а не пустое состояние (MOBILE_GAP 23.09, §3).
+                    Spacer(Modifier.size(6.dp))
+                    BasicText(
+                        text = tr("dl.empty_hint", lang),
+                        style = TextStyle(
+                            color = colors.text_tertiary, fontSize = type.caption,
+                            textAlign = TextAlign.Center,
+                        ),
+                        modifier = Modifier.padding(horizontal = 32.dp),
+                    )
+                }
             }
         } else {
             // Раскрытые релизы. Помнит экран, а не задача: это состояние
@@ -354,8 +380,7 @@ private fun DownloadTaskRow(
                     // Сервис пишем у КАЖДОЙ строки, а не только у упавшей: в одной
                     // очереди лежат задачи с разных сервисов, и по названию трека
                     // не видно, чей он. Просьба владельца 04.09.2026.
-                    text = if (task.serviceLabel.isBlank()) task.artist
-                    else "${task.artist}  ·  ${task.serviceLabel}",
+                    text = downloadSubtitle(task.artist, task.serviceLabel),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     style = TextStyle(color = colors.text_secondary, fontSize = type.caption),

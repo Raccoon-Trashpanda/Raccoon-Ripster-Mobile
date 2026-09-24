@@ -2,6 +2,8 @@
 
 package net.ripster.mobile.ui.screens
 
+import net.ripster.mobile.core.errors.attempt
+
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -64,6 +66,7 @@ import net.ripster.mobile.ui.i18n.LocalAppLang
 import net.ripster.mobile.ui.i18n.tr
 import net.ripster.mobile.ui.theme.RipsterTheme
 import net.ripster.mobile.ui.i18n.errorText
+import net.ripster.mobile.ui.boolFlagsSaver
 
 /**
  * Радар — витрина отслеживаемых артистов ПК-версии. Своего краулера на телефоне
@@ -88,9 +91,12 @@ fun RadarScreen(
     val app = RipsterApp.from(ctx)
     val scope = rememberCoroutineScope()
     val bridge = app.pcBridge
-    val queued = remember { mutableStateMapOf<String, Boolean>() }
-    var helpOpen by remember { mutableStateOf(false) }
-    var settingsOpen by remember { mutableStateOf(false) }
+    // queued/waiting — отметки «в очереди на скачивание» по url. Кладём не
+    // карту целиком, а список ключей со значением true: карточек может быть
+    // сотни, а Bundle ограничен ~500 КБ на транзакцию.
+    val queued = rememberSaveable(saver = boolFlagsSaver) { mutableStateMapOf<String, Boolean>() }
+    var helpOpen by rememberSaveable { mutableStateOf(false) }
+    var settingsOpen by rememberSaveable { mutableStateOf(false) }
     // rememberSaveable — фильтр и поиск не сбрасываются при переключении вкладок.
     var query by rememberSaveable { mutableStateOf("") }
     var svcFilter by rememberSaveable { mutableStateOf<String?>(null) }
@@ -108,7 +114,14 @@ fun RadarScreen(
         }
     }
 
-    val state by produceState<Result<List<PcBridge.RadarItem>>?>(initialValue = null, bridge.paired) {
+    // Перезагрузка по кнопке «повторить»: produceState над `state` keyed только
+    // на bridge.paired, а при вернувшейся сети paired не меняется (пара хранится)
+    // — радар оставался в ошибке, пока не уйдёшь и не вернёшься (BUG-10).
+    // Счётчик ниже — отдельный ключ: тап по «повторить» его дёргает, и запрос
+    // уходит заново, не трогая пару.
+    var reload by remember { mutableStateOf(0) }
+
+    val state by produceState<Result<List<PcBridge.RadarItem>>?>(initialValue = null, bridge.paired, reload) {
         value = if (bridge.paired) bridge.radar() else Result.success(emptyList())
     }
 
@@ -156,7 +169,25 @@ fun RadarScreen(
         when {
             res == null && localItems.isEmpty() -> Centered(tr("radar.loading", lang), c)
             res?.isFailure == true && localItems.isEmpty() ->
-                Centered(tr("radar.err", lang) + ": " + errorText(res.exceptionOrNull(), lang), c)
+                Column(
+                    Modifier.fillMaxSize().padding(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    BasicText(
+                        tr("radar.err", lang) + ": " + errorText(res.exceptionOrNull(), lang),
+                        style = TextStyle(color = c.text_tertiary, fontSize = 13.sp),
+                    )
+                    Box(
+                        Modifier.border(1.dp, c.border_subtle, RoundedCornerShape(10.dp))
+                            .clickable { reload++ }
+                            .padding(horizontal = 16.dp, vertical = 9.dp),
+                    ) {
+                        BasicText(
+                            tr("radar.retry", lang),
+                            style = TextStyle(color = c.text_primary, fontSize = 13.sp, fontWeight = FontWeight.Bold),
+                        )
+                    }
+                }
             else -> {
                 val pc = res?.getOrDefault(emptyList()).orEmpty()
                 // локальные подписки + радар ПК; дедуп по имени артиста (низкий регистр)
@@ -553,7 +584,7 @@ fun RadarScreen(
                                 BasicText(
                                     tr(if (waitingNow) "up.waiting" else "up.wait", lang),
                                     style = TextStyle(
-                                        color = if (waitingNow) c.text_secondary else Color(0xFF0D0F13),
+                                        color = if (waitingNow) c.text_secondary else c.text_on_fill,
                                         fontSize = 13.sp, fontWeight = FontWeight.W700,
                                     ),
                                 )
@@ -796,7 +827,7 @@ private fun Centered(text: String, c: net.ripster.mobile.ui.theme.RipsterColors)
 
 /** Разобрать ссылку любым настроенным клиентом (или Apple-прокси) и поставить в очередь. */
 private suspend fun grabUrl(app: RipsterApp, url: String) {
-    runCatching {
+    attempt {
         val sel = ServiceRegistry.all().firstNotNullOfOrNull { it.resolve(url) } ?: return
         app.downloads.enqueueRelease(sel.containerTitle.orEmpty(), sel.tracks)
     }

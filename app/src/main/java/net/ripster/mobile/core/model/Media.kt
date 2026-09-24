@@ -25,7 +25,15 @@ enum class Service(val id: String, val label: String) {
     /** Только через сопряжение с ПК (Docker-враппер живёт там). */
     APPLE("apple", "Apple Music"),
     /** Без логина и без ПК: телефон сам ищет, расшифровывает ссылку и качает. */
-    JIOSAAVN("jiosaavn", "JioSaavn");
+    JIOSAAVN("jiosaavn", "JioSaavn"),
+
+    /**
+     * Только владелец адреса: мобильный Ripster этот сервис НЕ играет, клиента
+     * в реестре нет. Заведён, чтобы ссылка `music.amazon.*` называла себя честно
+     * («сервис не поддерживается»), а не превращалась в «ничего не найдено» —
+     * перечень адресов (`UrlService`) и перечень сервисов обязаны сходиться.
+     */
+    AMAZON("amazon", "Amazon Music");
 
     companion object {
         fun byId(id: String): Service? = entries.firstOrNull { it.id == id }

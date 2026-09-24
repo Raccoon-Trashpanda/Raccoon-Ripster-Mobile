@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Холст стартового окна (до первого кадра Compose). Значения — canvas
+         палитр из ui/theme/RipsterColors.kt: день = Light, ночь = Neon
+         (утверждённый скин по умолчанию). Точную тему человека поверх
+         этого ставит MainActivity.onCreate — здесь лишь потолок первого
+         кадра, и он обязан быть из той же системы цвета, а не из
+         дефолтов Material. Правка без синхронизации с палитрами = белый
+         или чёрный флэш на старте. -->
+    <color name="boot_canvas">#FFF4F4F8</color>
+    <bool name="boot_light_bars">true</bool>
+</resources>

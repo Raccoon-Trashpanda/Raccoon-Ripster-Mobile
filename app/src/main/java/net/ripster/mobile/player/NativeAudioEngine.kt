@@ -1,5 +1,7 @@
 package net.ripster.mobile.player
 
+import net.ripster.mobile.core.errors.attempt
+
 import android.content.Context
 import android.net.Uri
 import android.os.ParcelFileDescriptor
@@ -26,7 +28,16 @@ import java.util.Locale
 object NativeAudioEngine {
 
     @Volatile private var available = false
-    private val openFds = ArrayList<ParcelFileDescriptor>()
+
+    /**
+     * Открытые под движок дескрипторы.
+     *
+     * Обычным списком они лежали до 21.09.2026 — и `stop()` (главный поток) с
+     * `playQueue` (IO) правили его ОДНОВРЕМЕННО: `forEach` из releaseFds ловил
+     * `ConcurrentModificationException` ровно тогда, когда человек нажимал «стоп»,
+     * пока очередь ещё открывалась. Список — сам по себе, закрытие — строго один раз.
+     */
+    private val openFds = CloseableBag<ParcelFileDescriptor>()
     @Volatile private var streamRate = 44100
 
     private const val TAG = "RipsterAudio"
@@ -55,7 +66,7 @@ object NativeAudioEngine {
         startIndex: Int,
         requireAll: Boolean = true,
     ): Result<Unit> = withContext(Dispatchers.IO) {
-        runCatching {
+        attempt {
             check(available) { "нативная библиотека не загрузилась" }
             releaseFds()
             val fds = ArrayList<Int>()
@@ -116,11 +127,23 @@ object NativeAudioEngine {
     fun next() = nNext()
     fun previous() = nPrev()
     fun setIndex(i: Int) = nSetIndex(i)
-    fun seekMs(ms: Long) = nSeek(ms * currentRate() / 1000)
+    fun seekMs(ms: Long) = nSeek(NativeTiming.seekFrames(ms, currentRate()))
     fun setGain(g: Float) = nSetGain(g)
 
-    fun positionMs(): Long = nPositionFrames() * 1000L / currentRate()
-    fun durationMs(): Long = nDurationFrames() * 1000L / currentRate()
+    /**
+     * Позиция и длительность живут в РАЗНЫХ доменах кадров, и путать их
+     * нельзя: движок считает позицию по частоте ПОТОКА (`outPos_` — кадры,
+     * ушедшие в audio callback), а длительность — по частоте ИСТОЧНИКА
+     * (`totalFrames` конкретного файла).
+     *
+     * Раньше оба делили на `nSampleRate()` (частоту файла), и в очереди со
+     * смешанными частотами — поток открыт под первый трек, второй частоту
+     * ресемплим сами — позиция отставала ровно во столько раз, во сколько
+     * частота файла выше частоты потока. 96 кГц в потоке 48 кГц: полоса
+     * доползала до 50 % к концу трека, хотя `durationMs` показывал правду.
+     */
+    fun positionMs(): Long = NativeTiming.positionMs(nPositionFrames(), outputRate())
+    fun durationMs(): Long = NativeTiming.durationMs(nDurationFrames(), currentRate())
     fun index(): Int = if (available) nIndex() else 0
     fun count(): Int = if (available) nCount() else 0
     fun isPlaying(): Boolean = available && nIsPlaying()
@@ -139,6 +162,17 @@ object NativeAudioEngine {
 
     /** Частота ИСТОЧНИКА текущего трека (для перевода мс↔кадры). */
     private fun currentRate(): Int = nSampleRate().coerceAtLeast(1)
+
+    /**
+     * Частота ПОТОКА — домен, в котором посчитана позиция.
+     *
+     * `granted` — что реально дало устройство; пока поток не открыт (или
+     * открылся молча), берём запрошенную частоту: `streamRate_` и есть та, под
+     * которую движок ресемплит.
+     */
+    private fun outputRate(): Int =
+        (if (available) nGrantedRate() else 0).takeIf { it > 0 }
+            ?: nStreamRate().coerceAtLeast(1)
 
     /**
      * Чем именно отдаётся звук: точь-в-точь как в файле, через ресемпл или на
@@ -172,9 +206,40 @@ object NativeAudioEngine {
         return "${nBitDepth()}-bit · $khz kHz · ${nChannels()}ch"
     }
 
+    /**
+     * Что нативный тракт может сказать о ПУТИ звука прямо сейчас.
+     *
+     * Нативный декодер распаковывает безlossy-файл один-в-один в PCM, поэтому
+     * разрядность и частота ИСТОЧНИКА здесь равны разрядности и частоте
+     * ДЕКОДЕРА — это и есть его обещание, и держится оно только пока не трогает
+     * ресемплер. `nResampled()`/`nGrantedRate()` — уже настоящие рантайм-значения
+     * Oboe, а не предположение.
+     *
+     * Прямой выход (`directOutput`) честным образом = false: движок идёт через
+     * AAudio/OpenSL и системный микшер, собственного USB-UAC обхода AudioFlinger
+     * у нас нет (RESONADA_GAP:32-39). Поэтому бит-в-бит на этом тракте не
+     * заявляется, даже когда ресемпл молчит — экран обязан сказать почему.
+     */
+    fun snapshot(): SignalSnapshot {
+        if (!available) return SignalSnapshot(engine = PathEngine.NATIVE)
+        val rate = nSampleRate().coerceAtLeast(0)
+        val bits = nBitDepth().coerceAtLeast(0)
+        return SignalSnapshot(
+            engine = PathEngine.NATIVE,
+            sourceBitDepth = bits,
+            sourceRateHz = rate,
+            channels = nChannels().coerceAtLeast(0),
+            decoderBitDepth = bits,
+            decoderRateHz = rate,
+            resamplerActive = nResampled(),
+            grantedRateHz = nGrantedRate().coerceAtLeast(0),
+            outputKnown = nGrantedRate() > 0,
+            directOutput = false,
+        )
+    }
+
     private fun releaseFds() {
-        openFds.forEach { runCatching { it.close() } }
-        openFds.clear()
+        openFds.drain().forEach { runCatching { it.close() } }
     }
 
     /**
@@ -282,10 +347,30 @@ object NativeAudioEngine {
     private external fun nCount(): Int
     private external fun nSampleRate(): Int
     private external fun nGrantedRate(): Int
+    private external fun nStreamRate(): Int
     private external fun nChannels(): Int
     private external fun nBitDepth(): Int
     private external fun nResampled(): Boolean
     private external fun nIsPlaying(): Boolean
     private external fun nIsEnded(): Boolean
     private external fun nDecodeMono(fd: Int, fmt: Int, capFrames: Int, rateOut: IntArray): FloatArray?
+}
+
+/**
+ * Перевод кадров в миллисекунды — отдельно от JNI, чтобы домены кадров можно
+ * было проверить без прибора.
+ *
+ * `position` приходит из потока (частота [outRate]), `duration` — из файла
+ * (частота [srcRate]). См. `NativeAudioEngine.positionMs`.
+ */
+internal object NativeTiming {
+    fun positionMs(outFrames: Long, outRate: Int): Long =
+        if (outRate <= 0) 0L else outFrames * 1000L / outRate
+
+    fun durationMs(srcFrames: Long, srcRate: Int): Long =
+        if (srcRate <= 0) 0L else srcFrames * 1000L / srcRate
+
+    /** Кадр ИСТОЧНИКА, куда просим перемотать (перемотка считается по файлу). */
+    fun seekFrames(ms: Long, srcRate: Int): Long =
+        if (srcRate <= 0) 0L else ms * srcRate / 1000L
 }

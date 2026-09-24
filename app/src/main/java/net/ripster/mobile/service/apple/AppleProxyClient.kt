@@ -1,5 +1,9 @@
 package net.ripster.mobile.service.apple
 
+import net.ripster.mobile.core.errors.attempt
+import net.ripster.mobile.core.errors.isJobCancellation
+import net.ripster.mobile.core.errors.isNetworkFailure
+
 import kotlinx.serialization.json.intOrNull
 import net.ripster.mobile.core.errors.EngineErrors
 import kotlinx.coroutines.Dispatchers
@@ -82,8 +86,7 @@ class AppleProxyClient(
             .addQueryParameter("country", storefront)
             .build()
         val items = itunes(url.toString())
-        val albums = runCatching { itunes(albumUrl.toString()) }.getOrDefault(emptyList())
-            .mapNotNull { it.toAlbum() }
+        val albums = itunes(albumUrl.toString()).mapNotNull { it.toAlbum() }
         MediaSelection(
             kind = MediaKind.TRACK,
             tracks = items.mapNotNull { it.toTrack() },
@@ -160,7 +163,7 @@ class AppleProxyClient(
     override suspend fun getArtist(artistId: String): net.ripster.mobile.core.pair.PcBridge.ArtistPage? {
         if (artistId.isBlank() || !artistId.all(Char::isDigit)) return null
         return withContext(Dispatchers.IO) {
-            runCatching {
+            attempt {
                 // Витрина подписки, иначе релиза может «не быть»; при пустом
                 // ответе — без страны и us.
                 val stores = listOfNotNull(storefront.takeIf { it.isNotBlank() }, null, "us").distinct()
@@ -209,7 +212,7 @@ class AppleProxyClient(
                 val pic = artistRow?.get("artworkUrl100")?.jsonPrimitive?.contentOrNull
                     ?: releases.firstOrNull()?.coverUrl
                 net.ripster.mobile.core.pair.PcBridge.ArtistPage(
-                    name = aName.ifBlank { return@runCatching null },
+                    name = aName.ifBlank { return@attempt null },
                     pictureUrl = pic, releases = releases,
                 )
             }.getOrNull()
@@ -230,14 +233,15 @@ class AppleProxyClient(
         )
     }
 
-    private fun itunes(url: String): List<kotlinx.serialization.json.JsonElement> = runCatching {
-        val req = Request.Builder().url(url).header("User-Agent", "RipsterMobile/0.1").build()
-        RipsterHttp.client.newCall(req).execute().use { r ->
-            if (!r.isSuccessful) return emptyList()
-            json.parseToJsonElement(r.body?.string().orEmpty())
-                .jsonObject["results"]?.jsonArray?.toList() ?: emptyList()
+    private fun itunes(url: String): List<kotlinx.serialization.json.JsonElement> =
+        appleReplyOrEmpty {
+            val req = Request.Builder().url(url).header("User-Agent", "RipsterMobile/0.1").build()
+            RipsterHttp.client.newCall(req).execute().use { r ->
+                if (!r.isSuccessful) return@use emptyList()
+                json.parseToJsonElement(r.body?.string().orEmpty())
+                    .jsonObject["results"]?.jsonArray?.toList() ?: emptyList()
+            }
         }
-    }.getOrDefault(emptyList())
 
     private fun kotlinx.serialization.json.JsonElement.toTrack(): Track? {
         val o = jsonObject
@@ -384,3 +388,24 @@ class AppleProxyClient(
         val APPLE = Regex("""(music|geo\.music|itunes)\.apple\.com""")
     }
 }
+
+/**
+ * Ответ iTunes либо есть (пусть и пустой), либо это сетевая авария.
+ *
+ * `itunes` раньше стоял целиком под `runCatching{…}.getOrDefault(emptyList())`:
+ * без сети `UnknownHostException` превращался в пустой список, и экран поиска по
+ * единственному сервису выводил «ничего не вернул — проверь токен в настройках»
+ * (BUG-9) — отправлял чинить учётку, которая ни при чём. Сеть и отмену отдаём
+ * наружу: `search()` тогда бросает, и `SearchScreen` назовёт сбой «нет связи с
+ * сервисом» — ровно как уже делает для Deezer. Прочие сбои (битый JSON, HTTP-код)
+ * остаются молчаливой пустотой: частичный пропуск Apple-поиск переживает, в
+ * отличие от честного офлайна, где пустота врёт.
+ */
+internal fun appleReplyOrEmpty(block: () -> List<JsonElement>): List<JsonElement> =
+    try {
+        block()
+    } catch (t: Throwable) {
+        if (isJobCancellation(t)) throw t
+        if (isNetworkFailure(t)) throw t
+        emptyList()
+    }

@@ -45,6 +45,8 @@ import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
+import net.ripster.mobile.ui.i18n.LocalAppLang
+import net.ripster.mobile.ui.i18n.tr
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
@@ -54,7 +56,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import net.ripster.mobile.ui.theme.MinTouchTarget
+import net.ripster.mobile.ui.theme.MinDimmedContrast
 import net.ripster.mobile.ui.theme.contrastRatio
+import net.ripster.mobile.ui.theme.legibleOn
 import net.ripster.mobile.ui.theme.Radii
 import net.ripster.mobile.ui.theme.RipsterTheme
 import net.ripster.mobile.ui.theme.Weights
@@ -235,20 +239,26 @@ fun SeekStrip(
     surfaceBehind: Color = RipsterTheme.colors.surface_canvas,
     /** Сообщается непрерывно во время ведения — для превью обложки/волны, например. */
     onScrubChange: (Long) -> Unit = {},
-    /** Подписи. Латиница по умолчанию, локализация — в ресурсах вызывающего. */
-    contentDescription: String = "Seek position",
-    stateLabelPlaying: String = "playing",
-    stateLabelPaused: String = "paused",
-    stateLabelBuffering: String = "buffering",
-    stateLabelOffline: String = "offline",
-    stateLabelError: String = "playback error",
-    forwardActionLabel: String = "Forward 15 seconds",
-    backwardActionLabel: String = "Back 15 seconds",
+    /**
+     * Подписи. Ни одного вшитого слова: раньше здесь стояло
+     * `stateLabelPlaying: String = "playing"`, НИ ОДИН вызывающий эти параметры
+     * не передавал — и с русским интерфейсом TalkBack читал «playing, 0:52 of
+     * 5:41» и «Forward 15 seconds». Фолбэк берётся из словаря (23.09.2026).
+     */
+    contentDescription: String? = null,
+    stateLabelPlaying: String? = null,
+    stateLabelPaused: String? = null,
+    stateLabelBuffering: String? = null,
+    stateLabelOffline: String? = null,
+    stateLabelError: String? = null,
+    forwardActionLabel: String? = null,
+    backwardActionLabel: String? = null,
 ) {
     val colors = RipsterTheme.colors
     val spacing = RipsterTheme.spacing
     val type = RipsterTheme.type
     val density = LocalDensity.current
+    val lang = LocalAppLang.current
 
     val enabled = durationMs > 0L
 
@@ -337,7 +347,16 @@ fun SeekStrip(
      * обязательное.
      */
     val effectiveTint = remember(tint, surfaceBehind, colors) {
-        if (contrastRatio(tint, surfaceBehind) >= 3f) tint else colors.text_primary
+        // Порог 3:1 — про ЗАЛИВКУ (нетекстовый элемент). Но фолбэк `text_primary`
+        // берётся из палитры, рассчитанной на surface_*, а вызывающий может
+        // положить полосу на собственный фон плеера: в светлой палитре
+        // text_primary — тёмный, и на near-black «fallback = читаемо»
+        // оказывалось неправдой. Поэтому фолбэк дополнительно прогоняется через
+        // legibleOn против той же поверхности.
+        legibleOn(
+            if (contrastRatio(tint, surfaceBehind) >= 3f) tint else colors.text_primary,
+            surfaceBehind,
+        )
     }
 
     // Свежие значения для жестового блока: pointerInput не должен
@@ -388,16 +407,20 @@ fun SeekStrip(
     // Значение снимается ДО semantics-блока: внутри блока простое имя
     // contentDescription разрешилось бы в свойство SemanticsPropertyReceiver,
     // у которого нет геттера, а не в параметр функции.
-    val a11yDescription = contentDescription
+    val a11yDescription = contentDescription ?: tr("a11y.seek_position", lang)
+    val a11yState = when (state) {
+        SeekPlaybackState.Playing -> stateLabelPlaying ?: tr("a11y.state_playing", lang)
+        SeekPlaybackState.Paused -> stateLabelPaused ?: tr("a11y.state_paused", lang)
+        SeekPlaybackState.Buffering -> stateLabelBuffering ?: tr("a11y.state_buffering", lang)
+        SeekPlaybackState.Offline -> stateLabelOffline ?: tr("a11y.state_offline", lang)
+        SeekPlaybackState.Error -> stateLabelError ?: tr("a11y.state_error", lang)
+    }
+    val a11yClock = tr("a11y.position_of", lang, formatClock(positionMs), formatClock(durationMs))
+    val forwardLabel = forwardActionLabel ?: tr("a11y.forward_15", lang)
+    val backLabel = backwardActionLabel ?: tr("a11y.back_15", lang)
     val semanticsModifier = Modifier.semantics {
         this.contentDescription = a11yDescription
-        this.stateDescription = when (state) {
-            SeekPlaybackState.Playing -> stateLabelPlaying
-            SeekPlaybackState.Paused -> stateLabelPaused
-            SeekPlaybackState.Buffering -> stateLabelBuffering
-            SeekPlaybackState.Offline -> stateLabelOffline
-            SeekPlaybackState.Error -> stateLabelError
-        } + ", " + formatClock(positionMs) + " of " + formatClock(durationMs)
+        this.stateDescription = "$a11yState, $a11yClock"
         // progressBarRangeInfo + setProgress — то, что TalkBack превращает в
         // штатный ползунок с жестами вверх/вниз. Собственных «кнопок» перемотки
         // для скринридера здесь не заводится: свой велосипед в этом месте
@@ -409,10 +432,10 @@ fun SeekStrip(
                 true
             }
             this.customActions = listOf(
-                CustomAccessibilityAction(forwardActionLabel) {
+                CustomAccessibilityAction(forwardLabel) {
                     onSeek(min(durationMs, positionMs + AccessibilityStepMs)); true
                 },
-                CustomAccessibilityAction(backwardActionLabel) {
+                CustomAccessibilityAction(backLabel) {
                     onSeek(max(0L, positionMs - AccessibilityStepMs)); true
                 },
             )
@@ -463,9 +486,15 @@ fun SeekStrip(
             positionMs = positionMs,
             durationMs = durationMs,
             scrubTargetMs = if (scrubbing) (scrubFraction * durationMs).roundToLong() else null,
-            captionColor = colors.text_secondary,
-            targetColor = colors.text_primary,
-            deltaColor = colors.text_tertiary,
+            // Подписи времени раньше брались токенами палитры вслепую: токены
+            // рассчитаны на surface_* палитры, а «Studio» и «Immersive» красят
+            // свой near-black. В светлой теме text_secondary — тёмно-серый, и
+            // «0:52 / 5:41» проваливались в фон (снимок владельца 23.09.2026).
+            // Порог 4.5 не «для красоты»: это мелкие цифры, по которым человек
+            // решает, дослушать ли трек.
+            captionColor = legibleOn(colors.text_secondary, surfaceBehind),
+            targetColor = legibleOn(colors.text_primary, surfaceBehind),
+            deltaColor = legibleOn(colors.text_tertiary, surfaceBehind, MinDimmedContrast),
         )
     }
 }

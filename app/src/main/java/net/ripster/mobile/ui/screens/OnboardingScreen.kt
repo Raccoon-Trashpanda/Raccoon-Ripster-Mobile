@@ -1,5 +1,7 @@
 package net.ripster.mobile.ui.screens
 
+import net.ripster.mobile.core.errors.attempt
+
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -49,6 +51,7 @@ import net.ripster.mobile.ui.i18n.LocalAppLang
 import net.ripster.mobile.ui.i18n.tr
 import net.ripster.mobile.ui.theme.RipsterTheme
 import net.ripster.mobile.ui.theme.RipsterThemeName
+import net.ripster.mobile.ui.theme.THEME_SETTING_SYSTEM
 import net.ripster.mobile.ui.i18n.errorText
 
 /**
@@ -138,6 +141,13 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                         RipsterThemeName.Neon to "ob.theme_neon",
                         RipsterThemeName.Aurora to "ob.theme_aurora",
                     )
+                    // Первым — «как в системе»: для большинства это и есть
+                    // правильный ответ на вопрос «тёмная или светлая».
+                    Selectable(
+                        tr("set.theme_system", lang),
+                        s.theme == THEME_SETTING_SYSTEM,
+                        c,
+                    ) { app.settings.update { it.copy(theme = THEME_SETTING_SYSTEM) } }
                     RipsterThemeName.entries.forEach { t ->
                         Selectable(tr(names[t] ?: "ob.theme_dark", lang), s.theme == t.name, c) {
                             app.settings.update { it.copy(theme = t.name) }
@@ -211,7 +221,7 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                                 scope.launch {
                                     val r = app.pcBridge.claim(pairAddr, pairCode)
                                     if (r.isSuccess) {
-                                        runCatching { app.pcBridge.syncCredentials(app.credentials) }
+                                        attempt { app.pcBridge.syncCredentials(app.credentials) }
                                         app.registerClients()
                                         pairOk = true
                                         pairMsg = tr("ob.pair_ok", lang)
@@ -314,7 +324,7 @@ private fun PrimaryBtn(label: String, c: net.ripster.mobile.ui.theme.RipsterColo
             .pressable { onClick() }
             .padding(horizontal = 26.dp, vertical = 14.dp),
     ) {
-        BasicText(label, style = TextStyle(color = androidx.compose.ui.graphics.Color.Black, fontSize = 15.sp, fontWeight = FontWeight.Bold))
+        BasicText(label, style = TextStyle(color = c.text_on_fill, fontSize = 15.sp, fontWeight = FontWeight.Bold))
     }
 }
 

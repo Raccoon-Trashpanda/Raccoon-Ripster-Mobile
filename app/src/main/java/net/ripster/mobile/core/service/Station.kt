@@ -1,5 +1,7 @@
 package net.ripster.mobile.core.service
 
+import net.ripster.mobile.core.errors.attempt
+
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -28,6 +30,9 @@ import net.ripster.mobile.service.yandex.YandexMusicClient
  *
  * Отказ любого источника не мешает остальным: каждый обёрнут отдельно.
  */
+/** Один опрошенный источник станции — см. [StationAssembly.Source]. */
+private typealias Pool = StationAssembly.Source
+
 object StationBuilder {
 
     /**
@@ -44,81 +49,6 @@ object StationBuilder {
     @Volatile
     var lastOutcome: Outcome = Outcome.OK
         private set
-
-
-    /**
-     * Жанр, приведённый к сравнимому виду: только буквы и цифры в нижнем
-     * регистре.
-     *
-     * Одно и то же пишут по-разному: «Synth Wave» и «Synthwave», «Drum & Bass»
-     * и «drumbass», «Lo-Fi» и «lofi». Сравнение строк как есть уже стоило нам
-     * рабочей плитки: «Синтвейв» отказывался собираться, хотя треки с нужным
-     * жанром были — не совпал пробел.
-     */
-    private fun norm(s: String): String = s.lowercase().filter { it.isLetterOrDigit() }
-
-    /**
-     * Слова, по которым трек считается принадлежащим жанру станции.
-     * Сравнивается с жанром, объявленным сервисом.
-     */
-    private fun genreWords(query: String): List<String> =
-        query.lowercase().split(' ', '-', '/').filter { it.length >= 3 }
-
-    /**
-     * Жанр, объявленный САМИМ сервисом. Одно поле на всех: Qobuz и Apple
-     * заполняли его и раньше, SoundCloud и Яндекс — теперь тоже. Deezer в
-     * поиске жанр не отдаёт (только отдельным запросом альбома), поэтому его
-     * треки идут как «жанр неизвестен», а не как «жанр не тот».
-     */
-    private fun declaredGenre(t: Track): String? =
-        (t.genre ?: t.raw["genre"])?.lowercase()?.trim()?.takeIf { it.isNotEmpty() }
-
-    /**
-     * Совпадает ли объявленный жанр трека с тем, что обещает станция.
-     *
-     * Проверяем в обе стороны. «Synth Wave» у трека и «synthwave» у станции —
-     * одно и то же. Трек, помеченный просто «Techno», станции «Dub Techno»
-     * подходит: точность даёт сам запрос, а жанр отсекает ЧУЖОЕ — поп и рэп,
-     * которые и приезжали вместо музыки.
-     */
-    /**
-     * Трек ЯВНО чужого жанра — для отсева даже из курируемых (vetted) пулов.
-     *
-     * Возвращает true ТОЛЬКО когда оба ярлыка известны дирижёру и РАЗНЫЕ: тогда
-     * это точно не наш жанр (французский рэп в брейкбит-станции — владелец
-     * 13.09.2026). Нет жанра / ярлык не выучен → false: такие не трогаем, иначе
-     * вылетел бы весь канон и Deezer-топ (у них жанра в поиске нет) и станция
-     * снова опустела бы. То есть это осторожный «убрать заведомо чужое», а не
-     * «оставить только доказанно своё».
-     */
-    private fun explicitlyOffGenre(t: Track, station: String): Boolean {
-        val raw = declaredGenre(t) ?: return false
-        val tk = genres.of(raw) ?: return false
-        val sk = genres.of(station) ?: return false
-        return tk != sk
-    }
-
-    private fun onGenre(t: Track, station: String, words: List<String>): Boolean {
-        val raw = declaredGenre(t) ?: return false
-        val g = norm(raw)
-        if (g.isEmpty()) return false
-
-        // Сначала спрашиваем дирижёра: он сводит ярлыки РАЗНЫХ сервисов к
-        // одному ключу и умеет то, чего сравнение строк не умеет в принципе —
-        // например, что болгарское «Блус» от Deezer и «Blues» от Apple это
-        // один жанр. Если оба ключа известны, ответ однозначен, и гадать по
-        // подстрокам уже незачем.
-        val tk = genres.of(raw)
-        val sk = genres.of(station)
-        if (tk != null && sk != null) return tk == sk
-
-        // Ключа нет — значит «не знаю», и работает прежняя сверка по словам.
-        // Это не запасной путь на всякий случай, а честное поведение: пока
-        // модуль не выучил ярлык, судить по нему нельзя.
-        val q = norm(station)
-        if (q.isNotEmpty() && (g.contains(q) || q.contains(g))) return true
-        return words.any { w -> norm(w).length >= 4 && g.contains(norm(w)) }
-    }
 
     /**
      * Треки артистов, которые этот жанр и делают.
@@ -151,7 +81,7 @@ object StationBuilder {
             canon.map { a ->
                 async {
                     val viaDeezer = dz?.let {
-                        runCatching { it.artistTopTracks(a.name, perArtist) }.getOrDefault(emptyList())
+                        attempt { it.artistTopTracks(a.name, perArtist) }.getOrDefault(emptyList())
                     }.orEmpty()
                     if (viaDeezer.isNotEmpty()) viaDeezer else anyServiceTracks(clients, a.name, perArtist)
                 }
@@ -183,7 +113,7 @@ object StationBuilder {
         name: String,
         limit: Int,
     ): List<Track> = coroutineScope {
-        clients.map { c -> async { runCatching { c.search(name).tracks }.getOrDefault(emptyList()) } }
+        clients.map { c -> async { attempt { c.search(name).tracks }.getOrDefault(emptyList()) } }
             .awaitAll()
             .flatten()
             .filter { ChartBoost.isSameArtist(it.artist, name) }
@@ -192,17 +122,15 @@ object StationBuilder {
     }
 
     /**
-     * Один опрошенный источник.
+     * Собрать эфир. Источники опрашиваются ВСЕ разом, дальше решает
+     * [StationAssembly] (сверка жанра и очередь); здесь — только сеть, кэш
+     * дирижёра и честный ответ «почему не собралось».
      *
-     * [vetted] — жанр уже гарантирован источником, сверять его не нужно (и
-     * нечем: у топ-треков артиста Deezer жанра не отдаёт).
-     * [lead] — идёт в начало эфира. Это РАЗНЫЕ свойства: чарт SoundCloud по
-     * жанру верен жанрово, но по качеству неровен — в «Техно» из него приезжали
-     * «epileptic techno» и «dddance perfect slowed» рядом с Nina Kraviz и Aphex
-     * Twin. Такое допустимо на доборе, но не во главе станции.
+     * Про `vetted`/`lead` у пулов: чарт SoundCloud по жанру верен жанрово, но
+     * по качеству неровен — в «Техно» из него приезжали «epileptic techno» и
+     * «dddance perfect slowed» рядом с Nina Kraviz и Aphex Twin. Такое
+     * допустимо на доборе, но не во главе станции.
      */
-    private data class Pool(val tracks: List<Track>, val vetted: Boolean, val lead: Boolean = vetted)
-
     suspend fun build(
         scGenreSlug: String,
         fallbackQuery: String,
@@ -249,14 +177,14 @@ object StationBuilder {
             buildList {
                 // Курируемые списки: жанр гарантирован сервисом.
                 if (!yandexStationId.isNullOrBlank() && ya != null) {
-                    add(async { Pool(runCatching { ya.station(yandexStationId, size) }.getOrDefault(emptyList()), true) })
+                    add(async { Pool(attempt { ya.station(yandexStationId, size) }.getOrDefault(emptyList()), true) })
                 }
                 if (scGenreSlug.isNotBlank() && sc != null) {
                     // Жанрово верен, но во главу не ставим — см. Pool.lead.
                     add(
                         async {
                             Pool(
-                                runCatching { sc.station(scGenreSlug, size) }.getOrDefault(emptyList()),
+                                attempt { sc.station(scGenreSlug, size) }.getOrDefault(emptyList()),
                                 vetted = true, lead = false,
                             )
                         },
@@ -271,7 +199,7 @@ object StationBuilder {
                     add(
                         async {
                             Pool(
-                                runCatching { pc.appleStation(fallbackQuery, size) }
+                                attempt { pc.appleStation(fallbackQuery, size) }
                                     .getOrDefault(emptyList()),
                                 vetted = true,
                             )
@@ -293,98 +221,43 @@ object StationBuilder {
                 // Поиск у каждого сервиса остаётся ПОДСПОРЬЕМ: он добирает то,
                 // чего канон не покрыл, и обязан пройти сверку жанра.
                 clients.forEach { c ->
-                    add(async { Pool(runCatching { c.search(fallbackQuery).tracks.take(40) }.getOrDefault(emptyList()), false) })
+                    add(async { Pool(attempt { c.search(fallbackQuery).tracks.take(40) }.getOrDefault(emptyList()), false) })
                 }
             }.awaitAll()
         }
         if (pools.isEmpty()) { lastOutcome = Outcome.NOTHING_FOUND; return emptyList() }
 
-        // Показать дирижёру всё, что и так прошло через руки: ярлыки жанров
-        // от разных сервисов на одних и тех же артистах. Никаких лишних
-        // запросов — учимся на том, что уже скачано.
-        pools.forEach { pool ->
-            pool.tracks.forEach { t ->
-                declaredGenre(t)?.let { genres.observe(t.artist, it) }
-            }
-        }
-
-        // Сверка жанра — общая для всех сервисов, ровно один модуль на всех.
-        val words = genreWords(fallbackQuery)
-        val kept = pools.map { pool ->
-            val byGenre =
-                // Курируемые пулы (станции сервисов, канон, Apple) больше не
-                // проходят СЛЕПО: из них убирается ЯВНО чужое (известный ярлык,
-                // не совпавший со станцией) — так «чужое» перестаёт течь из
-                // vetted-источников, но треки без жанра остаются (канон цел).
-                if (pool.vetted) pool.tracks.filterNot { explicitlyOffGenre(it, fallbackQuery) }
-                else pool.tracks.filter { onGenre(it, fallbackQuery, words) }
-            // Часовые сборки проходят сверку жанра ЧЕСТНО — слово «melodic
-            // techno» в названии у них есть, — но станция из DJ-сетов
-            // неслушаема. Замер 05.09.2026: у «Melodic Techno» канон оказался
-            // пуст, эфир собрался целиком из поиска, и все двенадцать вещей
-            // были миксами и лайв-сетами. См. DjSetFilter.
-            DjSetFilter.tracksOnly(byGenre)
-        }
-
         // Кто в этом жанре на слуху по чарту Apple. Отказ чарта ничего не
         // ломает: пустое множество просто ничего не поднимает.
         val chart = if (appleGenreId != null) {
-            runCatching { AppleChart.topArtists(appleGenreId) }.getOrDefault(emptySet())
+            attempt { AppleChart.topArtists(appleGenreId) }.getOrDefault(emptySet())
         } else {
             emptySet()
         }
-        // Оценка и отбор — одним слоем (StationRanker), но ДВУМЯ заходами.
-        //
-        // Деление на «курируемое» и «добор» остаётся ЖЁСТКИМ, а не превращается
-        // в очередное слагаемое веса. Когда выдача поиска шла вперемешку с
-        // каноном жанра, половину эфира занимали любительские «Dub Techno
-        // Sessions Episode 98» рядом с DeepChord и Monolake — ровно то, про что
-        // владелец сказал «никто бы такое не стал слушать». Мягкий вес при
-        // удачном броске вернул бы именно это.
-        //
-        // Подъём чартом больше не отдельная перестановка списков: «артист в
-        // чарте» — это признак для ранжирования, там ему и место.
-        fun signalsFor(poolIndex: Int, t: Track) = StationRanker.Signals(
-            vetted = pools[poolIndex].vetted,
-            charting = ChartBoost.isCharting(t.artist, chart),
-            popularity = t.popularity,
-            year = t.year,
+
+        // Сверка жанра, отсев диджейских сборок и очередь — в [StationAssembly],
+        // тем же вызовом, каким это меряет стенд на фейковых пулах.
+        val nowYear = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
+        val air = StationAssembly.assemble(
+            station = fallbackQuery,
+            sources = pools,
+            genres = genres,
+            chart = chart,
+            taste = effectiveTaste,
+            seed = rotationSeed,
+            size = size,
+            nowYear = nowYear,
         )
+        val out = air.tracks
 
-        fun candidatesOf(wantLead: Boolean): List<Pair<Track, StationRanker.Signals>> =
-            kept.flatMapIndexed { i, list ->
-                if (pools[i].lead != wantLead) emptyList()
-                else list.map { it to signalsFor(i, it) }
-            }
-
-        // Откуда что взялось. Без этой строки станцию невозможно разобрать:
-        // видно только итог, а он сам по себе не говорит, чей это вклад —
-        // канона жанра, курируемой станции сервиса или выдачи поиска. Ровно на
-        // этом 05.09.2026 разбор встал: «Melodic Techno» заиграла Lana Del Rey,
-        // и понять, какой источник её принёс, было нечем.
         android.util.Log.i(
             "RipsterStation",
             "«$fallbackQuery»: " + pools.indices.joinToString(", ") { i ->
                 val tag = if (pools[i].lead) "lead" else "fill"
                 val vet = if (pools[i].vetted) "vetted" else "sifted"
-                "#$i $tag/$vet ${pools[i].tracks.size}→${kept[i].size}"
+                "#$i $tag/$vet ${pools[i].tracks.size}→${air.kept[i]} (−${air.dropped[i]})"
             } + " | chart: ${chart.size}",
         )
-
-        val nowYear = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
-        val seedOrOne = if (rotationSeed == 0L) 1L else rotationSeed
-        val out = ArrayList<Track>()
-        out += StationRanker.rank(
-            candidatesOf(wantLead = true), taste = effectiveTaste, seed = seedOrOne,
-            size = size, nowYear = nowYear,
-        )
-        if (out.size < size) {
-            out += StationRanker.rank(
-                candidatesOf(wantLead = false), taste = effectiveTaste, seed = seedOrOne + 7919L,
-                size = size - out.size, nowYear = nowYear, already = out,
-            )
-        }
-
 
         if (out.size >= 5) {
             lastOutcome = Outcome.OK
@@ -398,7 +271,7 @@ object StationBuilder {
         // Своего набралось мало. Либо искать было негде, либо всё найденное
         // оказалось чужого жанра — это разные новости, и совет разный.
         val anyFound = pools.any { it.tracks.isNotEmpty() }
-        val anyDeclared = pools.any { p -> p.tracks.any { declaredGenre(it) != null } }
+        val anyDeclared = pools.any { p -> p.tracks.any { StationAssembly.declaredGenre(it) != null } }
         return when {
             !anyFound -> { lastOutcome = Outcome.NOTHING_FOUND; emptyList() }
             // Никто жанр не объявил — судить не по чему. Это отсутствие
@@ -459,7 +332,7 @@ object ReleasePlayback {
     ): Boolean {
         val sel = withContext(Dispatchers.IO) {
             ServiceRegistry.all()
-                .firstNotNullOfOrNull { runCatching { it.resolve(url) }.getOrNull() }
+                .firstNotNullOfOrNull { attempt { it.resolve(url) }.getOrNull() }
         }
 
         // 1) есть треклист от resolve() — резолвим потоки как есть
@@ -523,7 +396,7 @@ object ReleasePlayback {
         //    его целиком — это и есть «открыть весь сборник», а не трек из него.
         val albums = withContext(Dispatchers.IO) {
             STREAMABLE.mapNotNull { ServiceRegistry.get(it) }.map { c ->
-                async { runCatching { c.search(query).albums }.getOrDefault(emptyList()) }
+                async { attempt { c.search(query).albums }.getOrDefault(emptyList()) }
             }.awaitAll()
         }.flatten()
         // Слепого «первый из выдачи» здесь БЫТЬ НЕ ДОЛЖНО. Именно он подсовывал
@@ -542,7 +415,7 @@ object ReleasePlayback {
         // 2) альбома нет — играем найденные треки списком
         val fromSearch: List<Track> = coroutineScope {
             STREAMABLE.mapNotNull { ServiceRegistry.get(it) }.map { c ->
-                async { runCatching { c.search(query).tracks.take(20) }.getOrDefault(emptyList()) }
+                async { attempt { c.search(query).tracks.take(20) }.getOrDefault(emptyList()) }
             }.awaitAll()
         }.flatten()
             // Чужого исполнителя не играем: список «что нашлось» без проверки —
@@ -598,7 +471,7 @@ object StreamResolver {
         tr: Track, quality: List<String>, fallbackArtwork: String?,
     ): PlayerController.StreamItem? {
         // 1) родной сервис трека
-        runCatching {
+        attempt {
             ServiceRegistry.get(tr.service)?.let { c ->
                 val info = c.streamInfo(tr, quality)
                 if (info.url.isNotBlank()) return streamItem(tr, info, fallbackArtwork)
@@ -612,23 +485,30 @@ object StreamResolver {
         for (svc in order) {
             if (svc == tr.service) continue
             val c = ServiceRegistry.get(svc) ?: continue
-            if (!runCatching { c.isConfigured() }.getOrDefault(false)) continue
-            val alt = runCatching {
+            if (!attempt { c.isConfigured() }.getOrDefault(false)) continue
+            val alt = attempt {
                 val hit = c.search(q).tracks.firstOrNull { m ->
                     val t = m.title.lowercase(); val want = tr.title.lowercase()
                     (t.contains(want) || want.contains(t)) &&
                         m.artist.lowercase().split(",", "&", " x ", " feat")
                             .any { it.isNotBlank() && tr.artist.lowercase().contains(it.trim().take(6)) }
-                } ?: return@runCatching null
+                } ?: return@attempt null
                 val info = c.streamInfo(hit, quality)
                 if (info.url.isBlank()) null
                 else {
                     // Название — от исходного трека станции, но артистов берём
                     // БОГАЧЕ: если стриминговый источник джойнит коллаб («A, B»),
                     // а исходник дал одного, показываем полный состав (владелец
-                    // 13.09.2026: «вижу 1 артиста, а их несколько»).
-                    val richer = if (hit.artist.length > tr.artist.length &&
-                        hit.artist.contains(tr.artist.take(4), ignoreCase = true)) hit.artist else tr.artist
+                    // 13.09.2026: «вижу 1 артиста, а их несколько»). Сюда же
+                    // просим то, что о треке уже знает кэш глубокого состава
+                    // ([ArtistDepth]) — это настоящий список участников сервиса,
+                    // а не догадка по длине строки. Новых запросов ради него не
+                    // делаем: станция и так платит поиском по каждому сервису.
+                    val known = listOfNotNull(tr.artist, hit.artist,
+                        ArtistDepth.cached(tr), ArtistDepth.cached(hit))
+                    val richer = known.maxByOrNull { ChartBoost.namesOf(it).size }
+                        ?.takeIf { it.contains(tr.artist.take(4), ignoreCase = true) }
+                        ?: tr.artist
                     streamItem(tr.copy(service = svc, artist = richer), info, fallbackArtwork)
                 }
             }.onFailure { lastStreamError = it }.getOrNull()

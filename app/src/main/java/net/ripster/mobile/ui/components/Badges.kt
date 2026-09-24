@@ -28,6 +28,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import net.ripster.mobile.ui.i18n.LocalAppLang
+import net.ripster.mobile.ui.i18n.tr
 import net.ripster.mobile.ui.theme.Radii
 import net.ripster.mobile.ui.theme.RipsterTheme
 import net.ripster.mobile.ui.theme.Weights
@@ -99,14 +101,23 @@ fun QualityBadge(
     state: QualityBadgeState,
     modifier: Modifier = Modifier,
     confidence: Confidence = Confidence.Confirmed,
-    /** Подписи — параметры, а не литералы: локализация живёт в ресурсах, не здесь. */
-    notMeasuredLabel: String = "not measured",
-    measuringLabel: String = "measuring",
-    matchLabel: String = "as promised",
+    /**
+     * Подписи — параметры, а не литералы. Дефолт НЕ вшит строкой: прошлый
+     * `= "not measured"` означал, что вызывающий может не передавать ничего, и
+     * на русском экране бейдж честно докладывал по-английски (ловля 23.09.2026,
+     * плеер «Studio»). Фолбэк живёт в словаре и берётся оттуда.
+     */
+    notMeasuredLabel: String? = null,
+    measuringLabel: String? = null,
+    matchLabel: String? = null,
 ) {
     val colors = RipsterTheme.colors
     val spacing = RipsterTheme.spacing
     val type = RipsterTheme.type
+    val lang = LocalAppLang.current
+    val notMeasured = notMeasuredLabel ?: tr("q.raw", lang)
+    val measuring = measuringLabel ?: tr("q.check", lang)
+    val asPromised = matchLabel ?: tr("q.ok", lang)
 
     // Радиус-капсула законна здесь и только здесь: бейдж неинтерактивен.
     // Если бейджу когда-нибудь добавят onClick — он обязан перейти на RCtl,
@@ -130,7 +141,7 @@ fun QualityBadge(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(spacing.sm),
             ) {
-                BasicText(notMeasuredLabel, style = textStyle.copy(color = gray, fontWeight = Weights.Quiet))
+                BasicText(notMeasured, style = textStyle.copy(color = gray, fontWeight = Weights.Quiet))
             }
         }
 
@@ -144,7 +155,7 @@ fun QualityBadge(
                 horizontalArrangement = Arrangement.spacedBy(spacing.sm),
             ) {
                 MeasuringArc(color = gray, progress = state.progress)
-                BasicText(measuringLabel, style = textStyle.copy(color = gray, fontWeight = Weights.Quiet))
+                BasicText(measuring, style = textStyle.copy(color = gray, fontWeight = Weights.Quiet))
             }
         }
 
@@ -170,7 +181,7 @@ fun QualityBadge(
                 horizontalArrangement = Arrangement.spacedBy(spacing.sm),
             ) {
                 CheckGlyph(color = colors.text_primary)
-                BasicText(matchLabel, style = textStyle.copy(color = colors.text_primary, fontWeight = Weights.Body))
+                BasicText(asPromised, style = textStyle.copy(color = colors.text_primary, fontWeight = Weights.Body))
             }
         }
 

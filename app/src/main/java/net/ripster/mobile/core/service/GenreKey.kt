@@ -100,7 +100,7 @@ object GenreKey {
         of(DNB, "dnb", "drum and bass", "drum n bass", "drum & bass", "drumandbass",
             "jungle", "liquid funk")
         of(DUBSTEP, "dubstep", "bass")
-        of(BREAKBEAT, "breakbeat", "breaks")
+        of(BREAKBEAT, "breakbeat", "breaks", "big beat", "nu skool breaks")
         of(AMBIENT, "ambient", "new age", "meditation", "relax")
         of(IDM, "idm", "experimental")
         of(DOWNTEMPO, "downtempo", "lounge", "chillout", "chill out")
@@ -116,6 +116,7 @@ object GenreKey {
         // этого не меняется. Без них канонизатор не узнаёт свой же жанр.
         of(TECHNO, "техно"); of(HOUSE, "хаус"); of(TRANCE, "транс")
         of(AMBIENT, "эмбиент", "эмбиэнт"); of(DISCO, "диско")
+        of(BREAKBEAT, "брейкбит", "брейкс")
         of(ROCK, "рок"); of(METAL, "метал", "метал-рок"); of(PUNK, "панк")
         of(POP, "поп", "поп-музыка"); of(RAP, "рэп", "хип-хоп", "хіп-хоп")
         of(SOUL, "соул"); of(FUNK, "фанк"); of(JAZZ, "джаз"); of(BLUES, "блюз")
@@ -231,4 +232,33 @@ object GenreKey {
 
     /** Узнаём ли мы этот жанр вообще. */
     fun known(raw: String?): Boolean = of(raw) != null
+
+    /**
+     * Зонтики: ключи, которыми сервис метит сразу всю ветку, а не один жанр.
+     *
+     * Apple в редакторских подборках ставит «Electronic» там, где плитка обещает
+     * «Breakbeat»; у части сервисов «Dance» закрывает хаус и техно. Это НЕ
+     * противоречие станции: сервис ручается за половину правды. Но и не
+     * подтверждение — по одному «Electronic» нельзя утверждать, что перед нами
+     * брейкбит, иначе станция наполнится любой электроникой.
+     */
+    private val UMBRELLA: Map<String, Set<String>> = mapOf(
+        ELECTRONIC to setOf(
+            TECHNO, HOUSE, TRANCE, DNB, DUBSTEP, BREAKBEAT, IDM, TRIPHOP, DOWNTEMPO,
+            AMBIENT,
+        ),
+        DANCE to setOf(HOUSE, TECHNO, TRANCE, DNB, BREAKBEAT, ELECTRONIC),
+    )
+
+    /**
+     * Противоречат ли два ключа друг другу.
+     *
+     * «Rap» против «breakbeat» — противоречие: франц-реп в брейкбит-станции
+     * (владелец, 13.09.2026). «Electronic» против «breakbeat» — нет: зонтик
+     * над тем же жанром. «House» против «techno» — противоречие: это соседи, а
+     * не родитель и дитя, и путать их как раз и жаловались.
+     */
+    fun contradicts(a: String?, b: String?): Boolean =
+        a != null && b != null && a != b &&
+            UMBRELLA[a]?.contains(b) != true && UMBRELLA[b]?.contains(a) != true
 }

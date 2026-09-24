@@ -1,6 +1,7 @@
 package net.ripster.mobile.core.service
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -134,5 +135,42 @@ class GenreKeyTest {
             GenreVocabularies.apple.filter { GenreKey.of(it) == null }, apple >= 90)
         assertTrue("ротор покрыт на $rotor%", rotor >= 65)
         assertTrue("Яндекс покрыт на $ya%", ya >= 50)
+    }
+
+    // ── противоречие ≠ соседство ───────────────────────────────────────────
+
+    @Test
+    fun aNeighbourGenreContradictsTheStation() {
+        """Собственно жалоба 13.09.2026: в брейкбите заиграло хаус-соседство и
+        французский рэп. Соседний жанр — это НЕ «не знаю», это другой жанр."""
+        assertTrue(GenreKey.contradicts(GenreKey.HOUSE, GenreKey.BREAKBEAT))
+        assertTrue(GenreKey.contradicts(GenreKey.RAP, GenreKey.BREAKBEAT))
+        assertTrue(GenreKey.contradicts(GenreKey.TECHNO, GenreKey.HOUSE))
+        assertTrue(GenreKey.contradicts(GenreKey.CLASSICAL, GenreKey.AMBIENT))
+    }
+
+    @Test
+    fun aParentTagOverTheSameGenreIsNotAContradiction() {
+        """Apple в редакторской подборке ставит «Electronic» поверх любого
+        электронного жанра. Считать это противоречием — значит выбросить из
+        станции весь Apple (наполнение падает), а считать подтверждением —
+        налить в брейкбит любую электронику. Это третий ответ:
+        «ручается наполовину»."""
+        for (child in listOf(
+            GenreKey.TECHNO, GenreKey.HOUSE, GenreKey.BREAKBEAT, GenreKey.DNB,
+            GenreKey.AMBIENT, GenreKey.IDM,
+        )) {
+            assertFalse("зонтик над $child", GenreKey.contradicts(GenreKey.ELECTRONIC, child))
+            assertFalse("то же самое наоборот", GenreKey.contradicts(child, GenreKey.ELECTRONIC))
+        }
+    }
+
+    @Test
+    fun theSameKeyAndAnUnknownOneNeverContradict() {
+        """Одинаковый ключ — не противоречие; то, чего мы не узнали, — тоже.
+        Молчание сервиса не может быть доказательством чужого жанра."""
+        assertFalse(GenreKey.contradicts(GenreKey.TECHNO, GenreKey.TECHNO))
+        assertFalse(GenreKey.contradicts(null, GenreKey.TECHNO))
+        assertFalse(GenreKey.contradicts(GenreKey.TECHNO, null))
     }
 }

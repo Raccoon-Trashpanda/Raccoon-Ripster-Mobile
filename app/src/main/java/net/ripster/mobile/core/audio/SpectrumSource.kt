@@ -1,5 +1,7 @@
 package net.ripster.mobile.core.audio
 
+import net.ripster.mobile.core.errors.attempt
+
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -27,7 +29,7 @@ object SpectrumSource {
         prefix: String = "spec",
     ): File? =
         withContext(Dispatchers.IO) {
-            runCatching {
+            attempt {
                 val frag = playingUrl.substringAfter('#', "")
                 val dzId = frag.split('&', ';')
                     .firstOrNull { it.startsWith("dzbf=") }?.removePrefix("dzbf=")?.takeIf { it.isNotBlank() }
@@ -38,10 +40,11 @@ object SpectrumSource {
                     .build()
                 RipsterHttp.client.newCall(req).execute().use { r ->
                     val ct = r.header("Content-Type").orEmpty().lowercase()
-                    if (!r.isSuccessful && r.code != 206) return@runCatching null
-                    val body = r.body ?: return@runCatching null
-                    // Расширение по типу ответа — MediaExtractor так надёжнее
-                    // выбирает парсер (Tidal lossless приходит как audio/mp4).
+                    if (!r.isSuccessful && r.code != 206) return@attempt null
+                    val body = r.body ?: return@attempt null
+                    // Расширение по типу ответа — приглядна парсеру MediaExtractor
+                    // (Tidal lossless приходит как audio/mp4). Но это догадка,
+                    // а не факт: ниже она уступает первым байтам файла.
                     val ext = when {
                         "flac" in ct -> "flac"
                         "mp4" in ct || "m4a" in ct || "alac" in ct || "aac" in ct -> "m4a"
@@ -50,7 +53,7 @@ object SpectrumSource {
                         "wav" in ct -> "wav"
                         else -> "m4a"
                     }
-                    val tmp = File(context.cacheDir, "${prefix}_${playingUrl.hashCode()}.$ext")
+                    var tmp = File(context.cacheDir, "${prefix}_${playingUrl.hashCode()}.$ext")
                     tmp.outputStream().use { os ->
                         if (dzId != null) {
                             DeezerCrypto.decryptStream(
@@ -71,7 +74,19 @@ object SpectrumSource {
                             }
                         }
                     }
-                    if (tmp.length() < 8192) { tmp.delete(); null } else tmp
+                    if (tmp.length() < 8192) { tmp.delete(); return@attempt null }
+                    // Имя — по тому, что РЕАЛЬНО легло в файл. Сервисы часто
+                    // молчат о Content-Type, и «m4a по умолчанию» скармливал
+                    // честный FLAC парсеру MP4 — а выбор декодера по такому
+                    // имени врал, что декодера нет (BUG-5, 23.09.2026).
+                    val real = ContainerSniff.of(tmp)
+                    if (real != null && real != ext) {
+                        val named = File(context.cacheDir, "${prefix}_${playingUrl.hashCode()}.$real")
+                        if (!named.exists() || named.delete()) {
+                            if (tmp.renameTo(named)) tmp = named
+                        }
+                    }
+                    tmp
                 }
             }.getOrNull()
         }

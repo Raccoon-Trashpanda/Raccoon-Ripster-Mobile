@@ -84,6 +84,32 @@ class I18nAuditTest {
         )
     }
 
+    /**
+     * Страж обязан умирать ГРОМКО, а не молча.
+     *
+     * Проверяем сканер на том же входе, на котором регэксп ушёл в
+     * `StackOverflowError`: незакрытая raw-строка плюс сотни килобайт после
+     * неё. Правильный ответ — досканать до конца файла и не упасть.
+     */
+    @Test
+    fun scannerSurvivesAnUnclosedRawString() {
+        val q = '"'
+        val src = buildString {
+            append("val a = ").append(q).append("обычная").append(q).append('\n')
+            append("val tail = ")
+            repeat(3) { append(q) }
+            append("незакрытая ")
+            repeat(400_000) { append('x') }
+        }
+        val lits = stringLiterals(src)
+        val plain = String(charArrayOf(q)) + "обычная" + String(charArrayOf(q))
+        val opener = String(charArrayOf(q, q, q))
+        val tail = lits.last()
+        assertTrue("обычный литерал потерян: ${lits.map { it.take(24) }}", lits.contains(plain))
+        assertTrue("хвост не начался с raw-ограничителя", tail.startsWith(opener))
+        assertTrue("хвост не дошёл до конца файла", tail.endsWith("x"))
+    }
+
     @Test
     fun theNativeEngineWritesNoWordsForTheScreen() {
         // Движок сообщает ФАКТ (RateNote + частота), слова подбирает ui/i18n.
@@ -112,27 +138,101 @@ class I18nAuditTest {
         // библиотеки — уже после того, как «подписи кнопок плеера» считались
         // сделанными.
         val root = sourceRoot()
-        val literal = Regex("""contentDescription\s*=\s*"([^"]{3,})"""")
+        val brands = setOf("Ripster", "Tidal", "Qobuz", "Deezer", "Apple Music", "SoundCloud")
         val offenders = mutableListOf<String>()
 
         root.walkTopDown().filter { it.isFile && it.extension == "kt" }.forEach { f ->
             val rel = f.relativeTo(root).path.replace('\\', '/')
             // Витрина компонентов из UI не открывается — см. allowed выше.
             if (allowed.keys.any { rel.endsWith(it) }) return@forEach
-            literal.findAll(stripComments(f.readText())).forEach { m ->
-                val v = m.groupValues[1]
+            englishLabelsIn(stripComments(f.readText())).forEach { label ->
                 // Имя приложения и сервисов не переводится.
-                if (v in setOf("Ripster", "Tidal", "Qobuz", "Deezer", "Apple Music", "SoundCloud")) return@forEach
-                offenders += "$rel: contentDescription = \"$v\""
+                if (label in brands) return@forEach
+                offenders += "$rel: contentDescription = \"$label\""
             }
         }
 
         assertTrue(
             "Подпись для озвучки задана строкой, а не через tr(): с русским " +
-                "интерфейсом её прочитают по-английски.\n" +
-                offenders.joinToString("\n"),
+                "интерфейсом её прочитают по-английски.\n" + offenders.joinToString("\n"),
             offenders.isEmpty(),
         )
+    }
+
+    /**
+     * Сторож обязан смотреть ПРАВУЮ ЧАСТЬ присваивания, а не только случай
+     * `= "литерал"`.
+     *
+     * 23.09.2026, BUG-6: прежний регэксп читал только прямое присваивание —
+     * `contentDescription = "…"`. Главная кнопка плеера подписывалась тернарником
+     * `= if (loading) "Loading" else if (isPlaying) "Pause" else "Play"`, и
+     * сторож, заведённый ровно против этого, три недели проходил мимо: на
+     * русской сборке TalkBack читал «Pause».
+     */
+    @Test
+    fun theGuardReadsPastTheEqualsIntoTernaryAndWhenBlocks() {
+        val sample = stripComments(
+            """
+            Box(Modifier.semantics { contentDescription = if (playing) "Pause" else "Play" })
+            Box(Modifier.semantics {
+                contentDescription = when {
+                    loading -> tr("a11y.loading", lang)
+                    playing -> "Pause"
+                    else -> tr("a11y.play", lang)
+                }
+            })
+            Box(Modifier.semantics { contentDescription = tr("a11y.prev", lang) })
+            """.trimIndent(),
+        )
+        val found = englishLabelsIn(sample)
+
+        assertTrue("тернарник не просканирован: $found", found.containsAll(listOf("Pause", "Play")))
+        assertTrue("ветка when не просканирована: $found", found.count { it == "Pause" } == 2)
+        assertTrue(
+            "ключ tr() не подписью считается — его вслух не читают: $found",
+            found.none { it.contains("a11y") },
+        )
+    }
+
+    /** Литералы, которыми подписывают озвучку: из правой части `contentDescription = …`. */
+    private fun englishLabelsIn(src: String): List<String> {
+        val assign = Regex("""contentDescription\s*=\s*""")
+        val labels = mutableListOf<String>()
+        assign.findAll(src).forEach { m ->
+            val from = m.range.last + 1
+            val tail = src.substring(from, statementEnd(src, from))
+            stringLiterals(tail).forEach { lit ->
+                val v = lit.trim('"')
+                if (labelWord.matches(v)) labels += v
+            }
+        }
+        return labels
+    }
+
+    /**
+     * Подпись — то, что скринридер прочитает как слово: с заглавной буквы, без
+     * цифр и без знаков, которыми пишут ключи словаря. Так «Pause» ловится, а
+     * «a11y.pause», «UTF-8» и «%s» — нет.
+     */
+    private val labelWord = Regex("[A-Z][A-Za-z]*( [A-Z][A-Za-z]*)*")
+
+    /**
+     * До куда простёрта правая часть присваивания: до первой строки, на которой
+     * баланс скобок вернулся к нулю. Иначе `when {` на трёх строках останется
+     * недоглядённым — ровно та форма, что прятала баг.
+     */
+    private fun statementEnd(src: String, from: Int): Int {
+        var depth = 0
+        var i = from
+        while (i < src.length) {
+            when (src[i]) {
+                '(', '{', '[' -> depth++
+                ')', '}', ']' -> depth--
+            }
+            if (src[i] == '\n' && depth <= 0) return i
+            i++
+        }
+        return src.length
     }
 
     @Test
@@ -248,12 +348,16 @@ class I18nAuditTest {
 
     /** Убрать //-, /* */- и KDoc-комментарии, не задев строковые литералы.
      *
+     * internal: разбор нужен не только этому сторожу (см. LabelDefaultAuditTest),
+     * а копировать его второй копией — значит иметь два разборчика, которые
+     * разъедутся ровно тогда, когда станут важны.
+     *
      * Символьные литералы приходится отслеживать наравне со строковыми: в коде
      * встречается `'"'` (например, список кавычек в CredentialInput), и без
      * этого разбор принимал бы такую кавычку за начало строки, съезжал на
      * полфайла и «находил» кириллицу в комментариях. Первый прогон теста именно
      * это и показал. */
-    private fun stripComments(src: String): String {
+    internal fun stripComments(src: String): String {
         val out = StringBuilder(src.length)
         var i = 0
         var inStr = false
@@ -299,7 +403,57 @@ class I18nAuditTest {
         return out.toString()
     }
 
-    private fun stringLiterals(src: String): List<String> =
-        Regex("\"\"\"(?:.|\\n)*?\"\"\"|\"(?:\\\\.|[^\"\\\\])*\"")
-            .findAll(src).map { it.value }.toList()
+    /**
+     * Литералы без регэкспа.
+     *
+     * Здесь стояло `Regex("\"\"\"(?:.|\\n)*?\"\"\"|\"(?:\\\\.|[^\"\\\\])*\"")`, и
+     * на `Strings.kt` (161 КБ) оно ловило `StackOverflowError`: java.util.regex
+     * для ленивого цикла `(.|\n)` рекурсируется на каждый символ, а один
+     * не закрытый как надо `"""` заставляет его пройти до конца файла. Страж
+     * при этом не «не нашёл», а УМЕР — то есть перестал проверять молча, ровно
+     * тот класс отказа, который мы ищем этим раундом (раунд 2, 21.09.2026).
+     *
+     * Скан линейный и в состоянии учитывает то же, что и `stripComments`:
+     * экранирование, символьные литералы и raw-строки с серией кавычек.
+     */
+    internal fun stringLiterals(src: String): List<String> {
+        val out = ArrayList<String>()
+        var i = 0
+        while (i < src.length) {
+            val c = src[i]
+            when {
+                c == '\'' -> {
+                    // Символьный литерал: `'"'` — не начало строки.
+                    var j = i + 1
+                    while (j < src.length && src[j] != '\'') { if (src[j] == '\\') j++; j++ }
+                    i = minOf(j + 1, src.length)
+                }
+                c == '"' && src.startsWith("\"\"\"", i) -> {
+                    var j = i + 3
+                    while (j < src.length) {
+                        if (src[j] == '"') {
+                            var n = 0
+                            while (j + n < src.length && src[j + n] == '"') n++
+                            // Закрывают ПОСЛЕДНИЕ три кавычки серии (см. stripComments).
+                            if (n >= 3) { j += n; break }
+                            j += n
+                        } else j++
+                    }
+                    out += src.substring(i, minOf(j, src.length))
+                    i = j
+                }
+                c == '"' -> {
+                    var j = i + 1
+                    while (j < src.length && src[j] != '"' && src[j] != '\n') {
+                        if (src[j] == '\\') j++
+                        j++
+                    }
+                    out += src.substring(i, minOf(j + 1, src.length))
+                    i = j + 1
+                }
+                else -> i++
+            }
+        }
+        return out
+    }
 }

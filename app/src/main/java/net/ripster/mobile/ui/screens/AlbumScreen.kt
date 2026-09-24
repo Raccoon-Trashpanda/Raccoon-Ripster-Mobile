@@ -1,5 +1,7 @@
 package net.ripster.mobile.ui.screens
 
+import net.ripster.mobile.core.errors.attempt
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -105,7 +107,7 @@ fun AlbumScreen(
         var why: Throwable? = null
         val own = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             kotlinx.coroutines.withTimeoutOrNull(25_000) {
-                runCatching { ServiceRegistry.get(svc)?.resolve(url) }
+                attempt { ServiceRegistry.get(svc)?.resolve(url) }
                     .onFailure {
                         why = it
                         android.util.Log.w("RipsterAlbum", "resolve failed: ${svc.id} $url", it)
@@ -128,12 +130,12 @@ fun AlbumScreen(
                         .filter { it != svc }
                         .mapNotNull { ServiceRegistry.get(it) }
                         .firstNotNullOfOrNull { c ->
-                            runCatching {
+                            attempt {
                                 val hit = c.search("$fallbackArtist $want").albums.firstOrNull { a ->
                                     a.title.equals(want, ignoreCase = true) ||
                                         a.title.contains(want, ignoreCase = true)
-                                } ?: return@runCatching null
-                                val u = hit.url ?: return@runCatching null
+                                } ?: return@attempt null
+                                val u = hit.url ?: return@attempt null
                                 c.resolve(u)?.takeIf { it.tracks.isNotEmpty() }
                             }.getOrNull()
                         }
@@ -167,6 +169,7 @@ fun AlbumScreen(
         url, sel,
     ) {
         val desc = sel?.tracks?.firstOrNull()?.raw?.get("description")
+        // catch-all-ok — треклист микса — дополнительная секция: пусто значит «нет источника», пересчёт при входе
         value = runCatching {
             net.ripster.mobile.core.tracklist.Tracklist.forUrl(url, desc)
         }.getOrDefault(emptyList())
@@ -193,7 +196,7 @@ fun AlbumScreen(
                 val alt = kotlinx.coroutines.withTimeoutOrNull(20_000) {
                     listOf(Service.DEEZER, Service.QOBUZ, Service.TIDAL, Service.SOUNDCLOUD)
                         .mapNotNull { ServiceRegistry.get(it) }
-                        .firstNotNullOfOrNull { c -> runCatching { c.search(q2).tracks.take(6) }.getOrNull()?.takeIf { it.isNotEmpty() } }
+                        .firstNotNullOfOrNull { c -> attempt { c.search(q2).tracks.take(6) }.getOrNull()?.takeIf { it.isNotEmpty() } }
                 }.orEmpty()
                 head = StreamResolver.toStreamItems(alt.take(4), q, limit = 4)
                 tail = alt.drop(4)
@@ -546,7 +549,11 @@ private fun TrackLine(
             // альбомного: иначе имя артиста повторялось бы под каждой строкой и
             // перестало бы что-либо значить. Просьба владельца 04.09.2026 —
             // «в треках прописывать коллаборации».
-            val credits = t.artist.trim()
+            //
+            // Берём из кэша глубокого состава, а не просим заново: треклист
+            // альбома — это двадцать строк, и по запросу на каждую был бы
+            // скрейп релиза вместо просмотра.
+            val credits = (net.ripster.mobile.core.service.ArtistDepth.cached(t) ?: t.artist).trim()
             if (credits.isNotBlank() && !credits.equals(albumArtist.trim(), ignoreCase = true)) {
                 BasicText(
                     credits, maxLines = 1, overflow = TextOverflow.Ellipsis,

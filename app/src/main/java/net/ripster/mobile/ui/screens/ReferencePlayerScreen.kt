@@ -1,7 +1,20 @@
 package net.ripster.mobile.ui.screens
 
+import net.ripster.mobile.core.errors.attempt
+
 import net.ripster.mobile.ui.components.MARQUEE_SECOND_LINE_DELAY
 import net.ripster.mobile.ui.components.ripsterMarquee
+import net.ripster.mobile.ui.premium.LyricsLineState
+import net.ripster.mobile.ui.premium.PremiumMotion
+import net.ripster.mobile.ui.premium.PremiumPlayerFx
+import net.ripster.mobile.ui.premium.glassSquish
+import net.ripster.mobile.ui.premium.glyphColor
+import net.ripster.mobile.ui.premium.liquidGlass
+import net.ripster.mobile.ui.premium.premiumCoverEnter
+import net.ripster.mobile.ui.premium.premiumLineBlur
+import net.ripster.mobile.ui.premium.rememberPremiumPlan
+import net.ripster.mobile.ui.premium.rememberPremiumPlayerFx
+import net.ripster.mobile.ui.premium.springScrollToLine
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -49,6 +62,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import net.ripster.mobile.core.db.FavoriteEntity
+import net.ripster.mobile.core.errors.isJobCancellation
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.Image
 import androidx.compose.ui.Alignment
@@ -58,7 +72,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -66,6 +79,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -99,6 +113,8 @@ import net.ripster.mobile.ui.components.drawRepeatGlyph
 import net.ripster.mobile.ui.components.drawShuffleGlyph
 import net.ripster.mobile.ui.i18n.LocalAppLang
 import net.ripster.mobile.ui.i18n.tr
+import net.ripster.mobile.ui.theme.CaptionFit
+import net.ripster.mobile.ui.theme.Motion
 import net.ripster.mobile.ui.theme.RipsterTheme
 
 /**
@@ -126,6 +142,18 @@ fun ReferencePlayerScreen(
     /** Тап по обложке. Полноэкранный OLED-режим рисует AppShell — он один
      *  перекрывает и шапку, и нижнюю навигацию. */
     onExpandCover: () -> Unit = {},
+    /**
+     * Прямоугольник обложки в мини-плашке. Передан (и только когда план разрешил
+     * пружины) — большая обложка выезжает из него; `null` — обложка появляется
+     * там же, где появлялась всегда.
+     */
+    enterFromCover: androidx.compose.ui.geometry.Rect? = null,
+    /**
+     * Стекло глобального ambilight из AppShell: нужно, только когда плеер не
+     * рисует СВОЙ дорогой фон (адаптивные цвета сняты). Иначе панель размывала
+     * бы то, чего не видно.
+     */
+    ambientHaze: dev.chrisbanes.haze.HazeState? = null,
     modifier: Modifier = Modifier,
 ) {
     val c = RipsterTheme.colors
@@ -161,6 +189,16 @@ fun ReferencePlayerScreen(
     val coverAvg = rememberCoverAvg(state.artworkUrl, embeddedArt)
         .takeIf { settings.adaptiveColors }
 
+    // План «дорогих визуалов» для этого телефона и момента — через общий хелпер
+    // плееров. Стиль фона не красит вовсе: за его панелями живёт глобальный
+    // ambilight AppShell, и стеклу размывать именно его (отсюда ambientHaze).
+    val fx = rememberPremiumPlayerFx(ambientHaze)
+    val premiumPlan = fx.plan
+    // Цвет того, что видно ЧЕРЕЗ органы управления: свечение обложки, когда
+    // включены адаптивные цвета, иначе холст. Стекло подмешивает его себе в тон,
+    // поэтому на тёплом альбоме кромка тёплая, а на холодном — холодная.
+    val glassBehind = coverAvg ?: c.surface_canvas
+
     // Фон НЕ красим — под плеером просвечивает глобальный ambilight из AppShell
     // (раньше непрозрачный surface_canvas закрывал его на всю область плеера).
     BoxWithConstraints(modifier.fillMaxSize()) {
@@ -175,9 +213,6 @@ fun ReferencePlayerScreen(
         // Ширина экрана нужна ниже, внутри Column — там неявный receiver
         // BoxWithConstraints уже недоступен.
         val screenW = maxWidth
-
-        // Адаптивная заливка по тону обложки теперь глобальная — на весь экран
-        // Ripster из AppShell (края в края), здесь её больше нет.
 
         Column(
             Modifier.fillMaxSize().padding(horizontal = 24.dp),
@@ -199,6 +234,13 @@ fun ReferencePlayerScreen(
 
             // ── обложка — герой (без наложений; вердикт качества — на строке
             //    формата под артистом, тап по ней → «Всё о потоке») ──
+            // Масштаб берётся из чистого слоя (PremiumMotion): вне режима и при
+            // «без анимации» он 1f в обоих состояниях, то есть анимации нет.
+            val artworkScale by animateFloatAsState(
+                targetValue = PremiumMotion.artworkScale(premiumPlan.springMotion, state.isPlaying),
+                animationSpec = Motion.standard,
+                label = "artwork-breath",
+            )
             Box(
                 Modifier.weight(1f).fillMaxWidth(),
                 contentAlignment = Alignment.Center,
@@ -210,6 +252,14 @@ fun ReferencePlayerScreen(
                     net.ripster.mobile.ui.components.Cover(
                         url = state.artworkUrl,
                         modifier = Modifier.size(side)
+                            // Доехать из плашки (пустой модификатор, когда
+                            // пружины запрещены или плашка не замерена).
+                            .premiumCoverEnter(enterFromCover)
+                            // Сесть на паузе и пружинить обратно на старте.
+                            .graphicsLayer {
+                                scaleX = artworkScale
+                                scaleY = artworkScale
+                            }
                             .clickable { onExpandCover() }
                             .border(1.dp, c.border_subtle, RoundedCornerShape(20.dp)),
                         shape = RoundedCornerShape(20.dp),
@@ -242,10 +292,22 @@ fun ReferencePlayerScreen(
                         // тап по строке качества → «Всё о потоке»
                         val warnDot = state.quality is QualityBadgeState.Mismatch ||
                             state.quality is QualityBadgeState.Fake
+                        // Строка качества — тоже орган, а не подпись: стеклянная
+                        // капсула, под которой видно фон. Без стекла капсула
+                        // невидима и без своих отступов, то есть ряд остаётся
+                        // ровно тем, чем был до режима.
+                        val pill = RoundedCornerShape(50)
+                        val pillPad = if (fx.hasGlass) 9.dp else 0.dp
                         Row(
-                            Modifier.clickable(
-                                interactionSource = remember { MutableInteractionSource() }, indication = null,
-                            ) { sheet = 5 },
+                            Modifier
+                                .liquidGlass(
+                                    fx, pill, glassBehind,
+                                    fallback = Color.Transparent,
+                                )
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() }, indication = null,
+                                ) { sheet = 5 }
+                                .padding(horizontal = pillPad, vertical = pillPad / 2f),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(5.dp),
                         ) {
@@ -258,21 +320,24 @@ fun ReferencePlayerScreen(
                                 state.format,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 style = TextStyle(
-                                    color = if (warnDot) c.warning_text else c.text_secondary,
+                                    color = fx.glyphColor(
+                                        if (warnDot) c.warning_text else c.text_secondary, glassBehind,
+                                    ),
                                     fontSize = 11.5.sp,
                                 ),
                             )
                             Canvas(Modifier.size(11.dp)) {
                                 val w = size.width
-                                drawCircle(c.text_tertiary, w * 0.46f, style = Stroke(w * 0.1f))
-                                drawLine(c.text_tertiary, Offset(w * 0.5f, w * 0.42f), Offset(w * 0.5f, w * 0.74f), w * 0.13f, StrokeCap.Round)
-                                drawCircle(c.text_tertiary, w * 0.07f, Offset(w * 0.5f, w * 0.28f))
+                                val info = fx.glyphColor(c.text_tertiary, glassBehind)
+                                drawCircle(info, w * 0.46f, style = Stroke(w * 0.1f))
+                                drawLine(info, Offset(w * 0.5f, w * 0.42f), Offset(w * 0.5f, w * 0.74f), w * 0.13f, StrokeCap.Round)
+                                drawCircle(info, w * 0.07f, Offset(w * 0.5f, w * 0.28f))
                             }
                         }
                     }
                 }
                 Spacer(Modifier.width(14.dp))
-                LikeButton(liked = liked) {
+                LikeButton(liked = liked, fx = fx, behind = glassBehind) {
                     if (state.title.isBlank()) return@LikeButton
                     favScope.launch {
                         if (liked) app.db.favorites().remove(favKey)
@@ -297,26 +362,41 @@ fun ReferencePlayerScreen(
                 net.ripster.mobile.ui.theme.clampCoverTint(it, c.surface_canvas)
             } ?: c.accent_text
             val wf = wfPeaks
-            if (wf != null && state.durationMs > 0) {
-                net.ripster.mobile.ui.components.WaveformSeek(
-                    peaks = wf,
-                    positionMs = state.positionMs,
-                    durationMs = state.durationMs,
-                    onSeek = onSeek,
-                    tint = wfTint,
-                    modifier = Modifier.fillMaxWidth().height(44.dp),
-                )
-            } else {
-                SeekStrip(
-                    positionMs = state.positionMs,
-                    durationMs = state.durationMs,
-                    onSeek = onSeek,
-                    modifier = Modifier.fillMaxWidth(),
-                    bufferedMs = state.bufferedMs.coerceAtLeast(state.positionMs),
-                    state = if (state.isPlaying) SeekPlaybackState.Playing else SeekPlaybackState.Paused,
-                    tint = wfTint,
-                    surfaceBehind = c.surface_canvas,
-                )
+            // Сик-бар — орган управления, а не голая линия: стеклянная капсула,
+            // в которой живёт дорожка. Без режима капсулы нет, отступов нет, и
+            // полоса стоит ровно там, где стояла до режима.
+            val seekShape = RoundedCornerShape(16.dp)
+            val seekPad = if (fx.hasGlass) 14.dp else 0.dp
+            Box(
+                Modifier.fillMaxWidth()
+                    .liquidGlass(fx, seekShape, glassBehind, fallback = Color.Transparent)
+                    .padding(horizontal = seekPad, vertical = seekPad / 2f),
+            ) {
+                if (wf != null && state.durationMs > 0) {
+                    net.ripster.mobile.ui.components.WaveformSeek(
+                        peaks = wf,
+                        positionMs = state.positionMs,
+                        durationMs = state.durationMs,
+                        onSeek = onSeek,
+                        tint = wfTint,
+                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                    )
+                } else {
+                    SeekStrip(
+                        positionMs = state.positionMs,
+                        durationMs = state.durationMs,
+                        onSeek = onSeek,
+                        modifier = Modifier.fillMaxWidth(),
+                        bufferedMs = state.bufferedMs.coerceAtLeast(state.positionMs),
+                        state = if (state.isPlaying) SeekPlaybackState.Playing else SeekPlaybackState.Paused,
+                        tint = wfTint,
+                        // Мерять контраст дорожки теперь нужно против стекла,
+                        // под которым она лежит, а не против голого холста. Без
+                        // режима стекла нет → glassPaint отдаёт null → прежний
+                        // surface_canvas, то есть OFF рендерится как раньше.
+                        surfaceBehind = fx.glassPaint(glassBehind) ?: c.surface_canvas,
+                    )
+                }
             }
 
             Spacer(Modifier.height(10.dp))
@@ -345,13 +425,17 @@ fun ReferencePlayerScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         SideGlyph(onClick = onToggleShuffle, cd = tr("a11y.shuffle", lang), box = sideBox, glyph = 22.dp,
-                            tint = if (state.shuffle) c.accent_text else c.text_tertiary) { drawShuffleGlyph(it) }
-                        SideGlyph(onClick = onPrevious, cd = tr("a11y.prev", lang), box = sideBox, glyph = 22.dp) { drawPrevGlyph(it) }
+                            tint = if (state.shuffle) c.accent_text else c.text_tertiary,
+                            fx = fx, behind = glassBehind) { drawShuffleGlyph(it) }
+                        SideGlyph(onClick = onPrevious, cd = tr("a11y.prev", lang), box = sideBox, glyph = 22.dp,
+                            fx = fx, behind = glassBehind) { drawPrevGlyph(it) }
                         RefPlayButton(isPlaying = state.isPlaying, onClick = onPlayPause,
-                            loading = state.loading)
-                        SideGlyph(onClick = onNext, cd = tr("a11y.next", lang), box = sideBox, glyph = 22.dp) { drawNextGlyph(it) }
+                            loading = state.loading, fx = fx)
+                        SideGlyph(onClick = onNext, cd = tr("a11y.next", lang), box = sideBox, glyph = 22.dp,
+                            fx = fx, behind = glassBehind) { drawNextGlyph(it) }
                         SideGlyph(onClick = onToggleRepeat, cd = tr("a11y.repeat", lang), box = sideBox, glyph = 22.dp,
-                            tint = if (state.repeat) c.accent_text else c.text_tertiary) { drawRepeatGlyph(it) }
+                            tint = if (state.repeat) c.accent_text else c.text_tertiary,
+                            fx = fx, behind = glassBehind) { drawRepeatGlyph(it) }
                     }
 
                     Spacer(Modifier.height(6.dp))
@@ -365,11 +449,16 @@ fun ReferencePlayerScreen(
                         horizontalArrangement = Arrangement.spacedBy(rowGap, Alignment.CenterHorizontally),
                         verticalAlignment = Alignment.Top,
                     ) {
-                        SquareAction(tr("ref.tracklist", lang), itemW, tileW, onClick = { sheet = 1 }) { listGlyph(it) }
-                        SquareAction(tr("ref.lyrics", lang), itemW, tileW, onClick = { sheet = 2 }) { lyricsGlyph(it) }
-                        SquareAction(tr("ref.spectrum", lang), itemW, tileW, onClick = { sheet = 3 }) { barsGlyph(it) }
-                        SquareAction(tr("ref.equalizer", lang), itemW, tileW, onClick = { sheet = 4 }) { eqGlyph(it) }
-                        SquareAction(tr("ref.cast", lang), itemW, tileW, onClick = { sheet = 6 }) { castGlyph(it) }
+                        SquareAction(tr("ref.tracklist", lang), itemW, tileW, onClick = { sheet = 1 },
+                            fx = fx, behind = glassBehind) { listGlyph(it) }
+                        SquareAction(tr("ref.lyrics", lang), itemW, tileW, onClick = { sheet = 2 },
+                            fx = fx, behind = glassBehind) { lyricsGlyph(it) }
+                        SquareAction(tr("ref.spectrum", lang), itemW, tileW, onClick = { sheet = 3 },
+                            fx = fx, behind = glassBehind) { barsGlyph(it) }
+                        SquareAction(tr("ref.equalizer", lang), itemW, tileW, onClick = { sheet = 4 },
+                            fx = fx, behind = glassBehind) { eqGlyph(it) }
+                        SquareAction(tr("ref.cast", lang), itemW, tileW, onClick = { sheet = 6 },
+                            fx = fx, behind = glassBehind) { castGlyph(it) }
                     }
                 }
             }
@@ -517,18 +606,26 @@ internal fun LyricsPanel(
 ) {
     val app = RipsterApp.from(LocalContext.current)
     var lyricsFailed by remember(state.title, state.artist) { mutableStateOf(false) }
+    var lyricsReason by remember(state.title, state.artist) { mutableStateOf("") }
     val lyrics by produceState<LyricsClient.Lyrics?>(
         initialValue = null,
         key1 = state.title, key2 = state.artist,
     ) {
         // Отказ сервиса и отсутствие текста — РАЗНЫЕ вещи. Раньше оба давали
         // «текста нет», и человек делал вывод, что у песни нет слов, хотя мы
-        // просто не достучались.
-        val attempt = runCatching {
+        // просто не достучались. Ветка отказа при этом была мертва: `fetch`
+        // глотал исключения внутри, и `attempt.isFailure` не становился
+        // истинным НИКОГДА (раунд 2).
+        val reply: LyricsClient.Reply = try {
             LyricsClient.fetch(state.artist, state.title, (state.durationMs / 1000).toInt())
+        } catch (t: Throwable) {
+            // Отмена (ушли с экрана) — не «не удалось загрузить текст».
+            if (isJobCancellation(t)) throw t
+            LyricsClient.Reply.Failed(t.message ?: t.javaClass.simpleName)
         }
-        lyricsFailed = attempt.isFailure
-        value = attempt.getOrNull() ?: LyricsClient.Lyrics(null, emptyList())
+        lyricsFailed = reply is LyricsClient.Reply.Failed
+        lyricsReason = (reply as? LyricsClient.Reply.Failed)?.reason.orEmpty()
+        value = reply.lyrics
     }
 
     // Живая позиция на быстром тике — push-state обновляет positionMs раз в ~1 с,
@@ -547,22 +644,44 @@ internal fun LyricsPanel(
     val wordLines by produceState<List<net.ripster.mobile.core.pair.PcBridge.WordLine>>(
         initialValue = emptyList(), key1 = state.title, key2 = state.artist,
     ) {
-        value = runCatching { app.pcBridge.wordLyrics(state.title, state.artist) }.getOrDefault(emptyList())
+        // С тем же набором вариантов названия, что и LRCLIB: грязный тег
+        // («Bare - Redux» вместо «Bare») иначе убивает и матчинг Apple.
+        value = LyricsClient.titleVariants(state.title).firstNotNullOfOrNull { t ->
+            attempt { app.pcBridge.wordLyrics(t, state.artist) }.getOrDefault(emptyList())
+                .takeIf { it.isNotEmpty() }
+        }.orEmpty()
     }
 
     val listState = rememberLazyListState()
+    // Глубина текста (соседние строки размыты) и пружины берутся из того же
+    // плана, что фон и стекло: на Android младше 12 и в экономии заряда их нет,
+    // и панель обязана вернуться ровно к тому виду, что был до режима.
+    val premiumPlan = rememberPremiumPlan()
+    val depth = premiumPlan.lyricsDepth
+    val springy = premiumPlan.springMotion
+    // Размер шрифта пружинит только когда пружины разрешены; иначе — прежний
+    // линейный tween, чтобы «дорогие» числа не меняли базовый экран.
+    val fsSpec: androidx.compose.animation.core.AnimationSpec<Float> =
+        if (springy) Motion.standard else tween(220)
+    // Доезд звучащей строки к центру: пружиной, а когда пружинить нечем (строка
+    // не видна после seek или смены трека) — как раньше, animateScrollToItem.
+    val centerLine: suspend (Int) -> Unit = { activeIdx ->
+        if (!listState.springScrollToLine(activeIdx, Motion.gentle, springy)) {
+            val info = listState.layoutInfo
+            val vp = info.viewportSize.height
+            val lineH = info.visibleItemsInfo.firstOrNull { it.index == activeIdx }?.size ?: 0
+            val off = -((vp / 2) - (lineH / 2)).coerceAtLeast(0)
+            runCatching { listState.animateScrollToItem(activeIdx, off) }
+        }
+    }
     val body = lyrics
     when {
         // ── КАРАОКЕ ПО СЛОВАМ (Apple syllable) ──
         wordLines.isNotEmpty() -> {
-            val activeIdx = wordLines.indexOfLast { it.s <= livePos }.coerceAtLeast(0)
-            LaunchedEffect(activeIdx) {
-                val info = listState.layoutInfo
-                val vp = info.viewportSize.height
-                val lineH = info.visibleItemsInfo.firstOrNull { it.index == activeIdx }?.size ?: 0
-                val off = -((vp / 2) - (lineH / 2)).coerceAtLeast(0)
-                runCatching { listState.animateScrollToItem(activeIdx, off) }
-            }
+            val activeIdx = LyricsLineState.activeIndex(
+                remember(wordLines) { wordLines.map { it.s } }, livePos,
+            )
+            LaunchedEffect(activeIdx) { centerLine(activeIdx) }
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
@@ -570,9 +689,13 @@ internal fun LyricsPanel(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 itemsIndexed(wordLines) { i, line ->
-                    val active = i == activeIdx
+                    val ls = LyricsLineState.lineAt(i, activeIdx, depth)
+                    val active = ls.active
                     val past = i < activeIdx
-                    val fs by animateFloatAsState(if (active) 21f else 16f, tween(220), label = "kw-fs")
+                    // Вне фокуса строка не только глуше, но и размыта (api 31+),
+                    // а звучащая остаётся резкой — иначе текст читается кашей.
+                    val lineAlpha = if (active) 1f else 0.25f + 0.75f * ls.focus
+                    val fs by animateFloatAsState(if (ls.grow) 21f else 16f, fsSpec, label = "kw-fs")
                     val ann = buildAnnotatedString {
                         line.words.forEach { w ->
                             val sung = livePos >= w.t
@@ -584,7 +707,7 @@ internal fun LyricsPanel(
                                 past -> c.text_secondary.copy(alpha = 0.30f)
                                 else -> c.text_secondary.copy(alpha = 0.55f)
                             }
-                            withStyle(SpanStyle(color = col)) {
+                            withStyle(SpanStyle(color = col.copy(alpha = col.alpha * lineAlpha))) {
                                 append(w.w)
                             }
                             if (w.sp) append(" ")
@@ -592,7 +715,8 @@ internal fun LyricsPanel(
                     }
                     BasicText(
                         ann,
-                        Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                            .premiumLineBlur(ls.blurDp),
                         style = TextStyle(fontSize = fs.sp, lineHeight = (fs + 8f).sp,
                             fontWeight = if (active) FontWeight.W700 else FontWeight.W600),
                     )
@@ -602,16 +726,10 @@ internal fun LyricsPanel(
         body == null ->
             Centered(tr("search.checking", lang), c)
         body.synced.isNotEmpty() -> {
-            val activeIdx = body.synced.indexOfLast { it.atMs <= livePos }.coerceAtLeast(0)
-            // Активная строка держится по центру: скроллим к ней с отрицательным
-            // смещением на пол-вьюпорта — текст «плывёт» вверх, центр статичен.
-            LaunchedEffect(activeIdx) {
-                val info = listState.layoutInfo
-                val vp = info.viewportSize.height
-                val lineH = info.visibleItemsInfo.firstOrNull { it.index == activeIdx }?.size ?: 0
-                val off = -((vp / 2) - (lineH / 2)).coerceAtLeast(0)
-                runCatching { listState.animateScrollToItem(activeIdx, off) }
-            }
+            val activeIdx = LyricsLineState.activeIndex(
+                remember(body) { body.synced.map { it.atMs } }, livePos,
+            )
+            LaunchedEffect(activeIdx) { centerLine(activeIdx) }
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
@@ -619,23 +737,21 @@ internal fun LyricsPanel(
                 verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
                 itemsIndexed(body.synced) { i, line ->
-                    val d = i - activeIdx
-                    val active = d == 0
-                    // ушедшее вверх — глуше; предстоящее внизу — чуть светлее.
-                    val alpha = when {
-                        active -> 1f
-                        d < 0 -> (0.40f - 0.06f * (-d)).coerceIn(0.10f, 0.40f)
-                        else -> (0.60f - 0.07f * d).coerceIn(0.16f, 0.60f)
-                    }
-                    val fs by animateFloatAsState(if (active) 19f else 15.5f, tween(220), label = "ly-fs")
+                    val ls = LyricsLineState.lineAt(i, activeIdx, depth)
+                    // Спето (выше) — глуше; предстоящее (ниже) — чуть светлее:
+                    // человек читает вперёд. Считает LyricsLineState, та же
+                    // таблица, что и для караоке по словам.
+                    val fs by animateFloatAsState(if (ls.grow) 19f else 15.5f, fsSpec, label = "ly-fs")
                     BasicText(
                         line.text.ifBlank { "♪" },
-                        Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                            .premiumLineBlur(ls.blurDp),
                         style = TextStyle(
-                            color = (if (active) c.text_primary else c.text_secondary).copy(alpha = alpha),
+                            color = (if (ls.active) c.text_primary else c.text_secondary)
+                                .copy(alpha = if (ls.active) 1f else ls.focus),
                             fontSize = fs.sp,
                             lineHeight = (fs + 7f).sp,
-                            fontWeight = if (active) FontWeight.W700 else FontWeight.W500,
+                            fontWeight = if (ls.active) FontWeight.W700 else FontWeight.W500,
                         ),
                     )
                 }
@@ -673,7 +789,12 @@ internal fun LyricsPanel(
                 Spacer(Modifier.height(40.dp))
             }
         lyricsFailed ->
-            Centered(tr("ref.lyrics_failed", lang), c)
+            // Причина рядом с переводимой строкой: «429» и «нет сети» — разные
+            // действия человека, а у нас и то и другое было молчанием.
+            Centered(
+                tr("ref.lyrics_failed", lang) + if (lyricsReason.isBlank()) "" else " · $lyricsReason",
+                c,
+            )
         else ->
             Centered(tr("ref.no_lyrics", lang), c)
     }
@@ -698,8 +819,11 @@ internal fun SpectrumPanel(
     // 0 — строю, 1 — готово, 2 — не удалось, 3 — нет трека вообще, 4 — файл пропал
     var phase by remember(path, style) { mutableStateOf(0) }
     var result by remember(path, style) { mutableStateOf<net.ripster.mobile.core.audio.Spectrogram.Result?>(null) }
+    // Почему не вышло — своим текстом. Раньше сюда стекались все отказы разбора,
+    // и экран на коротком треке врал про «системный декодер устройства» (BUG-5).
+    var failKey by remember(path, style) { mutableStateOf("ref.spectrum_fail") }
     LaunchedEffect(path, style) {
-        phase = 0; result = null
+        phase = 0; result = null; failKey = "ref.spectrum_fail"
         if (path == null) { phase = 3; return@LaunchedEffect }
         // Локальный файл — разбираем как есть. Сетевой поток (он УЖЕ играет,
         // значит байты доступны) — тянем начало во временный файл (Deezer по
@@ -713,14 +837,16 @@ internal fun SpectrumPanel(
         }
         val src: String? = if (isLocal) path else
             net.ripster.mobile.core.audio.SpectrumSource.fetchPlayingToTemp(ctx, path)?.absolutePath
-        if (src == null) { phase = 2; return@LaunchedEffect }
+        if (src == null) { failKey = "ref.spectrum_no_source"; phase = 2; return@LaunchedEffect }
         val srcExt = if (isLocal) ext else src.substringAfterLast('.', "").lowercase().take(5)
-        val r = runCatching {
+        val analysis = attempt {
             net.ripster.mobile.core.audio.Spectrogram.analyze(ctx, src, style, heightPx = 360, containerExt = srcExt)
         }.getOrNull()
+        // catch-all-ok — чистка временного файла: обязана случиться и при отмене
         if (!isLocal) runCatching { java.io.File(src).delete() }
-        result = r
-        phase = if (r != null) 1 else 2
+        result = analysis?.spectrum
+        failKey = (analysis?.failure ?: net.ripster.mobile.core.audio.Spectrogram.Failure.DECODER).key
+        phase = if (result != null) 1 else 2
     }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
@@ -753,13 +879,13 @@ internal fun SpectrumPanel(
             phase == 0 -> Centered(tr("ref.spectrum_building", lang), c)
             phase == 3 -> Centered(tr("ref.no_track", lang), c)
             phase == 4 -> Centered(tr("ref.file_missing", lang), c)
-        phase == 2 || result == null -> Centered(tr("ref.spectrum_fail", lang), c)
+            phase == 2 || result == null -> Centered(tr(failKey, lang), c)
             else -> {
                 val r = result!!
                 Image(
                     bitmap = r.bitmap.asImageBitmap(),
                     contentDescription = tr("ref.spectrum", lang),
-                    modifier = Modifier.fillMaxWidth().aspectRatio(900f / 460f)
+                    modifier = Modifier.fillMaxWidth().aspectRatio(net.ripster.mobile.core.audio.Spectrogram.FRAME_W.toFloat() / net.ripster.mobile.core.audio.Spectrogram.FRAME_H.toFloat())
                         .clip(RoundedCornerShape(10.dp))
                         .background(Color(0xFF111318))
                         .border(1.dp, c.border_subtle, RoundedCornerShape(10.dp)),
@@ -809,7 +935,7 @@ internal suspend fun resolveLocalMeasure(
     val p = pb.currentPath ?: return null to null
     fun extOf(s: String) = s.substringAfterLast('.', "").lowercase().take(5)
     if (!p.startsWith("http", ignoreCase = true)) return p to extOf(p)
-    val local = runCatching { app.db.library().localCopy(pb.title.trim(), pb.artist.trim()) }.getOrNull()
+    val local = attempt { app.db.library().localCopy(pb.title.trim(), pb.artist.trim()) }.getOrNull()
     val lp = local?.filePath
     if (lp != null && (lp.startsWith("content://") || runCatching { java.io.File(lp).exists() }.getOrDefault(false))) {
         return lp to extOf(lp)
@@ -832,12 +958,14 @@ internal fun StreamInfoPanel(
     var measureLocal by remember(path) { mutableStateOf(false) }
     val info by produceState<net.ripster.mobile.core.audio.StreamInfo?>(initialValue = null, path) {
         val (src, _) = resolveLocalMeasure(app, pb)
-        value = if (src == null) null else runCatching { net.ripster.mobile.core.audio.StreamProbe.probe(ctx, src) }.getOrNull()
+        value = if (src == null) null else attempt { net.ripster.mobile.core.audio.StreamProbe.probe(ctx, src) }.getOrNull()
     }
     var specPhase by remember(path) { mutableStateOf(0) }
     var spec by remember(path) { mutableStateOf<net.ripster.mobile.core.audio.Spectrogram.Result?>(null) }
+    var specFailKey by remember(path) { mutableStateOf("ref.spectrum_fail") }
     LaunchedEffect(path) {
         specPhase = 0; spec = null; measurePath = null; measureLocal = false
+        specFailKey = "ref.spectrum_fail"
         if (path == null) { specPhase = 2; return@LaunchedEffect }
         // 1) Локальная копия (сам файл или скачанное) — мерим её.
         val (localSrc, localExt) = resolveLocalMeasure(app, pb)
@@ -845,17 +973,20 @@ internal fun StreamInfoPanel(
         // 2) Копии нет и это поток — тянем начало во временный (Deezer/Tidal
         //    там расшифровываются системным путём), как делает панель спектра.
         if (src == null && path.startsWith("http", ignoreCase = true)) {
-            temp = runCatching { net.ripster.mobile.core.audio.SpectrumSource.fetchPlayingToTemp(ctx, path) }.getOrNull()
+            temp = attempt { net.ripster.mobile.core.audio.SpectrumSource.fetchPlayingToTemp(ctx, path) }.getOrNull()
             src = temp?.absolutePath
             sext = src?.substringAfterLast('.', "")?.lowercase()?.take(5)
         }
         measurePath = localSrc; measureLocal = localSrc != null
-        if (src == null) { specPhase = 2; return@LaunchedEffect }
-        val r = runCatching {
+        if (src == null) { specFailKey = "ref.spectrum_no_source"; specPhase = 2; return@LaunchedEffect }
+        val analysis = attempt {
             net.ripster.mobile.core.audio.Spectrogram.analyze(ctx, src, net.ripster.mobile.core.audio.Spectrogram.Style.RIPSTER, heightPx = 360, containerExt = sext)
         }.getOrNull()
+        // catch-all-ok — чистка временного файла: обязана случиться и при отмене
         runCatching { temp?.delete() }
-        spec = r; specPhase = if (r != null) 1 else 2
+        spec = analysis?.spectrum
+        specFailKey = (analysis?.failure ?: net.ripster.mobile.core.audio.Spectrogram.Failure.DECODER).key
+        specPhase = if (spec != null) 1 else 2
     }
 
     if (path == null) { Centered("—", c); return }
@@ -909,6 +1040,8 @@ internal fun StreamInfoPanel(
             }
             Spacer(Modifier.height(16.dp))
         }
+        SignalPathSection(app, c, lang, pb, info)
+        Spacer(Modifier.height(14.dp))
         // таблица характеристик
         info?.let { i ->
             i.row().forEach { (k, v) ->
@@ -923,13 +1056,13 @@ internal fun StreamInfoPanel(
         // спектр
         when {
             specPhase == 0 -> BasicText(tr("ref.spectrum_building", lang), style = TextStyle(color = c.text_tertiary, fontSize = 12.sp))
-            specPhase == 2 || spec == null -> BasicText(tr("ref.spectrum_fail", lang), style = TextStyle(color = c.text_tertiary, fontSize = 12.sp))
+            specPhase == 2 || spec == null -> BasicText(tr(specFailKey, lang), style = TextStyle(color = c.text_tertiary, fontSize = 12.sp))
             else -> {
                 val r = spec!!
                 Image(
                     bitmap = r.bitmap.asImageBitmap(),
                     contentDescription = null,
-                    modifier = Modifier.fillMaxWidth().aspectRatio(900f / 460f)
+                    modifier = Modifier.fillMaxWidth().aspectRatio(net.ripster.mobile.core.audio.Spectrogram.FRAME_W.toFloat() / net.ripster.mobile.core.audio.Spectrogram.FRAME_H.toFloat())
                         .clip(RoundedCornerShape(10.dp)).background(Color(0xFF111318))
                         .border(1.dp, c.border_subtle, RoundedCornerShape(10.dp)),
                     contentScale = ContentScale.Fit,
@@ -996,6 +1129,145 @@ internal fun StreamInfoPanel(
     }
 }
 
+/**
+ * Честный сигнальный путь — вертикальная цепочка стадий поверх «Паспорта трека».
+ *
+ * Берём у референса ПРИНЦИП (цепочка стадий с честным вердиктом каждой), а не
+ * вёрстку. Ни один знак не рисуется без рантайм-значения: вердикт считается
+ * чистым [net.ripster.mobile.player.SignalPath] и потому не может позеленеть
+ * над активным ресемплером — этот случай запрещён редьюсером и покрыт тестом.
+ *
+ * Что не измерить на этом устройстве, так и подписано — «не измерить», а не
+ * «в порядке».
+ */
+@Composable
+internal fun SignalPathSection(
+    app: RipsterApp,
+    c: net.ripster.mobile.ui.theme.RipsterColors,
+    lang: net.ripster.mobile.ui.i18n.AppLang,
+    pb: net.ripster.mobile.player.PlayerController.State,
+    info: net.ripster.mobile.core.audio.StreamInfo?,
+) {
+    val ctx = LocalContext.current
+    val nativePath = pb.isNative
+    val nat = if (nativePath) net.ripster.mobile.player.NativeAudioEngine.snapshot() else null
+    val sys = if (nativePath) net.ripster.mobile.player.PlayerController.SystemAudio()
+        else app.player.systemAudio()
+    val fx by net.ripster.mobile.player.AudioEffects.config.collectAsState()
+
+    // Родная частота вывода устройства — единственный честный ответ на «что
+    // умеет железо». 0 = недоступно; на часть прошивок отдаёт фиксированные
+    // 48000 независимо от подключённого ЦАПа, поэтому показываем как факт, а не
+    // как обещание.
+    val devRate = remember {
+        runCatching {
+            val am = ctx.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
+            am.getProperty(android.media.AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)?.toIntOrNull() ?: 0
+        }.getOrDefault(0)
+    }
+
+    val dspApplied = fx.enabled && (
+        fx.loudnessMdB > 0 || fx.bassBoost > 0 || fx.virtualizer > 0 ||
+            fx.preset >= 0 || fx.levels.any { it != 0 }
+        )
+
+    val snapshot = net.ripster.mobile.player.SignalSnapshot(
+        engine = if (nativePath) net.ripster.mobile.player.PathEngine.NATIVE
+        else net.ripster.mobile.player.PathEngine.SYSTEM,
+        codec = info?.codec.orEmpty(),
+        losslessSource = pb.lossless,
+        sourceBitDepth = nat?.sourceBitDepth?.takeIf { it > 0 } ?: info?.bitDepth ?: 0,
+        sourceRateHz = nat?.sourceRateHz?.takeIf { it > 0 } ?: info?.sampleRateHz ?: 0,
+        channels = nat?.channels?.takeIf { it > 0 } ?: info?.channels ?: sys.channels,
+        decoderBitDepth = nat?.decoderBitDepth ?: 0,
+        decoderRateHz = nat?.decoderRateHz?.takeIf { it > 0 } ?: sys.rateHz,
+        resamplerActive = nat?.resamplerActive,
+        deviceNativeRateHz = devRate,
+        grantedRateHz = nat?.grantedRateHz ?: 0,
+        outputKnown = (nat?.outputKnown ?: false) || devRate > 0,
+        directOutput = false,
+        dspApplied = dspApplied,
+        gainTouched = false,
+    )
+    val report = remember(snapshot) { net.ripster.mobile.player.SignalPath.reduce(snapshot) }
+
+    fun word(status: net.ripster.mobile.player.StageStatus): Pair<String, Color> = when (status) {
+        net.ripster.mobile.player.StageStatus.OK -> tr("sp.st_ok", lang) to c.accent_text
+        net.ripster.mobile.player.StageStatus.INFO -> tr("sp.st_info", lang) to c.text_secondary
+        net.ripster.mobile.player.StageStatus.WARN -> tr("sp.st_warn", lang) to c.warning_text
+        net.ripster.mobile.player.StageStatus.LOSS -> tr("sp.st_loss", lang) to c.danger_text
+        net.ripster.mobile.player.StageStatus.UNKNOWN -> tr("sp.st_unknown", lang) to c.text_tertiary
+    }
+
+    Column(Modifier.fillMaxWidth()) {
+        BasicText(
+            tr("sp.title", lang),
+            style = TextStyle(color = c.text_tertiary, fontSize = 11.sp, fontWeight = FontWeight.W700,
+                letterSpacing = 0.8.sp),
+        )
+        Spacer(Modifier.height(8.dp))
+
+        // Верхний вердикт. Слово и цвет — из одного решения, противоречия
+        // «зелёный bit-perfect над красным INACTIVE» тут не случается: слово
+        // «бит-в-бит» даётся только когда allow=true, и тогда же цепочка вся чиста.
+        val (vword, vcol) = if (report.bitPerfect)
+            tr("sp.verdict_bitperfect", lang) to c.accent_text
+        else tr("sp.verdict_not", lang) to c.text_secondary
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                .background(c.surface_raised).border(1.dp, vcol.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Canvas(Modifier.size(12.dp)) { drawCircle(vcol, size.minDimension / 2f) }
+            BasicText(vword, style = TextStyle(color = vcol, fontSize = 15.sp, fontWeight = FontWeight.W800))
+            Spacer(Modifier.weight(1f))
+            BasicText(
+                tr("sp.integrity", lang, report.integrity.toString()),
+                style = TextStyle(color = c.text_tertiary, fontSize = 11.sp),
+            )
+        }
+        if (!report.bitPerfect && report.reasonsNotBitPerfect.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
+            BasicText(
+                report.reasonsNotBitPerfect.joinToString(" · ") { tr(it, lang) },
+                style = TextStyle(color = c.text_tertiary, fontSize = 11.sp, lineHeight = 15.sp),
+            )
+        }
+
+        Spacer(Modifier.height(12.dp))
+        // Цепочка стадий: точка + коннектор + карточка. Первая — без коннектора сверху.
+        report.stages.forEachIndexed { idx, st ->
+            val (sw, scol) = word(st.status)
+            Row(Modifier.fillMaxWidth()) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(20.dp)) {
+                    Box(Modifier.size(26.dp), contentAlignment = Alignment.Center) {
+                        Canvas(Modifier.size(26.dp)) {
+                            drawCircle(scol.copy(alpha = 0.18f), size.minDimension / 2f)
+                            drawCircle(scol, size.minDimension * 0.2f)
+                        }
+                    }
+                    if (idx != report.stages.lastIndex) {
+                        Box(Modifier.width(1.dp).height(30.dp).background(c.border_subtle))
+                    }
+                }
+                Column(Modifier.weight(1f).padding(bottom = if (idx == report.stages.lastIndex) 0.dp else 10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        BasicText(tr(st.id, lang), style = TextStyle(color = c.text_primary, fontSize = 13.sp, fontWeight = FontWeight.W700))
+                        BasicText(sw, style = TextStyle(color = scol, fontSize = 11.sp, fontWeight = FontWeight.W600))
+                    }
+                    st.facts.forEach { (fk, arg) ->
+                        val text = if (fk == "sp.f_lossless" || fk == "sp.f_direct")
+                            tr(fk, lang, if (arg == "1") tr("common.yes", lang) else tr("common.no", lang))
+                        else tr(fk, lang, arg)
+                        BasicText(text, style = TextStyle(color = c.text_tertiary, fontSize = 11.5.sp, lineHeight = 16.sp))
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun Centered(text: String, c: net.ripster.mobile.ui.theme.RipsterColors) {
     Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.TopStart) {
@@ -1006,7 +1278,12 @@ private fun Centered(text: String, c: net.ripster.mobile.ui.theme.RipsterColors)
 // ── детали ──────────────────────────────────────────────────────────────
 
 @Composable
-private fun RefPlayButton(isPlaying: Boolean, onClick: () -> Unit, loading: Boolean = false) {
+private fun RefPlayButton(
+    isPlaying: Boolean,
+    onClick: () -> Unit,
+    loading: Boolean = false,
+    fx: PremiumPlayerFx,
+) {
     val c = RipsterTheme.colors
     // Главная кнопка экрана была для озвучки безымянной. Подпись зависит от
     // состояния: «пауза» на играющем и «воспроизвести» на остановленном —
@@ -1016,8 +1293,14 @@ private fun RefPlayButton(isPlaying: Boolean, onClick: () -> Unit, loading: Bool
     val brush = Brush.linearGradient(listOf(c.accent_hover, c.accent_fill))
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    val s by animateFloatAsState(if (pressed) 0.9f else 1f, label = "play-press")
-    Box(Modifier.size(72.dp).scale(s), contentAlignment = Alignment.Center) {
+    // Акцентная Play остаётся акцентной — это лицо плеера, а не второстепенный
+    // глиф; стеклом её не тонировать значит потерять бренд. Пружину нажатия она
+    // всё равно берёт у стекла: под пальцем упруго садится, без режима — как была.
+    Box(
+        Modifier.size(72.dp)
+            .glassSquish(fx, pressed, plain = 0.9f, label = "play-press"),
+        contentAlignment = Alignment.Center,
+    ) {
       // неоновое свечение primary-кнопки (design-system-neon.md: --glow)
       Canvas(Modifier.matchParentSize()) {
           drawCircle(
@@ -1070,14 +1353,26 @@ private fun SideGlyph(
     box: androidx.compose.ui.unit.Dp = 48.dp,
     glyph: androidx.compose.ui.unit.Dp = 24.dp,
     tint: Color? = null,
+    fx: PremiumPlayerFx,
+    behind: Color,
     draw: DrawScope.(Color) -> Unit,
 ) {
     val c = RipsterTheme.colors
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    val s by animateFloatAsState(if (pressed) 0.82f else 1f, label = "side-press")
+    // Пружина нажатия принадлежит стеклу: без режима glassSquish даёт ровно то
+    // плоское сжатие до 0.82f тем же доводчиком, что стоял здесь раньше.
+    val own = (tint ?: c.text_secondary)
     Box(
-        Modifier.size(box).scale(s)
+        Modifier.size(box)
+            .glassSquish(fx, pressed, plain = 0.82f, label = "side-press")
+            // Стеклянный диск — орган, а не голый глиф над фоном. Без стекла его
+            // нет, и кнопка остаётся той же невидимой плашкой, что и до режима.
+            .then(
+                if (fx.hasGlass) {
+                    Modifier.clip(CircleShape).liquidGlass(fx, CircleShape, behind, fallback = Color.Transparent)
+                } else Modifier,
+            )
             .clickable(interactionSource = interaction, indication = null,
                        onClickLabel = cd, role = Role.Button, onClick = onClick)
             // Подпись `cd` сюда ПРИНИМАЛАСЬ и никуда не шла: перемотка, шаффл и
@@ -1086,23 +1381,34 @@ private fun SideGlyph(
             // отсюда и «подписи есть», пока не посмотришь дамп экрана.
             .semantics { contentDescription = cd },
         contentAlignment = Alignment.Center,
-    ) { Canvas(Modifier.size(glyph)) { draw(tint ?: c.text_secondary) } }
+    ) { Canvas(Modifier.size(glyph)) { draw(fx.glyphColor(own, behind)) } }
 }
 
 // ── ♥ — крупная, с анимацией нажатия, заливается при активe ──
 @Composable
-private fun LikeButton(liked: Boolean, onClick: () -> Unit) {
+private fun LikeButton(
+    liked: Boolean,
+    fx: PremiumPlayerFx,
+    behind: Color,
+    onClick: () -> Unit,
+) {
     val c = RipsterTheme.colors
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    val s by animateFloatAsState(if (pressed) 0.82f else 1f, label = "like-press")
+    val own = if (liked) c.accent_text else c.text_tertiary
     Box(
-        Modifier.size(48.dp).scale(s)
+        Modifier.size(48.dp)
+            .glassSquish(fx, pressed, plain = 0.82f, label = "like-press")
+            .then(
+                if (fx.hasGlass) {
+                    Modifier.clip(CircleShape).liquidGlass(fx, CircleShape, behind, fallback = Color.Transparent)
+                } else Modifier,
+            )
             .clickable(interactionSource = interaction, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Canvas(Modifier.size(22.dp)) {
-            val col = if (liked) c.accent_text else c.text_tertiary
+            val col = fx.glyphColor(own, behind)
             // тот же выверенный контур, что heartPath — не вылезает за Canvas
             val w = size.width; val h = size.height
             val p = Path().apply {
@@ -1190,12 +1496,15 @@ private fun SquareAction(
     itemWidth: androidx.compose.ui.unit.Dp,
     tileSize: androidx.compose.ui.unit.Dp,
     onClick: () -> Unit,
+    fx: PremiumPlayerFx,
+    behind: Color,
     draw: DrawScope.(Color) -> Unit,
 ) {
     val c = RipsterTheme.colors
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    val s by animateFloatAsState(if (pressed) 0.9f else 1f, label = "sq-press")
+    val tile = RoundedCornerShape(15.dp)
+    val captionSp = CaptionFit.fitSp(label, itemWidth.value, maxLines = 2)
     // Ширина ЭЛЕМЕНТА фиксирована по плитке, а не по подписи. Иначе длинный
     // ярлык («To speaker», «На Станцию») раздувал колонку, ряд переставал
     // влезать в 1080px и пятая кнопка срезалась краем экрана (жалоба тестера
@@ -1208,26 +1517,40 @@ private fun SquareAction(
         Box(
             Modifier
                 .size(tileSize)
-                .scale(s)
-                .clip(RoundedCornerShape(15.dp))
-                .background(c.surface_raised)
-                .border(1.dp, c.border_subtle, RoundedCornerShape(15.dp))
+                .glassSquish(fx, pressed, plain = 0.9f, label = "sq-press")
+                // Стекло рисует и тон, и свет (блик/кромка/внутренняя тень),
+                // поэтому прежняя рамка темы ему только мешает. Без режима
+                // остаётся глухая заливка surface_raised с рамкой — как было.
+                .liquidGlass(fx, tile, behind, fallback = c.surface_raised)
+                .then(
+                    if (fx.hasGlass) Modifier
+                    else Modifier.clip(tile).border(1.dp, c.border_subtle, tile),
+                )
                 .clickable(interactionSource = interaction, indication = null, onClick = onClick),
             contentAlignment = Alignment.Center,
-        ) { Canvas(Modifier.size(21.dp)) { draw(c.text_secondary) } }
+        ) { Canvas(Modifier.size(21.dp)) { draw(fx.glyphColor(c.text_secondary, behind)) } }
         BasicText(
             label,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             style = TextStyle(
                 color = c.text_tertiary,
-                fontSize = 10.sp,
-                lineHeight = 12.sp,
+                fontSize = captionSp,
+                lineHeight = captionLineHeight(captionSp),
                 textAlign = TextAlign.Center,
             ),
         )
     }
 }
+
+/**
+ * Кегль подписи действия: самый большой из тех, при которых ярлык дочитывается
+ * в ячейку за две строки. Раньше здесь стояло фиксированное `10.sp` — на 360dp
+ * «Эквалайзер» в такую ячейку не влезал и в две строки, и подпись умирала как
+ * «Эквала…». Теперь подпись уменьшится, но дочитается.
+ */
+private fun captionLineHeight(sp: androidx.compose.ui.unit.TextUnit): androidx.compose.ui.unit.TextUnit =
+    (sp.value * 1.18f).sp
 
 // ── эквалайзер прямо в плеере (нативный audiofx) ──
 @Composable
@@ -1584,6 +1907,7 @@ private fun rememberCoverAvg(url: String?, embedded: ByteArray? = null): Color? 
     return produceState<Color?>(initialValue = null, url, embedded) {
         value = null
         val data: Any = url?.takeIf { it.startsWith("http") } ?: embedded ?: return@produceState
+        // catch-all-ok — средний цвет обложки — косметика; produceState пересчитает при входе
         value = runCatching {
             val req = ImageRequest.Builder(ctx).data(data).size(24).allowHardware(false).build()
             val bmp = (ctx.imageLoader.execute(req) as? SuccessResult)?.drawable?.toBitmap(24, 24)

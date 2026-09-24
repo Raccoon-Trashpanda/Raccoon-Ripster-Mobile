@@ -1,6 +1,10 @@
 package net.ripster.mobile.service.qobuz
 
+import net.ripster.mobile.core.errors.attempt
+
 import net.ripster.mobile.core.errors.EngineErrors
+import net.ripster.mobile.core.errors.isJobCancellation
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -21,8 +25,10 @@ import net.ripster.mobile.core.model.Service
 import net.ripster.mobile.core.model.StreamInfo
 import net.ripster.mobile.core.model.Track
 import net.ripster.mobile.core.net.RipsterHttp
+import net.ripster.mobile.core.service.Contributors
 import net.ripster.mobile.core.service.ServiceClient
 import net.ripster.mobile.service.qobuz.dto.QbAlbumFull
+import net.ripster.mobile.service.qobuz.dto.QbCreditedArtist
 import net.ripster.mobile.service.qobuz.dto.QbTrack
 import okhttp3.Request
 import java.io.File
@@ -60,7 +66,7 @@ class QobuzClient(
     // Вход Qobuz дорогой: если нет готовых app_id+secret, resolve() тянет
     // многомегабайтный bundle.js со страницы веб-плеера. Делаем это в фоне при
     // регистрации, а не в первом поиске под таймаутом.
-    override suspend fun warmUp() { runCatching { api.ensureAuth() } }
+    override suspend fun warmUp() { attempt { api.ensureAuth() } }
 
     override suspend fun qualities(): List<QualityTier> = listOf(flac24, flac16, mp3_320)
 
@@ -78,7 +84,7 @@ class QobuzClient(
      */
     override suspend fun health(): net.ripster.mobile.core.service.AccountHealth {
         val H = net.ripster.mobile.core.service.AccountHealth
-        if (!isConfigured()) return H.dead("ключи не заданы")
+        if (!isConfigured()) return H.dead(EngineErrors.CRED_MISSING)
         return try {
             api.ensureAuth()          // при email/пароле логин отдаёт тариф
             api.search("a")
@@ -103,11 +109,12 @@ class QobuzClient(
                 net.ripster.mobile.core.service.AccountHealth(alive = true)
             }
         } catch (e: Exception) {
+            if (isJobCancellation(e)) throw e   // отменённую проверку учётки не превращаем в «не знаю»
             val msg = e.message.orEmpty()
             when {
-                "401" in msg -> H.dead("Qobuz отверг ключи (401)")
-                "400" in msg -> H.dead("Qobuz не принял app_id (400)")
-                else -> H.unknown("не смогли спросить: ${e::class.simpleName}")
+                "401" in msg -> H.dead(EngineErrors.code(EngineErrors.TOKEN_INVALID, "401"))
+                "400" in msg -> H.dead(EngineErrors.code(EngineErrors.HTTP, "400"))
+                else -> H.unknown(EngineErrors.code(EngineErrors.HEALTH_UNKNOWN, e::class.simpleName))
             }
         }
     }
@@ -117,7 +124,7 @@ class QobuzClient(
         // Альбомы — отдельным запросом, как у Deezer: `track/search` их не
         // возвращает, и фильтр «Альбомы» из-за этого был пуст всегда.
         // Отказ по альбомам не должен ронять выдачу треков — она уже есть.
-        val albums = runCatching {
+        val albums = attempt {
             api.searchAlbums(query).albums.items.map { a ->
                 Album(
                     id = a.id,
@@ -180,7 +187,7 @@ class QobuzClient(
     override suspend fun getArtist(artistId: String): net.ripster.mobile.core.pair.PcBridge.ArtistPage? {
         if (artistId.isBlank()) return null
         return withContext(Dispatchers.IO) {
-            runCatching {
+            attempt {
                 val a = api.artist(artistId)
                 val aLow = a.name.lowercase()
                 val items = a.albums.items
@@ -196,7 +203,7 @@ class QobuzClient(
                 val enrich = coroutineScope {
                     comps.map { al ->
                         async {
-                            al.id to runCatching {
+                            al.id to attempt {
                                 val full = api.album(al.id)
                                 val mine = full.tracks.items.filter {
                                     val pn = it.performer.name.lowercase()
@@ -295,7 +302,7 @@ class QobuzClient(
         // (не тот app_secret). Диагноз врал и уводил чинить не то.
         var lastErr: Throwable? = null
         for ((fmt, tier) in fmtOrder) {
-            val fu = runCatching { api.fileUrl(id, fmt) }
+            val fu = attempt { api.fileUrl(id, fmt) }
                 .onFailure { if (lastErr == null) lastErr = it }
                 .getOrNull() ?: continue
             if (fu.url.isNotBlank() && !fu.sample) {
@@ -317,18 +324,26 @@ class QobuzClient(
         throw IOException(EngineErrors.NO_SOURCE_REGION)
     }
 
-    private fun QbTrack.toTrack(albumFull: QbAlbumFull? = null): Track {
+    internal fun QbTrack.toTrack(albumFull: QbAlbumFull? = null): Track {
         val img = album?.image?.large ?: albumFull?.image?.large
         val year = (album?.releasedAt ?: albumFull?.releasedAt)?.let {
             java.util.Calendar.getInstance().apply { timeInMillis = it * 1000 }.get(java.util.Calendar.YEAR)
         }
+        // `performer` — ОДНО имя, и из-за этого коллаборация на строке выглядела
+        // сольной (жалоба 13.09.2026). Настоящий состав Qobuz кладёт в строку
+        // `performers` того же ответа — то есть для поиска и альбомной пачки
+        // запросов не нужно вовсе.
+        val one = performer.name.ifBlank { album?.artist?.name ?: albumFull?.artist?.name ?: "" }
+        // `album.artists[]` бывает и у краткого альбома внутри трека, и у
+        // полного ответа — берём тот, где список непустой.
+        val credited = (album?.artists ?: emptyList()).ifEmpty { albumFull?.artists ?: emptyList() }
         return Track(
             id = id.toString(),
             title = title,
-            artist = performer.name.ifBlank { album?.artist?.name ?: albumFull?.artist?.name ?: "" },
+            artist = artistLine(one, performers),
             service = Service.QOBUZ,
             albumTitle = album?.title ?: albumFull?.title,
-            albumArtist = album?.artist?.name ?: albumFull?.artist?.name,
+            albumArtist = albumArtistLine(credited, album?.artist?.name ?: albumFull?.artist?.name),
             durationMs = duration.takeIf { it > 0 }?.times(1000),
             trackNumber = trackNumber,
             discNumber = mediaNumber,
@@ -347,6 +362,49 @@ class QobuzClient(
             releaseDate = (album?.releaseDateOriginal ?: albumFull?.releaseDateOriginal)
                 ?.takeIf { it.isNotBlank() },
             raw = mapOf("qbId" to id.toString(), "albId" to (album?.id?.toString() ?: ""), "artId" to (album?.artist?.id?.toString() ?: performer?.id?.toString() ?: "")),
+        )
+    }
+
+    /**
+     * Строка исполнителя трека: «A, B feat. C» из `performers`, либо то одно
+     * имя, что сервис дал в `performer`.
+     *
+     * Composer/продюсер/оркестр в строку артиста не попадают никогда — Qobuz
+     * пишет их в той же строке, и без отбора классический релиз превратился бы
+     * в простыню из тридцати фамилий.
+     */
+    private fun artistLine(one: String, performers: String?): String {
+        val c = Contributors.fromQobuzPerformers(performers, one)
+        return if (c.richerThan(one)) c.display() else one
+    }
+
+    /**
+     * Кто владеет релизом. `album.artists[]` с ролями лежит рядом с альбомом и
+     * называет тех, кого в одиночном `album.artist` нет (дуэт, приглашённая
+     * солистка). Показываем это как владельца релиза, а не под каждой строкой
+     * треклиста: состав альбома не утверждает, что все они играют каждый трек.
+     */
+    private fun albumArtistLine(credited: List<QbCreditedArtist>?, one: String?): String? {
+        val roles = credited.orEmpty().flatMap { a ->
+            a.roles.ifEmpty { listOf("MainArtist") }.map { a.name to it }
+        }
+        if (roles.isEmpty()) return one
+        val got = Contributors.fromRoles(roles, one.orEmpty()).display()
+        return got.takeIf { it.isNotBlank() } ?: one
+    }
+
+    /**
+     * Состав трека, которого нет в выдаче: ОДИН запрос `track/get` по
+     * [net.ripster.mobile.core.service.ServiceClient.contributorsFor], и зовёт
+     * его только [net.ripster.mobile.core.service.ArtistDepth] — по строкам,
+     * которые человек видит.
+     */
+    override suspend fun contributorsFor(track: Track): Contributors? {
+        val id = track.raw["qbId"]?.takeIf { it.isNotBlank() } ?: track.id
+        val t = api.track(id)
+        return Contributors.fromQobuzPerformers(
+            t.performers,
+            t.performer.name.ifBlank { track.artist },
         )
     }
 }

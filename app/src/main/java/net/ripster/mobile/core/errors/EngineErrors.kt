@@ -80,6 +80,18 @@ object EngineErrors {
      */
     const val TIDAL_SEGMENT_DENIED = "__e.tidal_segment_denied__"
 
+    /**
+     * Mpeg-DASH-манифест, который мы не разворачиваем в куски: нет
+     * `SegmentTemplate` (нарезка описана `SegmentList`/`SegmentBase`), кончились
+     * сроки без указания длительности, или подстановка в шаблоне неизвестна.
+     *
+     * Отдельный ключ от `no_direct_stream` обязателен: «сервис отдаёт трек
+     * только сегментами» и «мы не умеем читать ЭТУ нарезку» — разные диагнозы, и
+     * чинятся они в разных местах. Молча скатиться на LOSSLESS и подписать файл
+     * как hi-res этот случай не имеет права.
+     */
+    const val DASH_UNSUPPORTED = "__e.dash_unsupported__"
+
     /** Срок доступа вышел либо запись закрыта по региону — BBC не различает. */
     const val EXPIRED_OR_GEO = "__e.expired_or_geo__"
 
@@ -88,6 +100,27 @@ object EngineErrors {
 
     /** У передачи нет звуковой дорожки для скачивания. */
     const val NO_AUDIO = "__e.no_audio__"
+
+    // --- Статусы проверки учётки (меряет health(), показывает экран Accounts) ---
+    // 12.09.2026 health() завёлся уже после i18n-сторожа и печатал русский
+    // прямо в `AccountHealth.reason`/`plan` — при английском интерфейсе человек
+    // читал «публичный доступ». Движок сообщает ФАКТ маркером, слова подбирает
+    // ui/i18n (см. errorText, которым экраны прогоняют эти поля).
+
+    /** Учётных данных нет вовсе — нечего было и проверять. */
+    const val CRED_MISSING = "__e.cred_missing__"
+
+    /** Спросить сервис не удалось (сеть, таймаут, сервис лежит). Хвост — класс. */
+    const val HEALTH_UNKNOWN = "__e.health_unknown__"
+
+    /** Учётка жива, но её тариф не отдаёт lossless. */
+    const val NO_LOSSLESS_PLAN = "__e.no_lossless_plan__"
+
+    /** SoundCloud без токена: публичный доступ, только 128 kbps. */
+    const val SC_PUBLIC = "__e.sc_public__"
+
+    /** SoundCloud с токеном: отдаёт AAC 256, но lossless всё равно нет. */
+    const val SC_WITH_TOKEN = "__e.sc_with_token__"
 
     // --- Apple: скачивание идёт через сопряжённый ПК ---
 

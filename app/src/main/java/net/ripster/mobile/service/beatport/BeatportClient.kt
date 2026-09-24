@@ -1,6 +1,8 @@
 package net.ripster.mobile.service.beatport
 
 import net.ripster.mobile.core.errors.EngineErrors
+import net.ripster.mobile.core.errors.isJobCancellation
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -49,6 +51,11 @@ import java.io.IOException
  * `{"location": "<прямой URL>"}` — FLAC (lossless) или AAC (high/medium), без
  * расшифровки. Нужна подписка Beatport Streaming; без неё придёт ошибка/превью.
  */
+/** Поле ответа Beatport как объект или null. Beatport отдаёт отсутствующее
+ * значение ЯВНЫМ null («"sub_genre": null»), а JsonNull.jsonObject бросает —
+ * 23.09.2026 так падал ВЕСЬ поиск (E2E, BUG-2), даже по пустому запросу. */
+internal fun JsonElement?.objOrNull(): JsonObject? = this as? JsonObject
+
 class BeatportClient(
     private val username: String?,
     private val password: String?,
@@ -167,44 +174,44 @@ class BeatportClient(
 
     /** Beatport v4: секция бывает `[...]`, `{data:[...]}`, `{results:[...]}`, а
      *  верхний уровень — то `{key:...}`, то плоский `{data:[...]}`. */
-    private fun rows(raw: String, key: String): List<JsonObject> {
+    internal fun rows(raw: String, key: String): List<JsonObject> {
         val root = json.parseToJsonElement(raw)
         fun toList(e: JsonElement?): List<JsonObject>? = when (e) {
-            is JsonArray -> e.map { it.jsonObject }
-            is JsonObject -> (e["data"] ?: e["results"])?.let { (it as? JsonArray)?.map { j -> j.jsonObject } }
+            is JsonArray -> e.mapNotNull { it as? JsonObject }
+            is JsonObject -> (e["data"] ?: e["results"])?.let { (it as? JsonArray)?.mapNotNull { j -> j as? JsonObject } }
             else -> null
         }
         if (root is JsonObject) {
             toList(root[key])?.let { return it }
             toList(root)?.let { return it }
         }
-        (root as? JsonArray)?.let { return it.map { j -> j.jsonObject } }
+        (root as? JsonArray)?.let { return it.mapNotNull { j -> j as? JsonObject } }
         return emptyList()
     }
 
     private fun img(o: kotlinx.serialization.json.JsonObject?): String? {
-        val uri = o?.get("image")?.jsonObject?.get("uri")?.jsonPrimitive?.contentOrNull
-            ?: o?.get("image")?.jsonObject?.get("dynamic_uri")?.jsonPrimitive?.contentOrNull
+        val uri = o?.get("image")?.objOrNull()?.get("uri")?.jsonPrimitive?.contentOrNull
+            ?: o?.get("image")?.objOrNull()?.get("dynamic_uri")?.jsonPrimitive?.contentOrNull
         return uri?.replace("{w}", "600")?.replace("{h}", "600")
     }
 
-    private fun trackOf(t: kotlinx.serialization.json.JsonObject): Track {
+    internal fun trackOf(t: kotlinx.serialization.json.JsonObject): Track {
         val id = (t["id"]?.jsonPrimitive?.longOrNull ?: t["id"]?.jsonPrimitive?.intOrNull ?: 0).toString()
         val mix = t["mix_name"]?.jsonPrimitive?.contentOrNull.orEmpty()
         val name = t["name"]?.jsonPrimitive?.contentOrNull.orEmpty() + if (mix.isNotBlank()) " ($mix)" else ""
         val artists = (t["artists"]?.jsonArray ?: emptyList())
-            .mapNotNull { it.jsonObject["name"]?.jsonPrimitive?.contentOrNull }
-        val rel = t["release"]?.jsonObject
-        val durMs = t["duration"]?.jsonObject?.get("milliseconds")?.jsonPrimitive?.longOrNull
+            .mapNotNull { (it as? JsonObject)?.get("name")?.jsonPrimitive?.contentOrNull }
+        val rel = t["release"]?.objOrNull()
+        val durMs = t["duration"]?.objOrNull()?.get("milliseconds")?.jsonPrimitive?.longOrNull
             ?: t["length_ms"]?.jsonPrimitive?.longOrNull
-        val artId = (t["artists"]?.jsonArray?.firstOrNull()?.jsonObject
+        val artId = (t["artists"]?.jsonArray?.firstOrNull()?.objOrNull()
             ?.get("id"))?.jsonPrimitive?.longOrNull?.toString().orEmpty()
         // Beatport — авторитет по электронным жанрам: у трека есть genre и
         // sub_genre ({id,name}). Берём sub_genre (точнее: «Breakbeat / UK Bass»
         // против общего «Breaks»), иначе genre. Это кормит фильтр станций
         // настоящим жанром, а не «неизвестно».
-        val genre = (t["sub_genre"]?.jsonObject?.get("name")?.jsonPrimitive?.contentOrNull
-            ?: t["genre"]?.jsonObject?.get("name")?.jsonPrimitive?.contentOrNull)
+        val genre = (t["sub_genre"]?.objOrNull()?.get("name")?.jsonPrimitive?.contentOrNull
+            ?: t["genre"]?.objOrNull()?.get("name")?.jsonPrimitive?.contentOrNull)
         return Track(
             id = id,
             title = name,
@@ -228,13 +235,16 @@ class BeatportClient(
         // Tidal и Qobuz: поиск спрашивал только треки, и фильтр «Альбомы» был
         // пуст всегда, а экран писал «под этот фильтр ничего нет» — со стороны
         // неотличимо от сломанного поиска.
-        // Отказ по релизам не должен ронять уже полученные треки.
+        // Отказ по релизам не должен ронять уже полученные треки: отсюда пустой
+        // список альбомов, а вердикт об учётке берётся из самого apiGet выше по
+        // стеку. Отменённый запрос не проглатывается — onFailure его перебрасывает.
+        // catch-all-ok
         val albums = runCatching {
             val rel = apiGet("catalog/search/", mapOf("q" to query, "type" to "releases", "per_page" to "25"))
             rows(rel, "releases").map { r ->
                 val id = (r["id"]?.jsonPrimitive?.longOrNull ?: r["id"]?.jsonPrimitive?.intOrNull ?: 0).toString()
                 val artists = (r["artists"]?.jsonArray ?: emptyList())
-                    .mapNotNull { it.jsonObject["name"]?.jsonPrimitive?.contentOrNull }
+                    .mapNotNull { (it as? JsonObject)?.get("name")?.jsonPrimitive?.contentOrNull }
                 Album(
                     id = id,
                     title = r["name"]?.jsonPrimitive?.contentOrNull.orEmpty(),
@@ -250,7 +260,7 @@ class BeatportClient(
                     url = "https://www.beatport.com/release/x/$id",
                 )
             }
-        }.getOrDefault(emptyList())
+        }.onFailure { if (isJobCancellation(it)) throw it }.getOrDefault(emptyList())
         val tracks = rows(raw, "tracks").map { trackOf(it) }
         return MediaSelection(
             kind = if (tracks.isEmpty() && albums.isNotEmpty()) MediaKind.ALBUM else MediaKind.TRACK,
@@ -315,6 +325,7 @@ class BeatportClient(
                     if (!loc.isNullOrBlank()) return StreamInfo(url = loc, quality = tier)
                     break // ответ есть, но location пуст — это качество недоступно, вниз
                 } catch (e: Exception) {
+                    if (isJobCancellation(e)) throw e   // отменённый запрос — не повод спускаться на качество ниже
                     last = e
                     val authBlip = e.message == EngineErrors.TOKEN_INVALID ||
                         e.message == EngineErrors.AUTH_FAILED
@@ -337,7 +348,7 @@ class BeatportClient(
                 data class Acc(var title: String, var cover: String?, var date: String, var url: String, var n: Int)
                 val byRel = LinkedHashMap<String, Acc>()
                 for (el in tracks) {
-                    val rel = el["release"]?.jsonObject ?: continue
+                    val rel = el["release"]?.objOrNull() ?: continue
                     val rid = rel["id"]?.jsonPrimitive?.longOrNull?.toString() ?: continue
                     val acc = byRel.getOrPut(rid) {
                         Acc(

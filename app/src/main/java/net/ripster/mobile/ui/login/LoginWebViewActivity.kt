@@ -43,7 +43,7 @@ class LoginWebViewActivity : Activity() {
         // Activity вне Compose — язык берём напрямую из тех же префов, что и
         // остальное приложение (никакого хардкода RU в окне входа).
         val lang = AppLang.byTag(
-            getSharedPreferences("ripster_settings", MODE_PRIVATE)
+            getSharedPreferences(net.ripster.mobile.core.settings.AppSettings.PREFS_NAME, MODE_PRIVATE)
                 .getString("language", "ru") ?: "ru",
         )
 
@@ -149,6 +149,15 @@ class LoginWebViewActivity : Activity() {
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
+        // `web` может остаться неинициализированным: если сервис в extras
+        // неизвестен, onCreate делает finish() и выходит до создания WebView.
+        if (::web.isInitialized) {
+            runCatching { web.stopLoading() }
+            // destroy() по прикреплённому view кидает IllegalStateException,
+            // поэтому сначала снимаем с родителя.
+            (web.parent as? ViewGroup)?.removeView(web)
+            runCatching { web.destroy() }
+        }
         super.onDestroy()
     }
 

@@ -1,7 +1,11 @@
 package net.ripster.mobile.service.deezer
 
+import net.ripster.mobile.core.errors.attempt
+
 import net.ripster.mobile.core.settings.CredentialInput
 import net.ripster.mobile.core.errors.EngineErrors
+import net.ripster.mobile.core.errors.isJobCancellation
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -25,9 +29,11 @@ import net.ripster.mobile.core.model.Service
 import net.ripster.mobile.core.model.StreamInfo
 import net.ripster.mobile.core.model.Track
 import net.ripster.mobile.core.net.RipsterHttp
+import net.ripster.mobile.core.service.Contributors
 import net.ripster.mobile.core.service.ServiceClient
 import net.ripster.mobile.service.deezer.dto.DzApiAlbumFull
 import net.ripster.mobile.service.deezer.dto.DzApiAlbumSearch
+import net.ripster.mobile.service.deezer.dto.DzApiContributors
 import net.ripster.mobile.service.deezer.dto.DzApiSearch
 import net.ripster.mobile.service.deezer.dto.DzApiTrack
 import net.ripster.mobile.service.deezer.dto.DzApiTrackList
@@ -92,19 +98,20 @@ class DeezerClient(
      */
     override suspend fun health(): net.ripster.mobile.core.service.AccountHealth {
         val H = net.ripster.mobile.core.service.AccountHealth
-        if (arl.isBlank()) return H.dead("ARL не задан")
+        if (arl.isBlank()) return H.dead(EngineErrors.CRED_MISSING)
         return try {
             val alive = gw.ensureSession(force = true)
-            if (!alive) H.dead("Deezer отверг ARL")
+            if (!alive) H.dead(EngineErrors.TOKEN_INVALID)
             else net.ripster.mobile.core.service.AccountHealth(
                 alive = true,
                 lossless = gw.lossless,
                 plan = if (gw.lossless) "lossless" else if (gw.hq) "HQ" else "free",
                 quality = if (gw.lossless) "FLAC" else if (gw.hq) "MP3 320" else "MP3 128",
-                reason = if (gw.lossless) "" else "тариф без FLAC",
+                reason = if (gw.lossless) "" else EngineErrors.NO_LOSSLESS_PLAN,
             )
         } catch (e: Exception) {
-            H.unknown("не смогли спросить: ${e::class.simpleName}")
+            if (isJobCancellation(e)) throw e   // отменённую проверку учётки не превращаем в «не знаю»
+            H.unknown(EngineErrors.code(EngineErrors.HEALTH_UNKNOWN, e::class.simpleName))
         }
     }
 
@@ -119,7 +126,7 @@ class DeezerClient(
         // релиз Maceo Plex, британский видит). Когда есть живой ARL — добираем
         // выдачу из gw-light в стране аккаунта и мержим (дедуп по id).
         val merged = if (arl.isNotBlank()) {
-            runCatching {
+            attempt {
                 if (gw.ensureSession()) parseGwTracks(gw.searchTracksRaw(query, 25)) else emptyList()
             }.getOrDefault(emptyList())
         } else emptyList()
@@ -156,6 +163,7 @@ class DeezerClient(
     }
 
     /** `deezer.pageSearch` → results.TRACK.data[] (UPPER_SNAKE-поля). */
+    // catch-all-ok — чистый разбор JSON — точек подвески нет
     private fun parseGwTracks(raw: String): List<Track> = runCatching {
         val arr = kotlinx.serialization.json.Json.parseToJsonElement(raw)
             .jsonObject["results"]?.jsonObject
@@ -328,9 +336,9 @@ class DeezerClient(
     override suspend fun getArtist(artistId: String): net.ripster.mobile.core.pair.PcBridge.ArtistPage? {
         if (artistId.isBlank()) return null
         return withContext(Dispatchers.IO) {
-            runCatching {
+            attempt {
                 val info = json.parseToJsonElement(apiGet("https://api.deezer.com/artist/$artistId") {}).jsonObject
-                if (info["error"] != null) return@runCatching null
+                if (info["error"] != null) return@attempt null
                 val aName = info["name"]?.jsonPrimitive?.contentOrNull.orEmpty()
                 val aLow = aName.lowercase()
                 val pic = (info["picture_xl"] ?: info["picture_big"] ?: info["picture_medium"])
@@ -355,7 +363,7 @@ class DeezerClient(
                     comps.map { a ->
                         val aid = a["id"]?.jsonPrimitive?.contentOrNull.orEmpty()
                         async {
-                            aid to runCatching {
+                            aid to attempt {
                                 val full = json.parseToJsonElement(apiGet("https://api.deezer.com/album/$aid") {}).jsonObject
                                 val va = (full["artist"]?.jsonObject?.get("name"))?.jsonPrimitive?.contentOrNull.orEmpty()
                                 val mine = (full["tracks"]?.jsonObject?.get("data")?.jsonArray ?: kotlinx.serialization.json.JsonArray(emptyList()))
@@ -414,13 +422,17 @@ class DeezerClient(
             }
         }
 
-    private fun DzApiTrack.toTrack(albumFull: DzApiAlbumFull? = null): Track {
+    internal fun DzApiTrack.toTrack(albumFull: DzApiAlbumFull? = null): Track {
         val cover = album?.coverXl ?: album?.coverBig ?: albumFull?.coverXl
         val year = (releaseDate ?: album?.releaseDate)?.take(4)?.toIntOrNull()
+        // Кредиты, которые сервис положил ВНУТРЬ этого же ответа (`/track/{id}`,
+        // `/album/{id}`), достаются бесплатно — отдельный запрос на них тогда
+        // не нужен.
+        val who = artistLine(artist.name, contributors.map { it.name to it.role })
         return Track(
             id = id.toString(),
             title = title,
-            artist = artist.name,
+            artist = who,
             // `rank` Deezer — настоящая мера прослушиваемости, приходит прямо
             // в поиске. Волна отбирает по ней, а не по порядку выдачи.
             popularity = net.ripster.mobile.core.service.Popularity.fromDeezerRank(rank),
@@ -435,5 +447,37 @@ class DeezerClient(
             artworkUrl = cover,
             raw = mapOf("dzId" to id.toString(), "albId" to ((album?.id ?: 0L).toString()), "artId" to artist.id.toString()),
         )
+    }
+
+    /**
+     * Строка исполнителя по кредитам: «A, B feat. C».
+     *
+     * Один `artist` остаётся, если состав не найден или беднее: догрузка не
+     * имеет права стирать то, что человек уже видел.
+     */
+    private fun artistLine(one: String, roles: List<Pair<String, String>>): String {
+        val c = Contributors.fromRoles(roles, one)
+        return if (c.richerThan(one)) c.display() else one
+    }
+
+    /**
+     * Полный состав трека.
+     *
+     * `/search/track` отдаёт по одному `artist` на строку — из-за этого
+     * совместная вещь выглядела сольной (жалоба 13.09.2026). Кредиты лежат в
+     * поле `contributors` карточки `GET /track/{id}` (роль "Main"/"Featured").
+     * Отдельного `/track/{id}/contributors` у Deezer НЕТ — проверено живым
+     * запросом 23.09.2026: ответ `InvalidQueryException 600 Unknown path`.
+     * Это ОДИН запрос на трек, и зовёт его только
+     * [net.ripster.mobile.core.service.ArtistDepth] — по трекам, которые
+     * реально на экране.
+     */
+    override suspend fun contributorsFor(track: Track): Contributors? {
+        val id = track.raw["dzId"]?.takeIf { it != "0" } ?: track.id.takeIf { it.all { c -> c.isDigit() } }
+            ?: return null
+        val raw = apiGet("https://api.deezer.com/track/$id") {}
+        val roles = json.decodeFromString(DzApiTrack.serializer(), raw).contributors
+            .map { it.name to it.role }
+        return Contributors.fromRoles(roles, track.artist)
     }
 }

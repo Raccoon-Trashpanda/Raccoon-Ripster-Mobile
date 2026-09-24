@@ -1,5 +1,7 @@
 package net.ripster.mobile.ui.screens.settings
 
+import net.ripster.mobile.core.errors.attempt
+
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
@@ -28,6 +30,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -65,13 +68,22 @@ import net.ripster.mobile.service.qobuz.QobuzBundle
 import net.ripster.mobile.ui.i18n.AppLang
 import net.ripster.mobile.ui.i18n.LocalAppLang
 import net.ripster.mobile.ui.i18n.tr
+import net.ripster.mobile.ui.premium.PremiumVisuals
 import net.ripster.mobile.ui.screens.TidalLoginBlock
 import net.ripster.mobile.ui.components.SettingsGlyph
 import net.ripster.mobile.ui.components.SettingsIcon
 import net.ripster.mobile.ui.screens.cast.YandexStationBlock
 import net.ripster.mobile.ui.components.pressable
+import net.ripster.mobile.ui.theme.ACCENT_FROM_THEME
+import net.ripster.mobile.ui.theme.AccentPalette
+import net.ripster.mobile.ui.theme.MaterialYouStatus
 import net.ripster.mobile.ui.theme.RipsterColors
+import net.ripster.mobile.ui.theme.colorsFor
+import net.ripster.mobile.ui.theme.materialYouStatus
+import net.ripster.mobile.ui.theme.materialYouSupported
 import net.ripster.mobile.ui.theme.RipsterTheme
+import net.ripster.mobile.ui.theme.THEME_SETTING_SYSTEM
+import net.ripster.mobile.ui.theme.themeSettingOptions
 import net.ripster.mobile.ui.i18n.errorText
 
 /**
@@ -98,11 +110,48 @@ private sealed interface Route {
     data object About : Route
 }
 
+/**
+ * Стек разделов в Bundle — списком имён, а не объектов.
+ *
+ * Без этого поворот экрана выбрасывал из настроек на вкладку (раунд 3,
+ * инвентарь потерь): человек открывал «Плеер», крутил телефон — и терял и
+ * настройки, и глубину. Имена короткие, лимит Bundle тут не угрожает;
+ * объекты Routes в сериализацию гнать было бы соблазном раздуть транзакцию.
+ */
+private fun encodeRoute(r: Route): String =
+    if (r is Route.Account) "Account:${r.service.id}" else r::class.simpleName.orEmpty()
+
+private fun decodeRoute(s: String): Route? = when (s) {
+    "Root" -> Route.Root
+    "Quality" -> Route.Quality
+    "Storage" -> Route.Storage
+    "Network" -> Route.Network
+    "App" -> Route.App
+    "Accounts" -> Route.Accounts
+    "Pairing" -> Route.Pairing
+    "Player" -> Route.Player
+    "Equalizer" -> Route.Equalizer
+    "Radar" -> Route.Radar
+    "Digs" -> Route.Digs
+    "Tools" -> Route.Tools
+    "Diagnostics" -> Route.Diagnostics
+    "About" -> Route.About
+    else -> s.removePrefix("Account:").takeIf { it != s && it.isNotBlank() }
+        ?.let { id -> Service.byId(id)?.let { Route.Account(it) } }
+}
+
+private val RouteStackSaver = androidx.compose.runtime.saveable.Saver<List<Route>, List<String>>(
+    save = { it.map(::encodeRoute) },
+    // Неизвестное имя (появился новый раздел, а состояние сохранено старой
+    // сборкой) — не повод ронять настройки: отбрасываем его, корень остаётся.
+    restore = { r -> r.mapNotNull(::decodeRoute).ifEmpty { listOf(Route.Root) } },
+)
+
 @Composable
 fun SettingsHost(onExit: () -> Unit, openAccounts: Boolean = false) {
     val c = RipsterTheme.colors
     val lang = LocalAppLang.current
-    var stack by remember {
+    var stack by androidx.compose.runtime.saveable.rememberSaveable(stateSaver = RouteStackSaver) {
         mutableStateOf(
             if (openAccounts) listOf<Route>(Route.Root, Route.Accounts) else listOf<Route>(Route.Root),
         )
@@ -276,6 +325,7 @@ private fun AccountsList(lang: AppLang, c: RipsterColors, open: (Service) -> Uni
                 else -> tr("acc.h_ok", lang)
             }
             val extra = listOf(h.plan, h.quality, h.country, h.reason)
+                .map { if (it.isBlank()) it else errorText(it, lang) }
                 .filter { it.isNotBlank() }.joinToString(" · ")
             BasicText(
                 "${r.service.label}: $what" + (if (extra.isNotBlank()) " — $extra" else "") +
@@ -293,7 +343,7 @@ private fun AccountsList(lang: AppLang, c: RipsterColors, open: (Service) -> Uni
             LaunchedEffect(svc) {
                 status = when (svc) {
                     Service.SOUNDCLOUD, Service.BBC, Service.JIOSAAVN -> null // публичный
-                    else -> runCatching { ServiceRegistry.get(svc)?.isConfigured() == true }.getOrDefault(false)
+                    else -> attempt { ServiceRegistry.get(svc)?.isConfigured() == true }.getOrDefault(false)
                 }
             }
             Row(
@@ -306,6 +356,7 @@ private fun AccountsList(lang: AppLang, c: RipsterColors, open: (Service) -> Uni
                     // Богатая карточка: флаг · страна · тариф/качество.
                     val flag = countryFlag(h.country)
                     val bits = listOf(h.country.uppercase(), h.plan, h.quality)
+                        .map { if (it.isBlank()) it else errorText(it, lang) }
                         .filter { it.isNotBlank() }.joinToString(" · ")
                     val col = when {
                         h.alive == null -> c.text_tertiary
@@ -377,6 +428,9 @@ private fun AccountScreen(svc: Service, lang: AppLang, c: RipsterColors) {
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
         val descKey = when (svc) {
+            // AMAZON — не учётка, а владелец адреса: этот экран для него
+            // недостижим (в `ACCOUNT_SERVICES` его нет), описания не требует.
+            Service.AMAZON -> null
             Service.SOUNDCLOUD -> "svc.d_soundcloud"
             Service.DEEZER -> "svc.d_deezer"
             Service.QOBUZ -> "svc.d_qobuz"
@@ -384,16 +438,17 @@ private fun AccountScreen(svc: Service, lang: AppLang, c: RipsterColors) {
             Service.SPOTIFY -> "svc.d_spotify"
             Service.YANDEX -> "svc.d_yandex"
             Service.BBC -> "svc.d_bbc"
+            Service.JIOSAAVN -> "svc.d_jiosaavn"
             Service.APPLE -> "svc.d_apple"
             Service.BEATPORT -> "svc.d_beatport"
-            Service.JIOSAAVN -> "svc.d_jiosaavn"
         }
-        BasicText(tr(descKey, lang), style = TextStyle(color = c.text_tertiary, fontSize = 12.sp))
+        descKey?.let { BasicText(tr(it, lang), style = TextStyle(color = c.text_tertiary, fontSize = 12.sp)) }
         Box(Modifier.height(16.dp))
 
         when (svc) {
+            Service.AMAZON -> Unit
             Service.SOUNDCLOUD -> {
-                var v by remember { mutableStateOf(cred(CredentialStore.Key.SOUNDCLOUD_OAUTH)) }
+                var v by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(cred(CredentialStore.Key.SOUNDCLOUD_OAUTH)) }
                 WebLoginButton("soundcloud", c, lang) { v = it; save(CredentialStore.Key.SOUNDCLOUD_OAUTH, it) }
                 Box(Modifier.height(10.dp))
                 BasicText(tr("svc.or_token", lang), style = TextStyle(color = c.text_tertiary, fontSize = 11.sp))
@@ -401,7 +456,7 @@ private fun AccountScreen(svc: Service, lang: AppLang, c: RipsterColors) {
                 Field("soundcloud.oauth", v, c, { v = it }) { save(CredentialStore.Key.SOUNDCLOUD_OAUTH, v) }
             }
             Service.DEEZER -> {
-                var v by remember { mutableStateOf(cred(CredentialStore.Key.DEEZER_ARL)) }
+                var v by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(cred(CredentialStore.Key.DEEZER_ARL)) }
                 WebLoginButton("deezer", c, lang) { v = it; save(CredentialStore.Key.DEEZER_ARL, it) }
                 Box(Modifier.height(10.dp))
                 BasicText(tr("svc.or_token", lang), style = TextStyle(color = c.text_tertiary, fontSize = 11.sp))
@@ -413,7 +468,7 @@ private fun AccountScreen(svc: Service, lang: AppLang, c: RipsterColors) {
                 Box(Modifier.height(14.dp))
                 BasicText(tr("svc.or_token", lang), style = TextStyle(color = c.text_tertiary, fontSize = 11.sp))
                 Box(Modifier.height(6.dp))
-                var qt by remember { mutableStateOf(cred(CredentialStore.Key.QOBUZ_TOKEN)) }
+                var qt by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(cred(CredentialStore.Key.QOBUZ_TOKEN)) }
                 Field("qobuz.token", qt, c, { qt = it }) { save(CredentialStore.Key.QOBUZ_TOKEN, qt) }
                 QobuzKeyPair(lang, c, ::cred, ::save)
             }
@@ -422,12 +477,12 @@ private fun AccountScreen(svc: Service, lang: AppLang, c: RipsterColors) {
                 Box(Modifier.height(14.dp))
                 BasicText(tr("svc.or_token", lang), style = TextStyle(color = c.text_tertiary, fontSize = 11.sp))
                 Box(Modifier.height(6.dp))
-                var tt by remember { mutableStateOf(cred(CredentialStore.Key.TIDAL_OAUTH)) }
+                var tt by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(cred(CredentialStore.Key.TIDAL_OAUTH)) }
                 Field("tidal.oauth", tt, c, { tt = it }) { save(CredentialStore.Key.TIDAL_OAUTH, tt) }
                 BasicText(tr("svc.tidal_json_hint", lang), style = TextStyle(color = c.text_tertiary, fontSize = 10.sp))
             }
             Service.SPOTIFY -> {
-                var v by remember { mutableStateOf(cred(CredentialStore.Key.SPOTIFY_SP_DC)) }
+                var v by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(cred(CredentialStore.Key.SPOTIFY_SP_DC)) }
                 WebLoginButton("spotify", c, lang) { v = it; save(CredentialStore.Key.SPOTIFY_SP_DC, it) }
                 Box(Modifier.height(10.dp))
                 BasicText(tr("svc.or_token", lang), style = TextStyle(color = c.text_tertiary, fontSize = 11.sp))
@@ -435,7 +490,7 @@ private fun AccountScreen(svc: Service, lang: AppLang, c: RipsterColors) {
                 Field("spotify.sp_dc", v, c, { v = it }) { save(CredentialStore.Key.SPOTIFY_SP_DC, v) }
             }
             Service.YANDEX -> {
-                var v by remember { mutableStateOf(cred(CredentialStore.Key.YANDEX_OAUTH)) }
+                var v by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(cred(CredentialStore.Key.YANDEX_OAUTH)) }
                 WebLoginButton("yandex", c, lang) { v = it; save(CredentialStore.Key.YANDEX_OAUTH, it) }
                 Box(Modifier.height(6.dp))
                 BasicText(tr("svc.or_token", lang), style = TextStyle(color = c.text_tertiary, fontSize = 11.sp))
@@ -446,6 +501,11 @@ private fun AccountScreen(svc: Service, lang: AppLang, c: RipsterColors) {
             }
             Service.BBC -> BasicText(
                 tr("svc.d_bbc_full", lang),
+                style = TextStyle(color = c.text_secondary, fontSize = 12.sp),
+            )
+            // Учётка не нужна: JioSaavn отдаёт каталог и файлы без входа.
+            Service.JIOSAAVN -> BasicText(
+                tr("svc.d_jiosaavn", lang),
                 style = TextStyle(color = c.text_secondary, fontSize = 12.sp),
             )
             Service.APPLE -> {
@@ -501,7 +561,7 @@ private fun QobuzForm(
         save(CredentialStore.Key.QOBUZ_EMAIL, email)
         save(CredentialStore.Key.QOBUZ_PASSWORD, pass)
         scope.launch {
-            val ok = runCatching { ServiceRegistry.get(Service.QOBUZ)?.isConfigured() == true }.getOrDefault(false)
+            val ok = attempt { ServiceRegistry.get(Service.QOBUZ)?.isConfigured() == true }.getOrDefault(false)
             msg = if (ok) tr("svc.saved", lang) else tr("svc.bad_login", lang)
         }
     }
@@ -532,6 +592,7 @@ private fun QualitySection(lang: AppLang, c: RipsterColors) {
         )
         val svcTiers by androidx.compose.runtime.produceState<List<Pair<net.ripster.mobile.core.model.Service, List<net.ripster.mobile.core.model.QualityTier>>>>(emptyList()) {
             value = net.ripster.mobile.core.service.ServiceRegistry.all().map { cl ->
+                // catch-all-ok — список качеств для отображения; при отмене пересчитывается при входе в раздел
                 cl.service to runCatching { cl.qualities() }.getOrDefault(emptyList())
             }
         }
@@ -598,7 +659,7 @@ private fun StorageSection(lang: AppLang, c: RipsterColors) {
         app.storage.persist(uri)
         scanning = true; scanProgress = tr("set.import_running", lang); albums = null
         scope.launch {
-            val existing = runCatching { app.db.library().allPaths().toSet() }.getOrDefault(emptySet())
+            val existing = attempt { app.db.library().allPaths().toSet() }.getOrDefault(emptySet())
             val tracks = net.ripster.mobile.core.library.FolderImport.scan(
                 context = app, treeUri = uri, existingPaths = existing,
                 onProgress = { n, name -> scanProgress = tr("set.import_scanned", lang, n) + "  ·  $name" },
@@ -823,18 +884,159 @@ private fun NetworkSection(lang: AppLang, c: RipsterColors) {
 private fun AppSection(lang: AppLang, c: RipsterColors) {
     val app = RipsterApp.from(LocalContext.current)
     val s by app.settings.state.collectAsState()
-    val themes = listOf("Dark", "Light", "Midnight", "Ember", "Sepia", "Neon", "Aurora")
+    val themes = themeSettingOptions()
     val dens = listOf("Compact", "Normal", "Large")
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(8.dp)) {
         ChipsRow(tr("set.language", lang), AppLang.ORDER.map { it.display }, AppLang.ORDER.indexOf(AppLang.byTag(s.uiLang)), c) { i -> app.settings.update { it.copy(uiLang = AppLang.ORDER[i].tag) } }
-        ChipsRow(tr("set.theme", lang), themes, themes.indexOf(s.theme).coerceAtLeast(0), c) { i -> app.settings.update { it.copy(theme = themes[i]) } }
+        ChipsRow(
+            tr("set.theme", lang),
+            themes.map { if (it == THEME_SETTING_SYSTEM) tr("set.theme_system", lang) else it },
+            themes.indexOf(s.theme).coerceAtLeast(0),
+            c,
+        ) { i -> app.settings.update { it.copy(theme = themes[i]) } }
         ChipsRow(tr("set.density", lang), dens, dens.indexOf(s.density).coerceAtLeast(0), c) { i -> app.settings.update { it.copy(density = dens[i]) } }
-        BasicText(
-            tr("set.accent", lang) + "  #FF4D8F",
-            Modifier.padding(start = 24.dp, top = 10.dp),
-            style = TextStyle(color = c.text_tertiary, fontSize = 12.sp),
-        )
+        // Material You реально работает только там, где есть системная
+        // палитра: флаг мог прийти и на устройство старше Android 12.
+        val dynamicOn = s.materialYou && materialYouSupported(android.os.Build.VERSION.SDK_INT)
+        AccentPicker(
+            // Hex текущего акцента, а не зашитый FF4D8F: строка обязана
+            // показывать то, что реально сейчас в палитре.
+            label = tr("set.accent", lang) + "  #" +
+                (c.accent_fill.toArgb() and 0xFFFFFF).toString(16).uppercase().padStart(6, '0'),
+            themeAccent = colorsFor(RipsterTheme.name).accent_fill,
+            fromTheme = tr("set.accent_from_theme", lang),
+            // Пока акцент берётся из системы, ни один образец не выбран:
+            // подсветка под оттенком, который на экране не рисуется,
+            // обещала бы, что он и есть текущий.
+            selected = if (dynamicOn) null else s.accent,
+            c = c,
+        ) { id ->
+            // Источник акцента один: выбор оттенка выключает Material You,
+            // иначе человек нажимает на образец, а на экране ничего не
+            // меняется — «настройка не работает» без всякой настройки.
+            // Id при этом просто перезаписывается, так что Material You можно
+            // включить обратно и вернуться к прежнему оттенку.
+            app.settings.update { it.copy(accent = id, materialYou = false) }
+        }
+        MaterialYouRow(
+            label = tr("set.material_you", lang),
+            reason = tr("set.material_you_needs_12", lang),
+            status = materialYouStatus(android.os.Build.VERSION.SDK_INT),
+            on = dynamicOn,
+            c = c,
+        ) { on -> app.settings.update { it.copy(materialYou = on) } }
         ToggleRow(tr("set.adaptive", lang), s.adaptiveColors, c) { on -> app.settings.update { it.copy(adaptiveColors = on) } }
+    }
+}
+
+/**
+ * Выбор акцента: шестнадцать измеренных оттенков и отказ от выбора.
+ *
+ * Порядок рядов не алфавитный, а по кругу тона — соседние образцы различимы,
+ * и промах на один пункт стоит одного взгляда. Первый пункт («как в теме»)
+ * красится собственным акцентом темы: это не «ещё один цвет», а «ничего не
+ * перекрывать», и выглядеть он должен соответственно.
+ */
+@Composable
+private fun AccentPicker(
+    label: String,
+    themeAccent: Color,
+    fromTheme: String,
+    selected: String?,
+    c: RipsterColors,
+    onPick: (String) -> Unit,
+) {
+    Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
+        BasicText(label, style = TextStyle(color = c.text_tertiary, fontSize = 11.sp))
+        Box(Modifier.height(6.dp))
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()).padding(end = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // Мишень — 48 dp, образец в ней 26 dp: круги меньшего диаметра на
+            // этой плотности промахиваются пальцем, а раздувать сам образец
+            // нельзя — рядом стоит другой оттенок, и их надо различать.
+            Row(
+                Modifier.height(48.dp).padding(horizontal = 6.dp)
+                    .pressable { onPick(ACCENT_FROM_THEME) },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                AccentDot(themeAccent, selected == ACCENT_FROM_THEME, c)
+                BasicText(
+                    " " + fromTheme,
+                    style = TextStyle(color = if (selected == ACCENT_FROM_THEME) c.text_primary else c.text_tertiary, fontSize = 11.sp),
+                )
+            }
+            AccentPalette.all.forEach { sw ->
+                Box(Modifier.size(48.dp).pressable { onPick(sw.id) }, contentAlignment = Alignment.Center) {
+                    AccentDot(sw.hue, selected == sw.id, c)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AccentDot(fill: Color, selected: Boolean, c: RipsterColors) {
+    val shape = RoundedCornerShape(999.dp)
+    Box(
+        Modifier.size(26.dp).background(fill, shape)
+            // Кольцо выбранного — текст темы, а не акцент: по цветному
+            // же акценту собственная обводка не читалась бы.
+            .border(if (selected) 2.dp else 1.dp, if (selected) c.text_primary else c.border_subtle, shape),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (selected) {
+            Box(Modifier.size(8.dp).background(c.text_on_fill, shape))
+        }
+    }
+}
+
+/**
+ * Material You с честным отказом: ниже Android 12 системной палитры не
+ * существует, и строка обязана это сказать, а не просто держать серую
+ * кнопку, которую ничего не стоит нажать впустую.
+ */
+@Composable
+private fun MaterialYouRow(
+    label: String,
+    reason: String,
+    status: MaterialYouStatus,
+    on: Boolean,
+    c: RipsterColors,
+    onChange: (Boolean) -> Unit,
+) {
+    val enabled = status == MaterialYouStatus.Available
+    Row(
+        Modifier.fillMaxWidth()
+            .then(if (enabled) Modifier.clickable { onChange(!on) } else Modifier)
+            .padding(horizontal = 24.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            BasicText(
+                label,
+                style = TextStyle(color = if (enabled) c.text_primary else c.text_tertiary, fontSize = 14.sp),
+            )
+            if (!enabled) BasicText(
+                reason,
+                style = TextStyle(color = c.text_tertiary, fontSize = 11.sp),
+            )
+        }
+        Box(
+            Modifier.background(if (on) c.accent_fill else c.surface_raised, RoundedCornerShape(999.dp))
+                .padding(horizontal = 12.dp, vertical = 5.dp),
+        ) {
+            BasicText(
+                if (enabled) (if (on) "ON" else "OFF") else "—",
+                style = TextStyle(
+                    color = if (on) c.text_on_fill else c.text_tertiary,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                ),
+            )
+        }
     }
 }
 
@@ -971,7 +1173,7 @@ private fun PairingSection(lang: AppLang, c: RipsterColors) {
                         // как в онбординге. Без этого после сопряжения из Настроек
                         // сервисы оставались «Не подключён» до ручного «Забрать
                         // учётки с ПК».
-                        val n = runCatching { bridge.syncCredentials(app.credentials).getOrDefault(0) }
+                        val n = attempt { bridge.syncCredentials(app.credentials).getOrDefault(0) }
                             .getOrDefault(0)
                         app.registerClients()
                         msg = tr("pair.paired", lang) +
@@ -1088,6 +1290,7 @@ private fun AboutSection(lang: AppLang, c: RipsterColors) {
 }
 
 private suspend fun checkUpdate(current: String, lang: AppLang): UpdCheck = withContext(Dispatchers.IO) {
+    // catch-all-ok — блокирующий GitHub-запрос в не-suspend теле; «не удалось проверить» — честный исход
     runCatching {
         val req = okhttp3.Request.Builder()
             .url("https://api.github.com/repos/$GH_REPO/releases/latest")
@@ -1162,9 +1365,10 @@ private fun RadarSettingsSection(lang: AppLang, c: RipsterColors) {
 
 @Composable
 private fun PlayerSection(lang: AppLang, c: RipsterColors) {
-    val app = RipsterApp.from(LocalContext.current)
+    val context = LocalContext.current
+    val app = RipsterApp.from(context)
     val s by app.settings.state.collectAsState()
-    val styles = listOf("reference" to "player.style_reference", "immersive" to "player.style_immersive", "studio" to "player.style_studio")
+    val styles = listOf("reference" to "player.style_reference", "immersive" to "player.style_immersive", "studio" to "player.style_studio", "liquid" to "player.style_liquid")
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 8.dp)) {
         GroupLabel(tr("player.style", lang), c)
         styles.forEach { (id, k) ->
@@ -1204,6 +1408,36 @@ private fun PlayerSection(lang: AppLang, c: RipsterColors) {
             tr("player.audio_in_eq", lang),
             Modifier.padding(start = 24.dp, end = 24.dp, top = 10.dp),
             style = TextStyle(color = c.text_tertiary, fontSize = 10.sp, lineHeight = 14.sp),
+        )
+
+        // ── Дорогие визуалы ──
+        //
+        // Отдельная группа и НЕ молча: строка «на этом телефоне» считает вердикт
+        // тем же resolve, что и плеер, поэтому настройка не может пообещать
+        // преломление там, где экран дорисует заливку. Человек включает режим
+        // вслепую — и заслуживает видеть, что именно он получит на ЭТОМ железе.
+        val here = PremiumVisuals.glassSummaryKey(
+            PremiumVisuals.resolve(
+                enabled = true,
+                sdkInt = PremiumVisuals.deviceSdk(),
+                animationsOff = PremiumVisuals.animationsOff(context),
+                batterySaver = PremiumVisuals.batterySaver(context),
+                adaptiveColors = s.adaptiveColors,
+            ).glass,
+        )
+        GroupLabel(tr("set.premium_group", lang), c)
+        ToggleRow(tr("set.premium", lang), s.premiumVisuals, c) { on ->
+            app.settings.update { it.copy(premiumVisuals = on) }
+        }
+        BasicText(
+            tr("set.premium_note", lang),
+            Modifier.padding(start = 24.dp, end = 24.dp, top = 2.dp),
+            style = TextStyle(color = c.text_tertiary, fontSize = 10.sp, lineHeight = 14.sp),
+        )
+        BasicText(
+            tr("set.premium_here", lang, tr(here, lang)),
+            Modifier.padding(start = 24.dp, end = 24.dp, top = 6.dp, bottom = 8.dp),
+            style = TextStyle(color = c.text_secondary, fontSize = 11.sp, lineHeight = 15.sp),
         )
     }
 }

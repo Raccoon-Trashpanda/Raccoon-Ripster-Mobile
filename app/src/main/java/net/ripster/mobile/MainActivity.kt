@@ -20,8 +20,10 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.toArgb
 import net.ripster.mobile.audio.parseCue
 import net.ripster.mobile.ui.components.*
+import net.ripster.mobile.ui.premium.rememberPremiumPlayerFx
 import net.ripster.mobile.ui.screens.NowPlayingScreen
 import net.ripster.mobile.ui.screens.NowPlayingState
 import net.ripster.mobile.ui.screens.LibraryScreen
@@ -66,6 +68,22 @@ class MainActivity : ComponentActivity() {
         // залезают под бары и обрезаются — «разрешение не подгоняется».
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        // Холст окна ПЕРЕД первым кадром Compose: системный ночной режим
+        // (values-night/colors.xml) отвечает только за стартовое окно лаунчера,
+        // а человек мог выбрать тёмную тему при светлой системе или наоборот.
+        // Без этого одна-две секунды белая полоса поверх тёмного экрана (и наоборот).
+        run {
+            val night = resources.configuration.uiMode and
+                android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
+                android.content.res.Configuration.UI_MODE_NIGHT_YES
+            val bootCanvas = colorsFor(
+                resolveThemeSetting(
+                    net.ripster.mobile.RipsterApp.from(this).settings.state.value.theme,
+                    night,
+                ),
+            ).surface_canvas
+            window.decorView.setBackgroundColor(bootCanvas.toArgb())
+        }
         setContent { RipsterRoot() }
     }
 }
@@ -81,8 +99,37 @@ private fun RipsterRoot() {
     val app = net.ripster.mobile.RipsterApp.from(androidx.compose.ui.platform.LocalContext.current)
     val s by app.settings.state.collectAsState()
 
-    val theme = runCatching { RipsterThemeName.valueOf(s.theme) }.getOrDefault(RipsterThemeName.Dark)
+    // Право на уведомления. С Android 13 без него система молча режет и прогресс
+    // закачки, и сигналы радара — приложение при этом выглядит работающим.
+    // Спрашиваем один раз за запуск и только после онбординга: диалог поверх
+    // первых экранов человек снимает не глядя.
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val askNotifications = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { /* отказ — просто не показываем уведомления; повторный диалог режет сама система */ }
+    androidx.compose.runtime.LaunchedEffect(s.onboardingDone) {
+        if (!s.onboardingDone) return@LaunchedEffect
+        val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+            ctx, android.Manifest.permission.POST_NOTIFICATIONS
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (net.ripster.mobile.core.notify.NotificationConsent.decide(
+                android.os.Build.VERSION.SDK_INT, granted
+            ) == net.ripster.mobile.core.notify.NotificationConsent.Action.REQUEST
+        ) askNotifications.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
+    val theme = resolveThemeSetting(s.theme, systemDark)
     val density = runCatching { RipsterDensity.valueOf(s.density) }.getOrDefault(RipsterDensity.Normal)
+
+    // Иконки системных баров — за поверхностью ПОД ними: «Light» при тёмной
+    // системе оставил бы белые пиктограммы на белом канвасе. Дальше их ведёт
+    // оболочка (см. applySystemBarInk): она красит это полотно и знает, какой
+    // хром сейчас поверх него. Корень остаётся владельцем ровно до онбординга.
+    applySystemBarInk(
+        colorsFor(theme).surface_canvas,
+        enabled = !s.onboardingDone,
+    )
 
     // Реальный масштаб шрифта из «плотности» — глобально, без смены dp
     // (мишени касания не едут). Именно это делает выбор размера ощутимым.
@@ -91,7 +138,7 @@ private fun RipsterRoot() {
         androidx.compose.ui.unit.Density(baseDensity.density, baseDensity.fontScale * s.fontScale)
     }
 
-    RipsterTheme(theme = theme, density = density) {
+    RipsterTheme(theme = theme, density = density, accent = s.accent, materialYou = s.materialYou) {
         CompositionLocalProvider(
             LocalAppLang provides AppLang.byTag(s.uiLang),
             androidx.compose.ui.platform.LocalDensity provides scaledDensity,
@@ -111,7 +158,11 @@ private fun RipsterRoot() {
                     net.ripster.mobile.ui.AppShell(startInAccountsSettings = justOnboarded)
                 }
 
-                var showSplash by remember { mutableStateOf(true) }
+                // saveable: заставка показывается один раз на запуск. Обычный
+                // `remember` при повороте (активность пересоздаётся) возвращал
+                // true и проигрывал Ripster-сплэш заново поверх уже открытого
+                // экрана (раунд 3). Boolean сохраняется в Bundle нативно.
+                var showSplash by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(true) }
                 androidx.compose.runtime.LaunchedEffect(Unit) {
                     kotlinx.coroutines.delay(1700); showSplash = false
                 }
@@ -360,6 +411,7 @@ private fun AppDemo() {
             onNext = {},
             onClose = {},
             onExpand = {},
+            fx = rememberPremiumPlayerFx(),
         )
         BottomNav(current = dest, onSelect = { dest = it })
     }

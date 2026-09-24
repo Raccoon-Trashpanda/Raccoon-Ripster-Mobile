@@ -25,8 +25,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
+import net.ripster.mobile.ui.premium.MiniCoverRect
+import net.ripster.mobile.ui.premium.PremiumPlayerFx
+import net.ripster.mobile.ui.premium.liquidGlass
+import net.ripster.mobile.ui.premium.premiumCoverBounds
 import net.ripster.mobile.ui.theme.RipsterTheme
 import net.ripster.mobile.ui.i18n.LocalAppLang
 import net.ripster.mobile.ui.i18n.tr
@@ -49,6 +54,8 @@ data class MiniPlayerState(
     /** Идёт подготовка/буферизация — кнопка показывает спиннер и не реагирует. */
     val loading: Boolean = false,
     val artworkUrl: String? = null,
+    /** Строка формата из плеера (кодек/битрейт); пусто — не показываем. */
+    val format: String = "",
 )
 
 @Composable
@@ -59,12 +66,26 @@ fun MiniPlayer(
     onNext: () -> Unit,
     onClose: () -> Unit,
     onExpand: () -> Unit,
+    fx: PremiumPlayerFx,
+    /**
+     * Куда записать прямоугольник обложки — чтобы полный плеер мог выехать из
+     * него (`null` → не записываем и ничего не меняем).
+     */
+    coverRect: net.ripster.mobile.ui.premium.MiniCoverRect? = null,
     modifier: Modifier = Modifier,
+    /**
+     * Однострочный режим для ландшафта (см. ui/layout/ChromeBudget): в горизонтальном
+     * окне каждая вертикальная строка стоит строк выдачи. Обложка 40dp, «название ·
+     * исполнитель» одной строкой, управление то же — минус вторая строка и минус
+     * половина отступов. Портрет вызывает плеер без этого флага и не меняется.
+     */
+    compact: Boolean = false,
 ) {
     // Подписи для скринридера тоже на языке приложения.
     val lang = LocalAppLang.current
     val colors = RipsterTheme.colors
     val type = RipsterTheme.type
+    val glassShape = RoundedCornerShape(16.dp)
 
     val progress = if (state.durationMs > 0) {
         (state.positionMs.toFloat() / state.durationMs.toFloat()).coerceIn(0f, 1f)
@@ -73,16 +94,19 @@ fun MiniPlayer(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(colors.surface_raised)
-            .border(1.dp, colors.border_subtle, RoundedCornerShape(16.dp)),
+            .padding(horizontal = 16.dp, vertical = if (compact) 4.dp else 8.dp)
+            .clip(glassShape)
+            // Плашка — тот же орган-стекло, что и кнопки плеера: тон из-под
+            // ambilight, размытие, блик и кромка. Без режима — глухая
+            // surface_raised с рамкой темы, ровно какой была до «дорогих» окон.
+            .liquidGlass(fx, glassShape, colors.surface_canvas, fallback = colors.surface_raised)
+            .then(if (fx.hasGlass) Modifier else Modifier.border(1.dp, colors.border_subtle, glassShape)),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(start = 10.dp, end = 4.dp)
-                .height(58.dp),
+                .height(if (compact) 48.dp else 58.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Row(
@@ -99,11 +123,25 @@ fun MiniPlayer(
             ) {
                 Cover(
                     url = state.artworkUrl,
-                    modifier = Modifier.size(38.dp),
+                    modifier = Modifier.size(if (compact) 40.dp else 38.dp).premiumCoverBounds(coverRect),
                     shape = RoundedCornerShape(9.dp),
                 )
                 Spacer(Modifier.width(11.dp))
                 Column(modifier = Modifier.weight(1f)) {
+                    if (compact) {
+                        // Одна строка вместо двух: «название · исполнитель»,
+                        // переполнение уводит бегущей строкой, как и выше.
+                        BasicText(
+                            text = if (state.artist.isBlank()) state.title else "${state.title} · ${state.artist}",
+                            maxLines = 1,
+                            modifier = Modifier.fillMaxWidth().basicMarquee(
+                                iterations = Int.MAX_VALUE,
+                                initialDelayMillis = 1400,
+                                repeatDelayMillis = 1600,
+                            ),
+                            style = TextStyle(color = colors.text_primary, fontSize = type.body),
+                        )
+                    } else {
                     BasicText(
                         text = state.title,
                         maxLines = 1,
@@ -114,8 +152,23 @@ fun MiniPlayer(
                         ),
                         style = TextStyle(color = colors.text_primary, fontSize = type.body),
                     )
+                    // Формат донесён до строки «кто играет», но тише исполнителя:
+                    // это прибор, а не крик — как и договорились с ресонадой.
+                    val artistLine = if (state.format.isBlank()) {
+                        androidx.compose.ui.text.AnnotatedString(state.artist)
+                    } else {
+                        androidx.compose.ui.text.buildAnnotatedString {
+                            withStyle(androidx.compose.ui.text.SpanStyle(color = colors.text_secondary)) {
+                                append(state.artist)
+                            }
+                            withStyle(androidx.compose.ui.text.SpanStyle(color = colors.text_tertiary)) {
+                                append("  ·  ")
+                                append(state.format)
+                            }
+                        }
+                    }
                     BasicText(
-                        text = state.artist,
+                        text = artistLine,
                         maxLines = 1,
                         modifier = Modifier.fillMaxWidth().basicMarquee(
                             iterations = Int.MAX_VALUE,
@@ -124,6 +177,7 @@ fun MiniPlayer(
                         ),
                         style = TextStyle(color = colors.text_secondary, fontSize = type.caption),
                     )
+                    }
                 }
             }
 

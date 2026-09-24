@@ -40,6 +40,16 @@ class GenreLearner(
     private val perArtist = HashMap<String, MutableSet<String>>()
 
     /**
+     * Те же ярлыки, но КАК ИХ ПРИСЛАЛ СЕРВИС, с разделителями.
+     *
+     * Нужны для сверки на уровне артиста ([artistGenre]): после [GenreKey.norm]
+     * «Rap and Hip-Hop» превращается в «rapandhiphop», и разбор составного
+     * имени по «/», «,», «+» уже не работает — остаётся догадка по хвосту
+     * строки, которая выдаёт pop там, где нужен rap.
+     */
+    private val rawPerArtist = HashMap<String, MutableSet<String>>()
+
+    /**
      * Пары «артист + ярлык», уже пошедшие в зачёт.
      *
      * Без этого набора один артист, попавшийся трижды, «доказывал» синоним
@@ -65,6 +75,7 @@ class GenreLearner(
 
         val seen = perArtist.getOrPut(a) { HashSet() }
         seen += g
+        rawGenre?.let { rawPerArtist.getOrPut(a) { HashSet() }.add(it) }
 
         // Опорой считаем ярлыки, которые модуль УЖЕ узнаёт. Если у артиста их
         // несколько и они говорят разное — учить нечему: это либо сборник,
@@ -93,6 +104,27 @@ class GenreLearner(
         val row = learned[GenreKey.norm(raw.orEmpty())] ?: return null
         val best = row.maxByOrNull { it.value } ?: return null
         return if (best.value >= MIN_EVIDENCE) best.key else null
+    }
+
+    /**
+     * Жанр САМОГО АРТИСТА, если все его узнанные ярлыки говорят одно.
+     *
+     * Это то, чего у отдельного трека может не быть: Deezer в топе артиста поле
+     * жанра не отдаёт вовсе. Но в том же заходе тот же артист приезжает из
+     * Яндекс-чарта или SoundCloud со своим ярлыком — и вот он ответ про треки,
+     * которые молчат. Жалоба 13.09.2026 («в брейкбите заиграл прог-хаус») —
+     * ровно про эти молчаливые вещи из канона.
+     *
+     * `null` — «не знаю»: артист не встречался нигде кроме как без жанра, или
+     * его ярлыки расходятся. Разнобой читается как «артист на стыке жанров или
+     * сборник», и решать за него нельзя — это та же граница, что и у обучения.
+     *
+     * Опираемся на посев, а не на выученное: выученный ярлык сам откуда-то
+     * пришёл, и вторично сослаться на него значит поверить себе самому.
+     */
+    fun artistGenre(artist: String): String? {
+        val seen = rawPerArtist[normArtist(artist)] ?: return null
+        return seen.mapNotNull { GenreKey.of(it) }.toSet().singleOrNull()
     }
 
     /** Что выучено — для журнала и для сохранения между запусками. */

@@ -39,7 +39,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -48,6 +47,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -57,7 +57,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import net.ripster.mobile.RipsterApp
+import net.ripster.mobile.ui.theme.CaptionFit
+import net.ripster.mobile.ui.theme.PlayerDarkSurface
 import net.ripster.mobile.ui.theme.RipsterTheme
+import net.ripster.mobile.ui.theme.legibleOn
 import net.ripster.mobile.ui.components.QualityBadge
 import net.ripster.mobile.ui.components.QualityBadgeState
 import net.ripster.mobile.ui.components.SeekPlaybackState
@@ -67,8 +70,26 @@ import net.ripster.mobile.ui.components.drawPrevGlyph
 import net.ripster.mobile.ui.components.drawRepeatGlyph
 import net.ripster.mobile.ui.components.drawShuffleGlyph
 import net.ripster.mobile.ui.components.rememberCoverEdgePalette
+import net.ripster.mobile.ui.premium.PremiumMotion
+import net.ripster.mobile.ui.premium.PremiumPlayerFx
+import net.ripster.mobile.ui.premium.glassSquish
+import net.ripster.mobile.ui.premium.glyphColor
+import net.ripster.mobile.ui.premium.liquidGlass
+import net.ripster.mobile.ui.premium.premiumCoverEnter
+import net.ripster.mobile.ui.premium.rememberPremiumPlayerFx
+import net.ripster.mobile.ui.premium.liquidGlassSource
+import net.ripster.mobile.ui.theme.Motion
 import net.ripster.mobile.ui.i18n.LocalAppLang
 import net.ripster.mobile.ui.i18n.tr
+
+/**
+ * Фон «Studio»: near-black, поверх которого ложится всё — и подписи тоже.
+ *
+ * Величина взята из theme/ChromeSurface.kt, а не живёт здесь: хром обязан
+ * называть ту же поверхность, что и плеер, иначе над развёрнутым плеером
+ * ляжет светлая полоса (см. chromeColorsFor).
+ */
+internal val StudioBackground = PlayerDarkSurface
 
 /**
  * Now Playing — тема «Studio». Данные приходят параметром [NowPlayingState].
@@ -113,11 +134,23 @@ fun NowPlayingScreen(
     onToggleShuffle: () -> Unit,
     onToggleRepeat: () -> Unit,
     onDownloadAlbum: () -> Unit,
+    /**
+     * Прямоугольник обложки мини-плашки: из неё выезжает большая обложка.
+     * `null` (режим выкл, пружины запрещены или плашка не замерена) — обложка
+     * появляется ровно там же, где появлялась всегда.
+     */
+    enterFromCover: androidx.compose.ui.geometry.Rect? = null,
     modifier: Modifier = Modifier,
 ) {
     val c = RipsterTheme.colors
     val lang = LocalAppLang.current
     val app = RipsterApp.from(LocalContext.current)
+    // План этого телефона — через общий хелпер плееров: Studio не имеет права
+    // остаться единственной оболочкой, которой режим обещан, но не дан.
+    // Фон стиля не меняется: под панелями живёт собственная заливка StudioAmbient,
+    // и она же — источник размытия для стекла (см. liquidGlassSource ниже).
+    val fx = rememberPremiumPlayerFx()
+    val plan = fx.plan
     var sheet by remember { mutableStateOf(0) }
     // Таймер сна: подпись кнопки — обратный отсчёт, пока активен.
     val sleep by app.player.sleep.collectAsState()
@@ -134,6 +167,19 @@ fun NowPlayingScreen(
         }
     }
 
+    // Действия плеера — СПИСОК, а не семь вызовов подряд: ряд раскладывается по
+    // тому, сколько ячейке достаётся ширины (см. CaptionFit), для чего состав
+    // надо укладывать строками.
+    val studioActions = listOf(
+        StudioActionSpec(tr("ref.tracklist", lang), onClick = { sheet = 1 }) { listGlyph(it) },
+        StudioActionSpec(tr("ref.lyrics", lang), onClick = { sheet = 2 }) { lyricsGlyph(it) },
+        StudioActionSpec(tr("ref.spectrum", lang), onClick = { sheet = 3 }) { barsGlyph(it) },
+        StudioActionSpec(tr("ref.equalizer", lang), onClick = { sheet = 4 }) { eqGlyph(it) },
+        StudioActionSpec(sleepLabel, onClick = { sheet = 7 }, active = sleep.active) { moonGlyph(it) },
+        StudioActionSpec(tr("ref.cast", lang), onClick = { sheet = 6 }) { castGlyph(it) },
+        StudioActionSpec(tr("np.dl_short", lang), onClick = onDownloadAlbum) { dlGlyph(it) },
+    )
+
     // Волновой сик-бар: честные пики трека. Декод локального файла на IO + кэш;
     // нет пути/стрим/не вышло → null → откат на обычную полосу.
     val ctx = LocalContext.current
@@ -144,17 +190,36 @@ fun NowPlayingScreen(
 
     // Палитра краёв обложки → цвет заливки/свечения. Затемняем к near-black.
     val palette = rememberCoverEdgePalette(state.artworkUrl)
-    val deep = Color(0xFF07070A)
+    val deep = StudioBackground
     val topTint = lerp(palette.getOrElse(0) { deep }, deep, 0.62f)
     val glow = palette.getOrElse(1) { c.accent_fill }
+    // Органы Studio плавают над палитровой заливкой: стекло подмешивает себе её
+    // тон, а не имя темы. Здесь controls лежат в нижней, затемнённой части.
+    val glassBehind = deep
 
     BoxWithConstraints(modifier.fillMaxSize().background(deep)) {
-        // ── амбиент вынесен в отдельный композабл со стабильными Color-входами:
-        //    Compose ПРОПУСКАЕТ его на тик позиции (5×/сек), поэтому тяжёлый
-        //    полноэкранный градиент+дизер не перерисовываются зря — плавнее. ──
-        StudioAmbient(topTint = topTint, deep = deep)
+        // ── фон ──
+        // Статичная палитровая заливка со стабильными Color-входами: Compose
+        // ПРОПУСКАЕТ её на тик позиции (5×/сек), поэтому тяжёлый полноэкранный
+        // градиент+дизер не перерисовываются зря — плавнее. Дорогим визуалам
+        // здесь делать нечего: режим меняет ТО, как нарисованы органы
+        // управления, а фон Studio остаётся ровно тем, что был до режима.
+        // Заливка помечена как слой-источник: стеклянные панели размывают её.
+        StudioAmbient(
+            topTint = topTint, deep = deep,
+            modifier = Modifier.liquidGlassSource(fx, deep),
+        )
 
         val coverSide = (maxHeight * 0.30f).coerceAtMost(280.dp)
+        // Ширина, доступная ряду действий: экран минус поля колонны (26.dp×2).
+        val actionRowWidthDp = (maxWidth - 52.dp).value
+        // Масштаб обложки берётся из чистого слоя (PremiumMotion): вне режима и
+        // при «без анимации» он 1f в обоих состояниях, то есть движения нет.
+        val artworkScale by animateFloatAsState(
+            targetValue = PremiumMotion.artworkScale(plan.springMotion, state.isPlaying),
+            animationSpec = Motion.standard,
+            label = "artwork-breath",
+        )
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState())
                 .padding(horizontal = 26.dp),
@@ -175,7 +240,17 @@ fun NowPlayingScreen(
                 }
                 net.ripster.mobile.ui.components.Cover(
                     url = state.artworkUrl,
-                    modifier = Modifier.size(coverSide).clip(RoundedCornerShape(20.dp))
+                    modifier = Modifier.size(coverSide)
+                        // Доехать из мини-плашки (пустой модификатор, когда пружины
+                        // запрещены или плашка ещё не замеряла себя).
+                        .premiumCoverEnter(enterFromCover)
+                        // Сесть на паузе и пружинить обратно на старте: масштаб
+                        // считает чистый PremiumMotion, вне режима он 1f всегда.
+                        .graphicsLayer {
+                            scaleX = artworkScale
+                            scaleY = artworkScale
+                        }
+                        .clip(RoundedCornerShape(20.dp))
                         .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(20.dp)),
                     shape = RoundedCornerShape(20.dp),
                 )
@@ -197,7 +272,12 @@ fun NowPlayingScreen(
             Spacer(Modifier.height(12.dp))
             // формат + вердикт качества, тап → «Паспорт трека»
             Row(
-                Modifier.clip(RoundedCornerShape(50)).clickable(
+                Modifier.liquidGlass(
+                    // Строка качества — тоже орган: стеклянная капсула, под которой
+                    // видно заливку. Без стекла капсула невидима, ряд остаётся тем,
+                    // чем был до режима.
+                    fx, RoundedCornerShape(50), glassBehind, fallback = Color.Transparent,
+                ).clip(RoundedCornerShape(50)).clickable(
                     interactionSource = remember { MutableInteractionSource() }, indication = null,
                 ) { sheet = 5 }.padding(horizontal = 4.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -227,20 +307,33 @@ fun NowPlayingScreen(
 
             Spacer(Modifier.height(20.dp))
             val wf = peaks
-            if (wf != null && state.durationMs > 0) {
-                WaveformSeek(
-                    peaks = wf, positionMs = state.positionMs, durationMs = state.durationMs,
-                    onSeek = onSeek, onScrubChange = onScrubPreview,
-                    tint = c.accent_fill,
-                    modifier = Modifier.fillMaxWidth().height(46.dp),
-                )
-            } else {
-                SeekStrip(
-                    positionMs = state.positionMs, durationMs = state.durationMs,
-                    onSeek = onSeek, onScrubChange = onScrubPreview,
-                    state = if (state.isPlaying) SeekPlaybackState.Playing else SeekPlaybackState.Paused,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+            // Сик-бар — орган, а не голая линия: стеклянная капсула под дорожкой.
+            // Без режима капсулы и её отступов нет, полоса стоит как раньше.
+            val seekPad = if (fx.hasGlass) 14.dp else 0.dp
+            Box(
+                Modifier.fillMaxWidth()
+                    .liquidGlass(fx, RoundedCornerShape(16.dp), glassBehind, fallback = Color.Transparent)
+                    .padding(horizontal = seekPad, vertical = seekPad / 2f),
+            ) {
+                if (wf != null && state.durationMs > 0) {
+                    WaveformSeek(
+                        peaks = wf, positionMs = state.positionMs, durationMs = state.durationMs,
+                        onSeek = onSeek, onScrubChange = onScrubPreview,
+                        tint = c.accent_fill,
+                        modifier = Modifier.fillMaxWidth().height(46.dp),
+                    )
+                } else {
+                    SeekStrip(
+                        positionMs = state.positionMs, durationMs = state.durationMs,
+                        onSeek = onSeek, onScrubChange = onScrubPreview,
+                        state = if (state.isPlaying) SeekPlaybackState.Playing else SeekPlaybackState.Paused,
+                        // «Studio» красит собственный near-black, а не surface_*
+                        // палитры: без честного ответа про фон компонент зажимает
+                        // цвета против поверхности, под которой их никто не рисует.
+                        surfaceBehind = deep,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
 
             Spacer(Modifier.height(18.dp))
@@ -250,27 +343,60 @@ fun NowPlayingScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                ToggleGlyph(active = state.shuffle, onClick = onToggleShuffle, accent = c.accent_text) { drawShuffleGlyph(it) }
-                GlassCircle(52.dp, onPrevious) { drawPrevGlyph(it) }
-                AccentPlay(isPlaying = state.isPlaying, loading = state.loading, accent = c.accent_fill, onClick = onPlayPause)
-                GlassCircle(52.dp, onNext) { drawNextGlyph(it) }
-                ToggleGlyph(active = state.repeat, onClick = onToggleRepeat, accent = c.accent_text) { drawRepeatGlyph(it) }
+                ToggleGlyph(active = state.shuffle, onClick = onToggleShuffle, accent = c.accent_text, fx = fx, behind = glassBehind) { drawShuffleGlyph(it) }
+                GlassCircle(52.dp, onPrevious, fx, glassBehind) { drawPrevGlyph(it) }
+                AccentPlay(isPlaying = state.isPlaying, loading = state.loading, accent = c.accent_fill, onClick = onPlayPause, fx = fx)
+                GlassCircle(52.dp, onNext, fx, glassBehind) { drawNextGlyph(it) }
+                ToggleGlyph(active = state.repeat, onClick = onToggleRepeat, accent = c.accent_text, fx = fx, behind = glassBehind) { drawRepeatGlyph(it) }
             }
 
             Spacer(Modifier.height(18.dp))
-            // Ряд действий: ширина раздаётся поровну (все влезают, без скролла).
-            Row(
+            // Ряд действий. Ширина раздаётся не «поровну и как получится»: на
+            // 411dp семи ячейкам достаётся по 51dp, чего «Эквалайзеру» не хватает,
+            // и подпись умирала как «Эквала…». Сначала считаем, сколько ячеек
+            // влезает дочитываемой, и только тогда кладём; на узком экране ряд
+            // раскладывается в два, скролла нет.
+            val rowWidthDp = actionRowWidthDp
+            val gapDp = 4.dp.value
+            val columns = CaptionFit.columnsFor(
+                count = studioActions.size,
+                rowWidthDp = rowWidthDp,
+                gapDp = gapDp,
+                minSlotDp = CaptionFit.ActionRowMinSlotDp,
+            )
+            val slotDp = CaptionFit.slotDp(rowWidthDp, minOf(columns, studioActions.size), gapDp)
+            // Кегль и число строк — ОДНИ на весь ряд, и вычисляются здесь, а не
+            // в кнопке: посчитанные по отдельности подписи легли бы на разные
+            // высоты, и ряд разъехался бы вертикально (тот же дефект, что ловили
+            // на табах 03.09.2026).
+            val actionLabels = studioActions.map { it.label }
+            val captionLines = CaptionFit.rowCaptionLines(actionLabels, slotDp)
+            val captionSp = CaptionFit.rowCaptionSp(actionLabels, slotDp, captionLines).value
+            Column(
                 Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                verticalAlignment = Alignment.Top,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                StudioAction(tr("ref.tracklist", lang), onClick = { sheet = 1 }, modifier = Modifier.weight(1f)) { listGlyph(it) }
-                StudioAction(tr("ref.lyrics", lang), onClick = { sheet = 2 }, modifier = Modifier.weight(1f)) { lyricsGlyph(it) }
-                StudioAction(tr("ref.spectrum", lang), onClick = { sheet = 3 }, modifier = Modifier.weight(1f)) { barsGlyph(it) }
-                StudioAction(tr("ref.equalizer", lang), onClick = { sheet = 4 }, modifier = Modifier.weight(1f)) { eqGlyph(it) }
-                StudioAction(sleepLabel, onClick = { sheet = 7 }, active = sleep.active, modifier = Modifier.weight(1f)) { moonGlyph(it) }
-                StudioAction(tr("ref.cast", lang), onClick = { sheet = 6 }, modifier = Modifier.weight(1f)) { castGlyph(it) }
-                StudioAction(tr("np.dl_short", lang), onClick = onDownloadAlbum, modifier = Modifier.weight(1f)) { dlGlyph(it) }
+                studioActions.chunked(columns).forEach { row ->
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(gapDp.dp),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        row.forEach { action ->
+                            StudioAction(
+                                label = action.label,
+                                onClick = action.onClick,
+                                active = action.active,
+                                fx = fx,
+                                behind = glassBehind,
+                                captionSp = captionSp,
+                                captionLines = captionLines,
+                                modifier = Modifier.weight(1f),
+                                draw = action.draw,
+                            )
+                        }
+                    }
+                }
             }
             Spacer(Modifier.height(30.dp))
         }
@@ -314,39 +440,69 @@ fun NowPlayingScreen(
 
 /** Круглая стеклянная кнопка транспорта. */
 @Composable
-private fun GlassCircle(size: androidx.compose.ui.unit.Dp, onClick: () -> Unit, draw: DrawScope.(Color) -> Unit) {
+private fun GlassCircle(
+    size: androidx.compose.ui.unit.Dp,
+    onClick: () -> Unit,
+    fx: PremiumPlayerFx,
+    behind: Color,
+    draw: DrawScope.(Color) -> Unit,
+) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    val s by animateFloatAsState(if (pressed) 0.88f else 1f, label = "gc")
     Box(
-        Modifier.size(size).scale(s).clip(CircleShape)
-            .background(Color.White.copy(alpha = 0.09f))
-            .border(1.dp, Color.White.copy(alpha = 0.14f), CircleShape)
+        Modifier.size(size)
+            .glassSquish(fx, pressed, plain = 0.88f, label = "gc")
+            .clip(CircleShape)
+            // OFF: глухая плашка surface + рамка, как была. ON: стекло рисует тон
+            // из-под органа и весь свет само, рамка темы ему только мешает.
+            .liquidGlass(fx, CircleShape, behind, fallback = Color.White.copy(alpha = 0.09f))
+            .then(if (fx.hasGlass) Modifier else Modifier.border(1.dp, Color.White.copy(alpha = 0.14f), CircleShape))
             .clickable(interactionSource = interaction, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center,
-    ) { Canvas(Modifier.size(size * 0.42f)) { draw(Color.White.copy(alpha = 0.9f)) } }
+    ) { Canvas(Modifier.size(size * 0.42f)) { draw(fx.glyphColor(Color.White.copy(alpha = 0.9f), behind)) } }
 }
 
 /** Плоский глиф-переключатель (шафл/повтор): active подсвечен акцентом. */
 @Composable
-private fun ToggleGlyph(active: Boolean, onClick: () -> Unit, accent: Color, draw: DrawScope.(Color) -> Unit) {
+private fun ToggleGlyph(
+    active: Boolean,
+    onClick: () -> Unit,
+    accent: Color,
+    fx: PremiumPlayerFx,
+    behind: Color,
+    draw: DrawScope.(Color) -> Unit,
+) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    val s by animateFloatAsState(if (pressed) 0.82f else 1f, label = "tg")
+    val own = if (active) accent else Color.White.copy(alpha = 0.55f)
     Box(
-        Modifier.size(44.dp).scale(s)
+        Modifier.size(44.dp)
+            .glassSquish(fx, pressed, plain = 0.82f, label = "tg")
+            .then(
+                if (fx.hasGlass) Modifier.clip(CircleShape).liquidGlass(fx, CircleShape, behind, fallback = Color.Transparent)
+                else Modifier,
+            )
             .clickable(interactionSource = interaction, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center,
-    ) { Canvas(Modifier.size(20.dp)) { draw(if (active) accent else Color.White.copy(alpha = 0.55f)) } }
+    ) { Canvas(Modifier.size(20.dp)) { draw(fx.glyphColor(own, behind)) } }
 }
 
 /** Круглая акцентная Play с мягким свечением. */
 @Composable
-private fun AccentPlay(isPlaying: Boolean, loading: Boolean, accent: Color, onClick: () -> Unit) {
+private fun AccentPlay(
+    isPlaying: Boolean,
+    loading: Boolean,
+    accent: Color,
+    onClick: () -> Unit,
+    fx: PremiumPlayerFx,
+) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    val s by animateFloatAsState(if (pressed) 0.9f else 1f, label = "pp")
-    Box(Modifier.size(72.dp).scale(s), contentAlignment = Alignment.Center) {
+    // Акцентная Play остаётся акцентной — лицо Studio; пружину нажатия берёт у стекла.
+    Box(
+        Modifier.size(72.dp).glassSquish(fx, pressed, plain = 0.9f, label = "pp"),
+        contentAlignment = Alignment.Center,
+    ) {
         Canvas(Modifier.matchParentSize()) {
             drawCircle(Brush.radialGradient(listOf(accent.copy(alpha = 0.4f), Color.Transparent), radius = this.size.minDimension / 2f))
         }
@@ -375,38 +531,94 @@ private fun AccentPlay(isPlaying: Boolean, loading: Boolean, accent: Color, onCl
  *  со стабильными Color-входами — Compose пропускает его на тик позиции, и
  *  тяжёлый фон не перерисовывается зря (плавнее свёртка/развёртка). */
 @Composable
-private fun StudioAmbient(topTint: Color, deep: Color) {
+private fun StudioAmbient(topTint: Color, deep: Color, modifier: Modifier = Modifier) {
     val dither = net.ripster.mobile.ui.components.rememberDitherBrush()
     Box(
-        Modifier.fillMaxSize().background(
+        modifier.fillMaxSize().background(
             Brush.verticalGradient(0f to topTint, 0.55f to lerp(topTint, deep, 0.7f), 1f to deep),
         ),
     )
     Canvas(Modifier.fillMaxSize()) { drawRect(dither, alpha = 0.035f) }
 }
 
-/** Компактная кнопка действия (иконка + мелкая подпись). Ширину даёт родитель
- *  (weight) — плитка центрируется, все кнопки ряда влезают без скролла. */
+/** Одно действие ряда «Studio»: подпись, что открывает, и глиф. */
+private class StudioActionSpec(
+    val label: String,
+    val onClick: () -> Unit,
+    val active: Boolean = false,
+    val draw: DrawScope.(Color) -> Unit,
+)
+
+/**
+ * Компактная кнопка действия (иконка + подпись). Кегль и число строк подписи
+ * приходят ИЗВНЕ (см. CaptionFit): их считает ряд целиком, иначе подписи разной
+ * длины легли бы на разные высоты. Многоточие — единственный честный исход,
+ * когда не хватило и двух строк.
+ */
 @Composable
-private fun StudioAction(label: String, onClick: () -> Unit, active: Boolean = false, modifier: Modifier = Modifier, draw: DrawScope.(Color) -> Unit) {
+private fun StudioAction(
+    label: String,
+    onClick: () -> Unit,
+    active: Boolean = false,
+    fx: PremiumPlayerFx,
+    behind: Color,
+    captionSp: Float = 12f,
+    captionLines: Int = 1,
+    modifier: Modifier = Modifier,
+    draw: DrawScope.(Color) -> Unit,
+) {
     val accent = Color(0xFFFF6B8B)
+    val tile = RoundedCornerShape(13.dp)
+    val fill = if (active) accent.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.11f)
+    val rim = if (active) accent.copy(alpha = 0.6f) else Color.White.copy(alpha = 0.22f)
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
     // Контраст поднят: плитка и подпись раньше тонули в near-black (жалоба
     // «сливаются, нечитаемо»). Фон/рамка/глиф/подпись стали заметно светлее.
+    // Подпись — не менее 4.5:1 к фону экрана, иначе «Эквалайзер» формально есть,
+    // а глазами его не собрать.
+    val captionInk = legibleOn(
+        if (active) accent else Color.White.copy(alpha = 0.86f),
+        StudioBackground,
+    )
     Column(
         modifier, horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         Box(
-            Modifier.size(42.dp).clip(RoundedCornerShape(13.dp))
-                .background(if (active) accent.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.11f))
-                .border(1.dp, if (active) accent.copy(alpha = 0.6f) else Color.White.copy(alpha = 0.22f), RoundedCornerShape(13.dp))
-                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick),
+            Modifier.size(42.dp)
+                // Пружину добавляем только под стеклом: без режима плитки не
+                // сжимались, и OFF обязан остаться ровно таким.
+                .then(if (fx.hasGlass) Modifier.glassSquish(fx, pressed) else Modifier)
+                .clip(tile)
+                // Активная плитка (заведённый таймер) сохраняет акцентную рамку и
+                // при стекле — иначе состояние перестало бы читаться.
+                .liquidGlass(fx, tile, behind, fallback = fill)
+                .then(if (fx.hasGlass && !active) Modifier else Modifier.border(1.dp, rim, tile))
+                .clickable(interactionSource = interaction, indication = null, onClick = onClick),
             contentAlignment = Alignment.Center,
-        ) { Canvas(Modifier.size(19.dp)) { draw(if (active) accent else Color.White.copy(alpha = 0.95f)) } }
+        ) { Canvas(Modifier.size(19.dp)) { draw(fx.glyphColor(if (active) accent else Color.White.copy(alpha = 0.95f), behind)) } }
+        val lineHeightSp = captionSp * 1.18f
+        // Высота резервируется в dp, но считается из кегля: строка `12.sp × 2`
+        // на системном масштабе 1.3 занимает не 24dp, и фиксированная плитка
+        // молча съела бы вторую строку.
+        val captionBlockDp = with(androidx.compose.ui.platform.LocalDensity.current) {
+            (lineHeightSp * captionLines).sp.toDp()
+        }
         BasicText(
-            label, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.fillMaxWidth(),
-            style = TextStyle(color = if (active) accent else Color.White.copy(alpha = 0.72f), fontSize = 9.sp, textAlign = TextAlign.Center),
+            label, maxLines = captionLines, overflow = TextOverflow.Ellipsis,
+            // Место под подпись резервируется фиксированной высотой, а не
+            // «сколько заняло»: кнопка с одной строкой рядом с двухстрочной
+            // сдвинула бы иконку вверх, и ряд перестал бы быть рядом.
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(captionBlockDp),
+            style = TextStyle(
+                color = captionInk,
+                fontSize = captionSp.sp,
+                lineHeight = lineHeightSp.sp,
+                textAlign = TextAlign.Center,
+            ),
         )
     }
 }

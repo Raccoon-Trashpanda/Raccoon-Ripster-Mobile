@@ -1,6 +1,10 @@
 package net.ripster.mobile.service.tidal
 
+import net.ripster.mobile.core.errors.attempt
+
 import net.ripster.mobile.core.errors.EngineErrors
+import net.ripster.mobile.core.errors.isJobCancellation
+
 import android.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -42,9 +46,13 @@ import java.io.IOException
  * credential `TIDAL_OAUTH` = JSON `{refreshToken, countryCode}`.
  *
  * В объёме: потоки `application/vnd.tidal.bts` (LOSSLESS FLAC / HIGH AAC /
- * LOW) — прямые URL, без расшифровки. HI_RES через MPEG-DASH пока НЕ
- * поддержан (нужен парсер SegmentTemplate) — для таких треков откат на
- * LOSSLESS.
+ * LOW) — прямые URL, без расшифровки, и `application/dash+xml`
+ * (HI_RES / HI_RES_LOSSLESS) — MPEG-DASH с `SegmentTemplate`, который
+ * [TidalDash] разворачивает в список кусков: скачивание склеивает их в файл,
+ * плеер — в непрерывный поток ([net.ripster.mobile.player.RipsterDataSource]).
+ * Манифесты с DRM и с нарезкой иного вида (SegmentList/SegmentBase)
+ * разворачивать нечем — они отдаются именованной ошибкой, а не тихим откатом
+ * на качество ниже.
  */
 class TidalClient(
     storedJson: String,
@@ -67,6 +75,7 @@ class TidalClient(
     // её из ответа refresh и из JWT access-токена.
     @Volatile private var cc: String = stored?.countryCode?.takeIf { it.length == 2 } ?: "US"
 
+    // catch-all-ok — чистый разбор JWT — точек подвески нет
     private fun ccFromJwt(jwt: String): String? = runCatching {
         val payload = jwt.split(".").getOrNull(1) ?: return null
         val bytes = Base64.decode(payload, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
@@ -78,6 +87,61 @@ class TidalClient(
     private val low = QualityTier("mp3_128", "AAC 96", lossless = false, container = "m4a", bitrateKbps = 96)
 
     internal companion object {
+        private val manifestJson = Json { ignoreUnknownKeys = true; coerceInputValues = true }
+
+        /**
+         * Манифест → что с ним делать. Чистая функция без сети: ровно она
+         * решает, поедет трек старым путём (BTS, прямой URL) или новым
+         * (MPEG-DASH, список сегментов), и обязана оставаться проверяемой —
+         * ошибиться здесь значит молча склеить не тот файл.
+         *
+         * `null` — формат неизвестен: это не отказ, а «идём дальше по лесенке
+         * качеств».
+         */
+        fun decodeManifest(
+            manifestMimeType: String,
+            decoded: String,
+            manifestUrl: String? = null,
+        ): TidalManifest? {
+            val mime = manifestMimeType.trim().lowercase()
+            return when {
+                mime == "application/vnd.tidal.bts" ->
+                    runCatching { manifestJson.decodeFromString(TdBts.serializer(), decoded).urls.firstOrNull() }
+                        .getOrNull()?.let { TidalManifest.Direct(it) }
+                        ?: TidalManifest.Rejected(EngineErrors.EMPTY_STREAM, "bts manifest without urls")
+                mime == "application/dash+xml" || decoded.contains("<MPD", true) ->
+                    when (val d = TidalDash.parse(decoded, manifestUrl)) {
+                        is DashOutcome.Segments -> TidalManifest.Segments(d.plan)
+                        is DashOutcome.WholeFile -> TidalManifest.Direct(d.url)
+                        is DashOutcome.Rejected -> TidalManifest.Rejected(d.reason, d.detail)
+                    }
+                else -> null
+            }
+        }
+
+        /**
+         * Подпись качества по тому, что манифест РЕАЛЬНО отдаёт, а не по тому,
+         * что мы просили.
+         *
+         * Tidal отвечает `audioQuality: HI_RES_LOSSLESS` и на манифестах без
+         * FLAC-дорожки (например, когда hi-res в каталоге числится, а в DASH
+         * лег только AAC). Оставить тогда подпись «FLAC Hi-Res 24-bit» — значит
+         * соврать человеку о файле, который он качает; здесь это ровно то, что
+         * видит UI в названии задачи.
+         */
+        fun tierForDash(claimed: QualityTier, plan: DashSegments): QualityTier {
+            if (plan.flac || !claimed.lossless) return claimed
+            val kbps = (plan.bandwidth / 1000).toInt().takeIf { it > 0 }
+            return QualityTier(
+                id = "dash_aac${kbps?.let { "_$it" } ?: ""}",
+                label = if (kbps != null) "AAC $kbps (DASH)" else "AAC (DASH)",
+                lossless = false,
+                container = "m4a",
+                bitrateKbps = kbps,
+            )
+        }
+
+
         /** Порядок тиров, которые имеет смысл просить у Tidal, и в каком порядке.
          *
          * Отдельной чистой функцией, потому что именно здесь жил тупик, из-за
@@ -147,7 +211,7 @@ class TidalClient(
     override suspend fun health(): net.ripster.mobile.core.service.AccountHealth {
         val H = net.ripster.mobile.core.service.AccountHealth
         return try {
-            if (!ensureToken()) return H.dead("токен не принят")
+            if (!ensureToken()) return H.dead(EngineErrors.TOKEN_INVALID)
             val s = json.parseToJsonElement(api("https://api.tidal.com/v1/sessions") {}).jsonObject
             val uid = s["userId"]?.jsonPrimitive?.longOrNull ?: 0L
             val cc = s["countryCode"]?.jsonPrimitive?.contentOrNull.orEmpty()
@@ -163,14 +227,15 @@ class TidalClient(
                 country = cc,
                 validUntil = sub["validUntil"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                 reason = if (q in setOf("LOSSLESS", "HI_RES", "HI_RES_LOSSLESS")) ""
-                         else "подписка не даёт lossless",
+                         else EngineErrors.NO_LOSSLESS_PLAN,
             )
         } catch (e: Exception) {
+            if (isJobCancellation(e)) throw e   // отменённую проверку учётки не превращаем в «не знаю»
             val msg = e.message.orEmpty()
             when {
-                "401" in msg -> H.dead("токен отвергнут (401)")
-                "403" in msg -> H.dead("доступ закрыт (403)")
-                else -> H.unknown("не смогли спросить: ${e::class.simpleName}")
+                "401" in msg -> H.dead(EngineErrors.code(EngineErrors.TOKEN_INVALID, "401"))
+                "403" in msg -> H.dead(EngineErrors.code(EngineErrors.HTTP, "403"))
+                else -> H.unknown(EngineErrors.code(EngineErrors.HEALTH_UNKNOWN, e::class.simpleName))
             }
         }
     }
@@ -247,24 +312,24 @@ class TidalClient(
 
     override suspend fun streamInfo(track: Track, preference: List<String>): StreamInfo {
         val id = track.raw["tdId"] ?: throw IOException("Tidal: no track id")
-        var s = resolveStream(id, preference)
-        if (s is TdStream.Dash) {
-            // Потоковое воспроизведение НЕ тянет DASH (у нас только init-сегмент
-            // без media-сегментов → ExoPlayer: «malformed content»). Для стрима
-            // берём ПРЯМОЙ URL: LOSSLESS FLAC, иначе HIGH AAC. HI-RES остаётся
-            // только для скачивания (там сегменты склеиваются в файл).
-            val direct = runCatching { resolveStream(id, listOf("lossless_direct")) }.getOrNull()
-            if (direct is TdStream.Direct) s = direct
-        }
-        return when (s) {
+        return when (val s = resolveStream(id, preference)) {
             is TdStream.Direct -> StreamInfo(url = s.url, quality = s.tier)
-            // Init-сегмент DASH плеер воспроизвести НЕ МОЖЕТ — в нём только
-            // заголовок, без звука. Раньше мы его всё равно отдавали, и вместо
-            // ошибки человек получал вечную загрузку: жалоба тестера 04.09.2026
-            // («вижу треки Tidal, но приложение зависает при потоковой
-            // передаче»). Заведомо неиграбельная ссылка должна быть честным
-            // отказом, а не тишиной.
-            is TdStream.Dash -> throw IOException(EngineErrors.NO_DIRECT_STREAM)
+            is TdStream.Dash -> {
+                // HI_RES через MPEG-DASH играется: манифест развёрнут в список
+                // кусков, а `player/RipsterDataSource` склеивает их в один
+                // непрерывный поток. Раньше здесь был честный отказ
+                // (`no_direct_stream`), потому что плеер доезжал только
+                // init-сегмент: у parseDash любой `<BaseURL>` считался цельным
+                // файлом, и media-сегменты терялись.
+                //
+                // Список живёт в реестре, а в URL едет только ключ — ссылки
+                // подписаны и длиннее, чем это переносит очередь/сохранение
+                // плеера.
+                StreamInfo(
+                    url = TidalDashRegistry.tag(s.plan.initUrl, TidalDashRegistry.put(s.plan)),
+                    quality = s.tier,
+                )
+            }
         }
     }
 
@@ -272,12 +337,7 @@ class TidalClient(
         data class Direct(val tier: QualityTier, val url: String) : TdStream
         /** [quality] — тот `audioquality`, которым манифест ЗАПРОШЕН. Нужен,
          *  чтобы при отказе CDN исключить именно его и спуститься ниже. */
-        data class Dash(
-            val tier: QualityTier,
-            val initUrl: String,
-            val mediaUrls: List<String>,
-            val quality: String = "",
-        ) : TdStream
+        data class Dash(val tier: QualityTier, val plan: DashSegments, val quality: String) : TdStream
     }
 
     override fun download(request: DownloadRequest): Flow<DownloadEvent> = flow {
@@ -299,7 +359,15 @@ class TidalClient(
                 // склеиваются в один fMP4 → расширение ВСЕГДА .m4a (а не
                 // s.tier.container: у lossless-тиров он «flac» для подписи, но
                 // на диске здесь всё равно MP4-контейнер).
-                emit(DownloadEvent.Log("Tidal: ${s.tier.label} (DASH, ${s.mediaUrls.size} segments)"))
+                // Кодекс в строке — не украшение: это то, что манифест РЕАЛЬНО
+                // выбрал, и единственная проверка подписи качества словами
+                // «FLAC»/«AAC» против фактического содержимого куска.
+                emit(
+                    DownloadEvent.Log(
+                        "Tidal: ${s.tier.label} (DASH rep ${s.plan.representationId}, " +
+                            "${s.plan.codec}, ${s.plan.mediaUrls.size} segments)",
+                    ),
+                )
                 val out = File(cacheDir, "td_$id.m4a")
 
                 // ССЫЛКИ НА СЕГМЕНТЫ ПОДПИСАНЫ И ЖИВУТ НЕДОЛГО.
@@ -314,8 +382,8 @@ class TidalClient(
                 // Просроченная подпись — помеха: берём свежий манифест и
                 // продолжаем с того же места. Отказ ПОСЛЕ обновления — это уже
                 // про доступ, и так и скажем.
-                var initUrl = s.initUrl
-                var urls = s.mediaUrls
+                var initUrl = s.plan.initUrl
+                var urls = s.plan.mediaUrls
                 var refreshed = false
                 var denied = false
                 out.outputStream().buffered().use { sink ->
@@ -340,12 +408,12 @@ class TidalClient(
                             // иначе склеим куски от двух разных потоков и получим
                             // битый файл, который выглядит целым.
                             val fresh = (resolveStream(id, preference, refused) as? TdStream.Dash)
-                                ?.takeIf { it.mediaUrls.size == urls.size }
+                                ?.plan?.takeIf { it.mediaUrls.size == urls.size }
                             if (fresh == null) { denied = true; break }
                             initUrl = fresh.initUrl; urls = fresh.mediaUrls
                             android.util.Log.i(
                                 "RipsterTidal",
-                                "segment ${'$'}i denied (HTTP ${'$'}{d.code}) — refreshed token+manifest, continuing",
+                                "segment $i denied (HTTP ${d.code}) — refreshed token+manifest, continuing",
                             )
                             continue   // повторяем ТОТ ЖЕ индекс свежим токеном
                         }
@@ -367,7 +435,7 @@ class TidalClient(
                     // Сначала — тир ниже (может быть тоже DASH).
                     val next = runCatching { resolveStream(id, preference, refused) }.getOrNull()
                     if (next != null) {
-                        emit(DownloadEvent.Log("Tidal: ${'$'}{s.tier.label} refused by CDN, falling back"))
+                        emit(DownloadEvent.Log("Tidal: ${s.tier.label} refused by CDN, falling back"))
                         attempt = next
                         continue
                     }
@@ -379,12 +447,13 @@ class TidalClient(
                     // Значит скачивание обязано работать везде, где идёт стрим.
                     val si = runCatching { streamInfo(request.track, listOf("lossless_direct")) }.getOrNull()
                     if (si != null && si.url.isNotBlank()) {
-                        emit(DownloadEvent.Log("Tidal: сегменты 403 — качаю прямым URL (${'$'}{si.quality.label})"))
-                        val df = File(cacheDir, "td_$id.${'$'}{si.quality.container}")
+                        emit(DownloadEvent.Log("Tidal: segments 403 — using direct URL (${si.quality.label})"))
+                        val df = File(cacheDir, "td_$id.${si.quality.container}")
                         val ok = runCatching {
                             streamTo(si.url, df) { got, tot -> emit(DownloadEvent.Progress(tot?.let { got.toFloat() / it }, got, tot)) }
                         }.isSuccess
                         if (ok) { emit(DownloadEvent.Done(df.absolutePath, si.quality, df.length())); return@flow }
+                        // catch-all-ok — чистка непринятого файла: обязана случиться и при отмене
                         runCatching { df.delete() }
                     }
                     throw IOException(EngineErrors.TIDAL_SEGMENT_DENIED)
@@ -459,9 +528,9 @@ class TidalClient(
             // Tidal, и наружу шло «токен истёк» независимо от того, что
             // случилось на самом деле (сеть, неверный client_id, отозванный
             // токен). Диагноз должен называть причину.
-            val attempt = runCatching { TidalAuth.refresh(rt) }
-            attempt.exceptionOrNull()?.let { lastAuthError = it.message?.take(200) }
-            val fresh = attempt.getOrNull()
+            val refresh = attempt { TidalAuth.refresh(rt) }
+            refresh.exceptionOrNull()?.let { lastAuthError = it.message?.take(200) }
+            val fresh = refresh.getOrNull()
             accessToken = fresh?.accessToken.orEmpty()
             fresh?.user?.countryCode?.takeIf { it.length == 2 }?.let { cc = it }
             if (accessToken.isNotBlank()) {
@@ -475,6 +544,7 @@ class TidalClient(
     }
 
     /** exp из JWT в прошлом (с запасом 60с)? */
+    // catch-all-ok — чистый разбор JWT — точек подвески нет
     private fun jwtExpired(jwt: String): Boolean = runCatching {
         val payload = jwt.split(".").getOrNull(1) ?: return true
         val bytes = Base64.decode(payload, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
@@ -507,10 +577,14 @@ class TidalClient(
         // Последняя реальная причина отказа — чтобы финальная ошибка называла
         // ЧТО случилось (401 / 403 / 404 / регион), а не молчаливое «не удалось».
         var lastErr: String? = null
+        // Манифест пришёл, но в куски не разворачивается — отдельная причина, и
+        // она честнее «пустого ответа», когда лесенка качеств кончилась.
+        var dashReject: TidalManifest.Rejected? = null
+        val manifestUrl = "https://api.tidal.com/v1/tracks/$id/playbackinfopostpaywall"
         for ((q, tier) in order) {
             suspend fun fetch(): TdPlayback = json.decodeFromString(
                 TdPlayback.serializer(),
-                api("https://api.tidal.com/v1/tracks/$id/playbackinfopostpaywall") {
+                api(manifestUrl) {
                     it.addQueryParameter("audioquality", q)
                     it.addQueryParameter("playbackmode", "STREAM")
                     it.addQueryParameter("assetpresentation", "FULL")
@@ -543,15 +617,24 @@ class TidalClient(
                     if (q.startsWith("HI_RES")) hires else flac
                 } else tier
             }
-            when {
-                pb.manifestMimeType == "application/vnd.tidal.bts" -> {
-                    val url = json.decodeFromString(TdBts.serializer(), decoded).urls.firstOrNull() ?: continue
-                    return TdStream.Direct(tierFor(), url)
+            when (val m = decodeManifest(pb.manifestMimeType, decoded, manifestUrl)) {
+                null -> {
+                    lastErr = lastErr ?: "unknown manifest mime '${pb.manifestMimeType}'"
+                    continue
                 }
-                pb.manifestMimeType == "application/dash+xml" || decoded.contains("<MPD") -> {
-                    val dash = parseDash(decoded) ?: continue
-                    return TdStream.Dash(tierFor(), dash.first, dash.second, q)
+                is TidalManifest.Rejected -> {
+                    // DRM — это не «не разобрали». Его вскрывать нечем, и спуск
+                    // на LOSSLESS был бы подменой, а не откатом: человек заказывал
+                    // hi-res и получил бы другой файл, не узнав об этом.
+                    if (m.reason == EngineErrors.DRM_UNSUPPORTED) {
+                        throw IOException(EngineErrors.code(EngineErrors.DRM_UNSUPPORTED, m.detail))
+                    }
+                    if (dashReject == null) dashReject = m
+                    continue
                 }
+                is TidalManifest.Direct -> return TdStream.Direct(tierFor(), m.url)
+                is TidalManifest.Segments ->
+                    return TdStream.Dash(tierForDash(tierFor(), m.plan), m.plan, q)
             }
         }
         val why = lastErr ?: ""
@@ -561,54 +644,20 @@ class TidalClient(
                 why.contains("403") || why.contains("4005") ->
                     EngineErrors.code(EngineErrors.NO_SOURCE_REGION, cc)
                 why.contains("404") -> EngineErrors.code(EngineErrors.TRACK_UNAVAILABLE, cc)
-                why.isNotBlank() -> EngineErrors.code(EngineErrors.EMPTY_STREAM, why)
-                else -> EngineErrors.EMPTY_STREAM
+                // Манифесты приходили, но ни один не разворачивается в куски:
+                // винить надо формат нарезки, а не сеть, и назвать его.
+                else -> dashReject?.let { EngineErrors.code(it.reason, it.detail) }
+                    ?: if (why.isNotBlank()) EngineErrors.code(EngineErrors.EMPTY_STREAM, why)
+                       else EngineErrors.EMPTY_STREAM
             },
         )
     }
-
-    /** MPD (SegmentTemplate + SegmentTimeline или duration) → (initUrl, [mediaUrls]). */
-    private fun parseDash(mpd: String): Pair<String, List<String>>? = runCatching {
-        // одиночный <BaseURL> — цельный файл
-        Regex("<BaseURL>(.*?)</BaseURL>", RegexOption.DOT_MATCHES_ALL).find(mpd)?.groupValues?.get(1)?.trim()
-            ?.takeIf { it.startsWith("http") }?.let { return@runCatching it to emptyList<String>() }
-
-        val repId = Regex("""<Representation[^>]*\bid="([^"]+)"""").find(mpd)?.groupValues?.get(1) ?: "0"
-        val st = Regex("<SegmentTemplate[^>]*>", RegexOption.DOT_MATCHES_ALL).find(mpd)?.value
-            ?: Regex("<SegmentTemplate[^/]*/>").find(mpd)?.value ?: return@runCatching null
-        fun attr(n: String) = Regex("""\b$n="([^"]+)"""").find(st)?.groupValues?.get(1)
-        val initT = (attr("initialization") ?: return@runCatching null).replace("\$RepresentationID\$", repId)
-        val mediaT = (attr("media") ?: return@runCatching null)
-        val startNumber = attr("startNumber")?.toIntOrNull() ?: 1
-
-        val count: Int = run {
-            val tl = Regex("<SegmentTimeline>(.*?)</SegmentTimeline>", RegexOption.DOT_MATCHES_ALL).find(mpd)?.groupValues?.get(1)
-            if (tl != null) {
-                var n = 0
-                Regex("<S\\b[^>]*>").findAll(tl).forEach { s ->
-                    val r = Regex("""\br="(\d+)"""").find(s.value)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-                    n += 1 + r
-                }
-                n
-            } else {
-                val segDur = attr("duration")?.toDoubleOrNull() ?: return@runCatching null
-                val timescale = attr("timescale")?.toDoubleOrNull() ?: 1.0
-                val totalSec = Regex("""mediaPresentationDuration="PT([\d.]+)S"""").find(mpd)?.groupValues?.get(1)?.toDoubleOrNull()
-                    ?: return@runCatching null
-                Math.ceil(totalSec / (segDur / timescale)).toInt()
-            }
-        }
-        val media = (startNumber until startNumber + count).map { num ->
-            mediaT.replace("\$RepresentationID\$", repId).replace("\$Number\$", num.toString())
-        }
-        initT to media
-    }.getOrNull()
 
     override suspend fun getArtist(artistId: String): net.ripster.mobile.core.pair.PcBridge.ArtistPage? {
         if (artistId.isBlank()) return null
         if (!ensureToken()) return null
         return withContext(Dispatchers.IO) {
-            runCatching {
+            attempt {
                 val info = json.decodeFromString(
                     TdArtistInfo.serializer(),
                     api("https://api.tidal.com/v1/artists/$artistId") {},
@@ -626,13 +675,13 @@ class TidalClient(
                 // свои альбомы + EP/синглы + «с этим артистом» (COMPILATIONS —
                 // раньше не приходили, дискография была неполной)
                 val own = albs(null)
-                val eps = runCatching { albs("EPSANDSINGLES") }.getOrDefault(emptyList())
-                val comps = runCatching { albs("COMPILATIONS") }.getOrDefault(emptyList())
+                val eps = attempt { albs("EPSANDSINGLES") }.getOrDefault(emptyList())
+                val comps = attempt { albs("COMPILATIONS") }.getOrDefault(emptyList())
 
                 val compTracks = coroutineScope {
                     comps.take(24).map { al ->
                         async {
-                            al.id.toString() to runCatching {
+                            al.id.toString() to attempt {
                                 val tr = json.decodeFromString(
                                     TdItems.serializer(),
                                     api("https://api.tidal.com/v1/albums/${al.id}/tracks") { it.addQueryParameter("limit", "100") },
@@ -804,3 +853,17 @@ class TidalClient(
     )
     @Serializable private data class TdBts(val mimeType: String = "", val urls: List<String> = emptyList())
 }
+
+/**
+ * Что дал манифест playbackinfo: цельный файл или нарезку на куски.
+ *
+ * Отдельный тип от `TdStream`, чтобы разбор манифеста оставался чистой
+ * функцией и был чем проверить (см. [TidalClient.decodeManifest]).
+ */
+internal sealed interface TidalManifest {
+    data class Direct(val url: String) : TidalManifest
+    data class Segments(val plan: DashSegments) : TidalManifest
+    /** reason — маркер [net.ripster.mobile.core.errors.EngineErrors]. */
+    data class Rejected(val reason: String, val detail: String = "") : TidalManifest
+}
+

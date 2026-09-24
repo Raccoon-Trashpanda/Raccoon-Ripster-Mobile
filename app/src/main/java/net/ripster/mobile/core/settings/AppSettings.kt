@@ -14,11 +14,18 @@ import net.ripster.mobile.core.model.QualityTier
  * изменение, и одновременно пишем в `SharedPreferences` для персиста.
  * Ключи по возможности повторяют имена из десктопного `config.yaml` —
  * это упростит синк настроек по сопряжению.
+ *
+ * Конструктор, принимающий уже готовый `SharedPreferences`, — не украшение:
+ * персист настроек проверяется тестом на фейтовом хранилище, потому что
+ * «значение дожило до перезапуска» — ровно то, что на приборе не проверить,
+ * а сломается он молча (настройка возвращается к дефолту и выглядит как
+ * «галочка не работает»).
  */
-class AppSettings(context: Context) {
+class AppSettings internal constructor(private val prefs: SharedPreferences) {
 
-    private val prefs: SharedPreferences =
-        context.getSharedPreferences("ripster_settings", Context.MODE_PRIVATE)
+    constructor(context: Context) : this(
+        context.getSharedPreferences("ripster_settings", Context.MODE_PRIVATE),
+    )
 
     data class Snapshot(
         val uiLang: String = "ru",
@@ -50,6 +57,27 @@ class AppSettings(context: Context) {
         val perServiceQuality: Map<String, String> = emptyMap(),
         /** Адаптивные цвета — подстраивать фон плеера под палитру обложки. */
         val adaptiveColors: Boolean = true,
+        /**
+         * Акцент: id оттенка из `AccentPalette`. Пусто — акцент остаётся тем,
+         * что заложен в тему (у Neon — маджента, у Aurora — пурпур), и ничего
+         * не перекрывается.
+         */
+        val accent: String = net.ripster.mobile.ui.theme.ACCENT_FROM_THEME,
+        /**
+         * Material You: акцент из системной динамической палитры. Ниже Android
+         * 12 такой палитры нет, и настройка честно остаётся выключенной —
+         * поверхности по-прежнему красит выбранная тема.
+         */
+        val materialYou: Boolean = false,
+        /**
+         * «Дорогие визуалы» — анимированный фон из палитры обложки, стеклянные
+         * панели, пружины. По умолчанию ВЫКЛ: режим добавляет слои, которые
+         * стоят GPU-времени каждый кадр, и на части устройств дороже картинки
+         * оказываются подвисания. Что именно дать телефону, решает
+         * [net.ripster.mobile.ui.premium.PremiumVisuals] по версии Android,
+         * энергосбережению и системной шкале анимаций — см. описание в настройках.
+         */
+        val premiumVisuals: Boolean = false,
         // ── запоминаемый выбор на экране поиска ────────────────────────────
         /** id сервисов, СНЯТЫХ галочкой в поиске (пусто = искать во всех). */
         val searchServicesOff: Set<String> = emptySet(),
@@ -76,6 +104,17 @@ class AppSettings(context: Context) {
 
         /** Предпочтение для текущего типа сети. */
         fun qualityFor(onWifi: Boolean): List<String> = if (onWifi) qualityWifi else qualityCellular
+
+        /**
+         * Красит ли экран «Сейчас играет» СВОЮ поверхность, а не холст темы.
+         *
+         * «Студия» и «иммерсив» — тёмная комната с обложкой и подсветкой;
+         * «reference» берёт холст темы целиком. Нужно хрому (шапка, навигация,
+         * полоса «готово»): над тёмным плеером он обязан стать тёмным, иначе
+         * в светлой теме экран распадается на светлую полосу и тёмный плеер.
+         */
+        val playerOwnsSurface: Boolean
+            get() = playerStyle != "reference"
 
         /**
          * Итоговый список предпочтения для конкретного сервиса: если задан
@@ -111,6 +150,9 @@ class AppSettings(context: Context) {
                 if (kv.size == 2 && kv[0].isNotBlank() && kv[1].isNotBlank()) kv[0] to kv[1] else null
             }.toMap(),
         adaptiveColors = prefs.getBoolean(K_ADAPTIVE, true),
+        accent = prefs.getString(K_ACCENT, "") ?: "",
+        materialYou = prefs.getBoolean(K_MATERIAL_YOU, false),
+        premiumVisuals = prefs.getBoolean(K_PREMIUM, false),
         searchServicesOff = (prefs.getString(K_SRCH_OFF, "") ?: "")
             .split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet(),
         searchType = prefs.getInt(K_SRCH_TYPE, 0).coerceIn(0, 3),
@@ -136,6 +178,9 @@ class AppSettings(context: Context) {
             .putString(K_SPEC_STYLE, next.spectrumStyle)
             .putString(K_PER_SVC_Q, next.perServiceQuality.entries.joinToString(";") { "${it.key}=${it.value}" })
             .putBoolean(K_ADAPTIVE, next.adaptiveColors)
+            .putString(K_ACCENT, next.accent)
+            .putBoolean(K_MATERIAL_YOU, next.materialYou)
+            .putBoolean(K_PREMIUM, next.premiumVisuals)
             .putString(K_SRCH_OFF, next.searchServicesOff.joinToString(","))
             .putInt(K_SRCH_TYPE, next.searchType.coerceIn(0, 3))
             .putBoolean(K_SRCH_SORT, next.searchSortNew)
@@ -149,7 +194,13 @@ class AppSettings(context: Context) {
     private fun SharedPreferences.csv(key: String): List<String>? =
         getString(key, null)?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.takeIf { it.isNotEmpty() }
 
-    private companion object {
+    companion object {
+        const val PREFS_NAME = "ripster_settings"
+
+        /** Боевая точка входа: единственное место, где настройки знают про Context. */
+        fun of(context: Context): AppSettings =
+            AppSettings(context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE))
+
         const val K_LANG = "language"
         const val K_THEME = "theme"
         const val K_DENSITY = "density"
@@ -163,6 +214,9 @@ class AppSettings(context: Context) {
         const val K_SPEC_STYLE = "spectrum-style"
         const val K_PER_SVC_Q = "quality-per-service"
         const val K_ADAPTIVE = "adaptive-colors"
+        const val K_ACCENT = "accent"
+        const val K_MATERIAL_YOU = "material-you"
+        const val K_PREMIUM = "premium-visuals"
         const val K_SRCH_OFF = "search-services-off"
         const val K_SRCH_TYPE = "search-type"
         const val K_SRCH_SORT = "search-sort-new"

@@ -11,6 +11,26 @@ import kotlinx.serialization.json.JsonNull
 @Serializable
 data class DzApiArtist(val id: Long = 0, val name: String = "")
 
+/**
+ * Участник записи трека — `GET /track/{id}/contributors`, `role` там бывает
+ * "Main" или "Featured". В ПОИСКЕ этого поля нет: `/search/track` отдаёт по
+ * одному `artist` на трек, поэтому совместная вещь и выглядела как сольна
+ * (жалоба 13.09.2026).
+ */
+@Serializable
+data class DzApiContributor(
+    val id: Long = 0,
+    val name: String = "",
+    val type: String = "artist",
+    val role: String = "",
+)
+
+@Serializable
+data class DzApiContributors(
+    val data: List<DzApiContributor> = emptyList(),
+    val total: Int = 0,
+)
+
 @Serializable
 data class DzApiAlbum(
     val id: Long = 0,
@@ -51,6 +71,12 @@ data class DzApiTrack(
     @SerialName("disk_number") val diskNumber: Int? = null,
     @SerialName("release_date") val releaseDate: String? = null,
     val artist: DzApiArtist = DzApiArtist(),
+    /**
+     * Состав записи. В выдаче `/search/track` его нет никогда; приходит, если
+     * сервис положил его в ответ `/track/{id}` или `/album/{id}` — тогда
+     * отдельный запрос на кредиты не нужен вовсе.
+     */
+    val contributors: List<DzApiContributor> = emptyList(),
     val album: DzApiAlbum? = null,
     val type: String = "track",
     /** Популярность Deezer, 0..1_000_000. Отдаётся прямо в поиске. */

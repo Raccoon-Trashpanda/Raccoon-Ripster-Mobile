@@ -1,5 +1,7 @@
 package net.ripster.mobile.ui.screens
 
+import net.ripster.mobile.core.errors.attempt
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -87,7 +89,11 @@ fun HomeScreen(
     // мёртвая». Один seed на открытие экрана: им тасуем витрины (коллекция,
     // рекомендации, станции), но не порядок недавнего/загрузок (там смысл в
     // хронологии). meue меняется при возврате на Home, не при каждом кадре.
-    val visitSeed = remember { System.nanoTime() }
+    // rememberSaveable, а не remember: Long сохраняется в Bundle нативно, и
+    // поворот экрана перестаёт перетасовывать ряд «ЖАНРЫ И НАСТРОЕНИЯ» у
+    // человека на глазах (раунд 3: Funk/Pop → IDM/Blues). Новый заход в
+    // приложение — новый процесс → всё равно свежий seed.
+    val visitSeed = androidx.compose.runtime.saveable.rememberSaveable { System.nanoTime() }
     // Подписки локального радара нужны выше по коду, чем объявлен localWatches.
     val localWatchesForSc by app.localRadar.feed().collectAsState(initial = emptyList())
 
@@ -96,7 +102,7 @@ fun HomeScreen(
     val bbcMixes by androidx.compose.runtime.produceState(
         initialValue = emptyList<net.ripster.mobile.core.bbc.BbcShows.Mix>(),
     ) {
-        value = runCatching { net.ripster.mobile.core.bbc.BbcShows.latest() }.getOrDefault(emptyList())
+        value = attempt { net.ripster.mobile.core.bbc.BbcShows.latest() }.getOrDefault(emptyList())
     }
 
     // SoundCloud: новое у аккаунтов, на которые подписан ПРЯМО В ТЕЛЕФОНЕ.
@@ -110,7 +116,7 @@ fun HomeScreen(
         initialValue = emptyList<net.ripster.mobile.core.model.Track>(),
         scFollowIds,
     ) {
-        value = runCatching {
+        value = attempt {
             net.ripster.mobile.core.soundcloud.ScFeed.latest(scFollowIds)
         }.getOrDefault(emptyList())
     }
@@ -199,7 +205,7 @@ fun HomeScreen(
     val localWatches by app.localRadar.feed().collectAsState(initial = emptyList())
     val pcRadar by produceState<List<net.ripster.mobile.core.pair.PcBridge.RadarItem>>(initialValue = emptyList()) {
         value = if (!app.pcBridge.paired) emptyList()
-        else runCatching { app.pcBridge.radar().getOrDefault(emptyList()) }.getOrDefault(emptyList())
+        else attempt { app.pcBridge.radar().getOrDefault(emptyList()) }.getOrDefault(emptyList())
     }
     val radarAll = remember(localWatches, pcRadar) {
         val local = localWatches.filter { it.latestUrl.isNotBlank() }.map { w ->
@@ -235,21 +241,23 @@ fun HomeScreen(
             .map { it.key to it.value.size }
     }
 
-    // Амбиент по макету Home.dc.html: маджента-свечение сверху-справа,
-    // фиолетовое снизу-слева, near-black основа. Рисуем на самом экране, чтобы
-    // Главная выглядела «как рендер» даже без играющего трека.
+    // Амбиент по макету Home.dc.html: свечение акцента сверху-справа,
+    // «синий» прогресса снизу-слева, основа — холст темы. Рисуем на самом
+    // экране, чтобы Главная выглядела «как рендер» даже без играющего трека.
+    // Пара цветов бралась literals из Neon и на светлой теме красила белый
+    // холст чужой маджентой; теперь — свои цвета каждой палитры.
     Box(
         modifier.fillMaxSize().background(c.surface_canvas).drawBehind {
             drawRect(
                 androidx.compose.ui.graphics.Brush.radialGradient(
-                    listOf(Color(0x33FF4D8F), Color(0x00FF4D8F)),
+                    listOf(c.accent_fill.copy(alpha = 0.20f), c.accent_fill.copy(alpha = 0f)),
                     center = androidx.compose.ui.geometry.Offset(size.width * 0.82f, -size.height * 0.10f),
                     radius = size.width * 1.35f,
                 ),
             )
             drawRect(
                 androidx.compose.ui.graphics.Brush.radialGradient(
-                    listOf(Color(0x29A238FF), Color(0x00A238FF)),
+                    listOf(c.progress_fill.copy(alpha = 0.16f), c.progress_fill.copy(alpha = 0f)),
                     center = androidx.compose.ui.geometry.Offset(-size.width * 0.08f, size.height * 1.08f),
                     radius = size.width * 1.25f,
                 ),
@@ -417,7 +425,7 @@ fun HomeScreen(
                                         // этого признак в ранкере был бы, а
                                         // данных в него никто бы не подавал.
                                         taste = net.ripster.mobile.core.service.StationRanker.Taste.of(
-                                            runCatching { app.db.plays().recent(200).map { it.artist } }
+                                            attempt { app.db.plays().recent(200).map { it.artist } }
                                                 .getOrDefault(emptyList()),
                                         ),
                                         // Свой эфир на каждое нажатие: одна и та же
@@ -831,7 +839,7 @@ private fun WaveTile(name: String, seed: String, c: RipsterColors, loading: Bool
 
 /** Поставить эпизод BBC в очередь: резолвим ссылку и кладём треки. */
 private suspend fun grabBbc(app: net.ripster.mobile.RipsterApp, url: String) {
-    runCatching {
+    attempt {
         val sel = net.ripster.mobile.core.service.ServiceRegistry.all()
             .firstNotNullOfOrNull { it.resolve(url) }
         if (sel != null) app.downloads.enqueueRelease(sel.containerTitle.orEmpty(), sel.tracks)

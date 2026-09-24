@@ -5,7 +5,9 @@ import androidx.media3.common.C
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.TransferListener
+import net.ripster.mobile.core.errors.EngineErrors
 import net.ripster.mobile.service.deezer.DeezerCrypto
+import java.io.IOException
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
@@ -13,7 +15,8 @@ import kotlin.math.min
 
 /**
  * DataSource.Factory для ExoPlayer, которая на лету расшифровывает потоки
- * Deezer (`BF_CBC_STRIPE`). Раньше `StreamResolver` терял поле `decryption`,
+ * Deezer (`BF_CBC_STRIPE`) и склеивает DASH-цепочки Tidal в один поток.
+ * Раньше `StreamResolver` терял поле `decryption`,
  * и ExoPlayer получал зашифрованные байты → ТИШИНА при воспроизведении
  * Deezer из карточек/поиска/станций.
  *
@@ -29,7 +32,6 @@ class RipsterDataSourceFactory(
 
 private const val DZBF = "dzbf="
 private const val YAX = "yaxctr="
-
 /** Помечает URL как зашифрованный Deezer-поток для [RipsterDataSourceFactory]. */
 fun tagDeezerBlowfish(url: String, trackId: String): String =
     if (url.contains("#")) "$url&$DZBF$trackId" else "$url#$DZBF$trackId"
@@ -45,7 +47,22 @@ private class DispatchDataSource(private val http: DataSource) : DataSource {
         val parts = dataSpec.uri.fragment?.split('&', ';').orEmpty()
         val dzId = parts.firstOrNull { it.startsWith(DZBF) }?.removePrefix(DZBF)
         val yaxKey = parts.firstOrNull { it.startsWith(YAX) }?.removePrefix(YAX)
+        val dashKey = net.ripster.mobile.service.tidal.TidalDashRegistry.keyOf(dataSpec.uri.fragment)
         return when {
+            dashKey != null -> {
+                val plan = net.ripster.mobile.service.tidal.TidalDashRegistry.peek(dashKey)
+                    ?: throw IOException(
+                        // План живёт ровно столько, сколько подписи в ссылках
+                        // (минуты). Его нет — значит URL приехал из
+                        // восстановленной очереди после перезапуска. Отдать в
+                        // этом случае голый init-сегмент плеер прочитал бы как
+                        // «malformed content» без всякого объяснения, поэтому
+                        // отказ называется, а не подменяется тишиной.
+                        EngineErrors.code(EngineErrors.DASH_UNSUPPORTED, "plan expired"),
+                    )
+                active = SegmentChainDataSource(http, listOf(plan.initUrl) + plan.mediaUrls)
+                active.open(dataSpec.withUri(dataSpec.uri.buildUpon().fragment(null).build()))
+            }
             !dzId.isNullOrBlank() -> {
                 active = DeezerBlowfishDataSource(http, DeezerCrypto.blowfishKey(dzId))
                 active.open(dataSpec.withUri(dataSpec.uri.buildUpon().fragment(null).build()))
@@ -65,6 +82,94 @@ private class DispatchDataSource(private val http: DataSource) : DataSource {
     override fun addTransferListener(transferListener: TransferListener) = http.addTransferListener(transferListener)
     override fun getUri(): Uri? = active.uri
     override fun close() = active.close()
+}
+
+/**
+ * Склейка DASH-сегментов в ОДИН непрерывный поток: init-бокс, затем media-куски
+ * по порядку, без единого разрыва — то есть ровно то, что ExoPlayer получил бы
+ * из цельного fMP4-файла. Тот же приём, что и в скачивании Tidal, только байты
+ * уходят не на диск, а в экстрактор.
+ *
+ * Зачем это нужно: `media3-exoplayer-dash` в офлайн-кэше Gradle нет
+ * (`dl.google.com` отвечает 404 на любой путь), поэтому DASH-манифест
+ * разворачивается в список ссылок самим `service/tidal/TidalDash`, а сюда он
+ * приезжает через `TidalDashRegistry` по ключу в фрагменте URL.
+ *
+ * Ограничение, о котором знать: размеры кусков манифест не сообщает, поэтому
+ * позиция запроса (`dataSpec.position`) достигается прогоном с начала —
+ * правильно, но медленно на длинных треках. Кривую перемотки по «границам
+ * кусков» рисовать нельзя: плеер показал бы одну позицию, а заиграла другая.
+ */
+private class SegmentChainDataSource(
+    private val up: DataSource,
+    private val urls: List<String>,
+) : DataSource {
+    private var spec: DataSpec? = null
+    private var index = -1
+    private var opened = false
+    private var remaining = C.LENGTH_UNSET.toLong()
+    private val discard = ByteArray(64 * 1024)
+
+    override fun open(dataSpec: DataSpec): Long {
+        spec = dataSpec
+        closeCurrent()
+        index = -1
+        remaining = C.LENGTH_UNSET.toLong()
+        if (!openNext()) return 0L
+        var toSkip = dataSpec.position
+        while (toSkip > 0) {
+            val n = up.read(discard, 0, min(toSkip, discard.size.toLong()).toInt())
+            if (n <= 0) break
+            toSkip -= n
+        }
+        remaining = dataSpec.length
+        return remaining
+    }
+
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+        if (length == 0) return 0
+        val unset = C.LENGTH_UNSET.toLong()
+        if (remaining != unset && remaining <= 0) return C.RESULT_END_OF_INPUT
+        // Кусок мог вернуться короче запрошенного — читаем до первого
+        // неотданного байта, перепрыгивая на следующий сегмент.
+        while (true) {
+            if (!opened && !openNext()) return C.RESULT_END_OF_INPUT
+            val want = if (remaining == unset) length else min(length.toLong(), remaining).toInt()
+            val r = up.read(buffer, offset, want)
+            if (r > 0) {
+                if (remaining != unset) remaining -= r
+                return r
+            }
+            closeCurrent()
+        }
+    }
+
+    private fun openNext(): Boolean {
+        while (true) {
+            index++
+            if (index >= urls.size) return false
+            val base = spec ?: return false
+            val url = urls[index]
+            if (url.isBlank()) continue
+            // Размер куска заранее неизвестен → просим всё, что отдаст CDN.
+            base.buildUpon().setUri(url).setPosition(0).setLength(C.LENGTH_UNSET.toLong()).build()
+                .let { up.open(it) }
+            opened = true
+            return true
+        }
+    }
+
+    private fun closeCurrent() {
+        if (opened) up.close()
+        opened = false
+    }
+
+    override fun addTransferListener(transferListener: TransferListener) = up.addTransferListener(transferListener)
+    override fun getUri(): Uri? = urls.getOrNull(index)?.let { Uri.parse(it) } ?: up.uri
+    override fun close() {
+        closeCurrent()
+        index = urls.size
+    }
 }
 
 /**

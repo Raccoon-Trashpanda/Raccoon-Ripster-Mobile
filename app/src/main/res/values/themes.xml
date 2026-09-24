@@ -1,4 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.RipsterBoot" parent="android:Theme.Material.NoActionBar" />
+    <style name="Theme.RipsterBoot" parent="android:Theme.Material.NoActionBar">
+        <!-- Бары стартового окна: прозрачные и с иконками по boot_canvas —
+             тот же контракт, что у Compose-фазы (MainActivity.SideEffect).
+             Иначе до первого кадра видны чёрные полосы Material-темы. -->
+        <item name="android:windowBackground">@color/boot_canvas</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">@bool/boot_light_bars</item>
+        <item name="android:windowLightNavigationBar">@bool/boot_light_bars</item>
+    </style>
 </resources>

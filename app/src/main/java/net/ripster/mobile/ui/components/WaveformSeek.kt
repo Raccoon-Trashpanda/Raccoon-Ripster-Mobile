@@ -21,6 +21,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import net.ripster.mobile.ui.i18n.LocalAppLang
+import net.ripster.mobile.ui.i18n.tr
 import kotlin.math.roundToLong
 
 /**
@@ -41,8 +43,10 @@ fun WaveformSeek(
     onScrubChange: (Long) -> Unit = {},
     tint: Color = Color(0xFFB980FF),
     idle: Color = Color.White.copy(alpha = 0.22f),
-    contentDescription: String = "Seek position",
+    contentDescription: String? = null,
 ) {
+    val lang = LocalAppLang.current
+    val seekCd = contentDescription ?: tr("a11y.seek_position", lang)
     val enabled = durationMs > 0L
     val realFraction = if (enabled) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
     var scrub by remember { mutableFloatStateOf(-1f) }
@@ -63,7 +67,7 @@ fun WaveformSeek(
 
     Canvas(
         modifier
-            .semantics { this.contentDescription = contentDescription }
+            .semantics { this.contentDescription = seekCd }
             .pointerInput(durationMs) {
                 if (!enabled) return@pointerInput
                 detectTapGestures { o -> emitSeek(o.x / size.width) }

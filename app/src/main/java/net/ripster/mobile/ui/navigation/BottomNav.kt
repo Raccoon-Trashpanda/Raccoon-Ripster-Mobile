@@ -9,16 +9,20 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -35,6 +39,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import net.ripster.mobile.ui.components.RipsterHairline
 import net.ripster.mobile.ui.theme.MinTouchTarget
+import net.ripster.mobile.ui.theme.CaptionFit
 import net.ripster.mobile.ui.theme.RipsterTheme
 
 /**
@@ -68,13 +73,13 @@ import net.ripster.mobile.ui.theme.RipsterTheme
 // как назначения экранов, просто не в баре.
 enum class RipsterDestination { Home, Search, Player, Radar, Library, Downloads, Tools }
 
-private data class TabSpec(
+internal data class TabSpec(
     val destination: RipsterDestination,
     val labelKey: String,
     val icon: DrawScope.(color: Color) -> Unit,
 )
 
-private val tabSpecs = listOf(
+internal val tabSpecs = listOf(
     TabSpec(RipsterDestination.Home, "nav.home") { color -> drawHomeGlyph(color) },
     TabSpec(RipsterDestination.Search, "nav.search") { color -> drawSearchGlyph(color) },
     TabSpec(RipsterDestination.Library, "nav.library") { color -> drawLibraryGlyph(color) },
@@ -110,16 +115,39 @@ fun BottomNav(
         )
         RipsterHairline(modifier = Modifier.fillMaxWidth())
 
-        Row(
-            modifier = Modifier
+        // Подпись таба обязана дочитываться: на A31 (320dp) «Библиотека» при
+        // 12sp и системном масштабе 1.3 требует ≈90dp, а ячейке достаётся 64 —
+        // и таб показывал «Библиот…». Кегль подбирается под фактическую ширину
+        // ячейки; в одну строку подпись остаётся намеренно — вторая строка
+        // разъезжала бы высоту табов (замечено 03.09.2026).
+        androidx.compose.foundation.layout.BoxWithConstraints(
+            Modifier
                 .fillMaxWidth()
-                .background(colors.surface_raised)
-                .padding(vertical = spacing.xs),
+                .background(colors.surface_raised),
         ) {
-            tabSpecs.forEach { spec ->
+            val tabSlotDp = maxWidth.value / tabSpecs.size
+            val fontScale = LocalDensity.current.fontScale
+            // Кегль ОДИН на все табы: разные подписи разного размера значили бы
+            // разную высоту строк — те же «разъехавшиеся табы». Берём самый
+            // требовательный ярлык.
+            val tabCaptionSp = tabSpecs.minOf {
+                CaptionFit.fitSizeSp(
+                    text = tr(it.labelKey, lang),
+                    slotWidthDp = tabSlotDp,
+                    maxSizeSp = type.caption.value.toFloat(),
+                    fontScale = fontScale,
+                )
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = spacing.xs),
+            ) {
+                tabSpecs.forEach { spec ->
                 val isActive = spec.destination == current
                 val tint = if (isActive) colors.accent_text else colors.text_secondary
                 val weight = if (isActive) FontWeight.W700 else FontWeight.W400
+                val label = tr(spec.labelKey, lang)
 
                 Column(
                     modifier = Modifier
@@ -151,12 +179,99 @@ fun BottomNav(
                         maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         softWrap = false,
-                        style = TextStyle(color = tint, fontWeight = weight, fontSize = type.caption),
+                        style = TextStyle(
+                            color = tint,
+                            fontWeight = weight,
+                            fontSize = tabCaptionSp.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        ),
                         modifier = Modifier
                             .wrapContentHeight()
+                            .fillMaxWidth()
                             .padding(top = spacing.xs),
                     )
                 }
+            }
+            }
+        }
+    }
+}
+
+/**
+ * Вертикальный рельс навигации — тот же [tabSpecs], те же подписи из Strings,
+ * та же пара каналов для активного пункта (цвет + начертание), но развёрнутый
+ * на 90°. Включается в ландшафте (см. ui/layout/ChromeBudget): нижняя полоса
+ * там стоит ~74dp высоты, без которых выдача поиска превращается в одну
+ * обрезанную строку, а горизонтального места на 2670px — с запасом.
+ */
+@Composable
+fun RipsterNavRail(
+    current: RipsterDestination,
+    onSelect: (RipsterDestination) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = RipsterTheme.colors
+    val spacing = RipsterTheme.spacing
+    val type = RipsterTheme.type
+    val lang = LocalAppLang.current
+
+    Column(
+        modifier = modifier
+            .width(net.ripster.mobile.ui.layout.ChromeBudget.RailWidthDp.dp)
+            .fillMaxHeight()
+            .background(colors.surface_raised),
+    ) {
+        tabSpecs.forEach { spec ->
+            val isActive = spec.destination == current
+            val tint = if (isActive) colors.accent_text else colors.text_secondary
+            val weight = if (isActive) FontWeight.W700 else FontWeight.W400
+            // Подпись дочитывается целиком: кегль подбирается под ширину рельса
+            // тем же CaptionFit, что и у нижних табов, — перенос на вторую строку
+            // разъезжал бы по высоте между пунктами.
+            val captionSp = CaptionFit.fitSizeSp(
+                text = tr(spec.labelKey, lang),
+                slotWidthDp = net.ripster.mobile.ui.layout.ChromeBudget.RailWidthDp - 8f,
+                maxSizeSp = type.caption.value.toFloat(),
+                fontScale = LocalDensity.current.fontScale,
+            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .defaultMinSize(minHeight = MinTouchTarget + 8.dp)
+                    .weight(1f, fill = false)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        role = Role.Tab,
+                        onClick = { onSelect(spec.destination) },
+                    )
+                    .semantics {
+                        role = Role.Tab
+                        contentDescription = tr(spec.labelKey, lang)
+                    }
+                    .padding(vertical = spacing.xs),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+            ) {
+                Canvas(modifier = Modifier.size(22.dp)) {
+                    spec.icon(this, tint)
+                }
+                BasicText(
+                    text = tr(spec.labelKey, lang),
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    softWrap = false,
+                    style = TextStyle(
+                        color = tint,
+                        fontWeight = weight,
+                        fontSize = captionSp.sp,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    ),
+                    modifier = Modifier
+                        .wrapContentHeight()
+                        .fillMaxWidth()
+                        .padding(top = spacing.xs),
+                )
             }
         }
     }

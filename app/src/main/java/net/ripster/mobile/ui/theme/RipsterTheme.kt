@@ -103,9 +103,23 @@ object RipsterTheme {
 fun RipsterTheme(
     theme: RipsterThemeName = RipsterThemeName.Dark,
     density: RipsterDensity = RipsterDensity.Normal,
+    /** Id акцента из [AccentPalette]; [ACCENT_FROM_THEME] — акцент берётся из темы. */
+    accent: String = ACCENT_FROM_THEME,
+    /** Material You: акцент из системной динамической палитры, если она есть. */
+    materialYou: Boolean = false,
     content: @Composable () -> Unit,
 ) {
-    val colors = colorsFor(theme)
+    val base = colorsFor(theme)
+
+    // Динамический акцент важнее выбранного вручную: человек, включивший
+    // Material You, сказал «бери из системы», и это не третий вариант наряду,
+    // а именно источник. Если системной палитры нет (ниже Android 12 или
+    // прошивка без неё), остаётся выбранный вручную — пустота вместо цвета
+    // была бы хуже.
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val hue = (if (materialYou) dynamicAccentColor(ctx, !isLightSurface(base.surface_canvas)) else null)
+        ?: AccentPalette.byId(accent)?.hue
+    val colors = remember(base, hue) { applyAccent(base, hue) }
 
     // remember по density, а не пересборка каждый кадр: величины неизменяемы и
     // зависят ровно от одного ключа.

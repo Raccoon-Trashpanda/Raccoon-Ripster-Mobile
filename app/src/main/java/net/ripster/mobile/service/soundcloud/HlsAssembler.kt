@@ -72,7 +72,10 @@ object HlsAssembler {
         for (i in lines.indices) {
             val l = lines[i].trim()
             if (!l.startsWith("#EXT-X-STREAM-INF")) continue
-            val bw = Regex("""BANDWIDTH=(\d+)""").find(l)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
+            // Поиск заякорен: без якоря `BANDWIDTH=` находит хвост
+            // `AVERAGE-BANDWIDTH=`, и вариант получал шанс по среднему битрейту.
+            // Разделитель — «:» после тега и «,» между атрибутами.
+            val bw = Regex("""(?:^|[:,])\s*BANDWIDTH=(\d+)""").find(l)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
             val href = lines.drop(i + 1).map { it.trim() }
                 .firstOrNull { it.isNotEmpty() && !it.startsWith("#") } ?: continue
             if (best == null || bw > best!!.first) best = bw to absolute(href, base)
@@ -89,6 +92,7 @@ object HlsAssembler {
      */
     private fun absolute(href: String, base: String): String = when {
         href.startsWith("http://") || href.startsWith("https://") -> href
+        // catch-all-ok — URI.resolve — не suspend (имя-омоним); при кривом href остаётся исходный
         else -> runCatching { java.net.URI(base).resolve(href).toString() }.getOrDefault(href)
     }
 

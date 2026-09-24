@@ -41,7 +41,7 @@ data class CueSheet(
     }
 }
 
-private val FILE_RE = Regex("""FILE\s+"?(.+?)"?\s+\w+\s*$""")
+private val FILE_RE = Regex("""FILE\s+"?(.+?)"?\s+\w+\s*$""", RegexOption.IGNORE_CASE)
 private val TRACK_RE = Regex("""TRACK\s+(\d+)""", RegexOption.IGNORE_CASE)
 private val INDEX_RE = Regex("""INDEX\s+01\s+(\d+:\d+:\d+)""", RegexOption.IGNORE_CASE)
 

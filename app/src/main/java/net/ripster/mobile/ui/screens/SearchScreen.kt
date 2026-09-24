@@ -1,5 +1,7 @@
 package net.ripster.mobile.ui.screens
 
+import net.ripster.mobile.core.errors.attempt
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -7,11 +9,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -20,6 +25,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
@@ -33,6 +39,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.viewModelScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,18 +63,22 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import net.ripster.mobile.RipsterApp
 import net.ripster.mobile.core.model.Album
+import net.ripster.mobile.core.errors.isJobCancellation
 import net.ripster.mobile.core.model.MediaSelection
 import net.ripster.mobile.core.model.Service
 import net.ripster.mobile.core.model.Track
+import net.ripster.mobile.core.service.ArtistDepth
 import net.ripster.mobile.core.service.ServiceClient
 import net.ripster.mobile.core.service.ServiceRegistry
 import net.ripster.mobile.ui.i18n.AppLang
+import net.ripster.mobile.ui.layout.SearchLayout
 import net.ripster.mobile.ui.i18n.LocalAppLang
 import net.ripster.mobile.ui.i18n.engineErrorText
 import net.ripster.mobile.ui.i18n.tr
 import net.ripster.mobile.ui.components.pressable
 import net.ripster.mobile.ui.theme.RipsterTheme
 import net.ripster.mobile.ui.i18n.errorText
+import net.ripster.mobile.ui.i18n.safeErrorText
 import net.ripster.mobile.ui.components.busyHalo
 
 /**
@@ -101,7 +112,7 @@ fun SearchScreen(
         // НЕ гасим прошлый список на переезоне: после сопряжения generation
         // бампается несколько раз подряд, и `value = null` заставлял экран
         // мигать «Проверяю сервисы…». Первый прогон покажет пробу один раз.
-        value = runCatching { ServiceRegistry.configured() }.getOrDefault(value ?: emptyList())
+        value = attempt { ServiceRegistry.configured() }.getOrDefault(value ?: emptyList())
     }
     val ready = configured.orEmpty()
 
@@ -124,19 +135,34 @@ fun SearchScreen(
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
 
-    var query by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
     val ctx = androidx.compose.ui.platform.LocalContext.current
+    // Данные поиска живут в ViewModel, а не в Bundle (см. SearchViewModel):
+    // тяжёлую выдачу нельзя сериализовать в saveable — упрёмся в лимит
+    // транзакции. Хозяин стора — активность; на повороте VM та же, состояние
+    // цело. `LocalViewModelStoreOwner` живёт в lifecycle-viewmodel-compose
+    // (недоступен офлайн), поэтому достаём владельца развёрткой контекста.
+    val vmOwner: androidx.lifecycle.ViewModelStoreOwner = run {
+        var cc: android.content.Context = ctx
+        while (cc is android.content.ContextWrapper && cc !is androidx.lifecycle.ViewModelStoreOwner) {
+            cc = cc.baseContext
+        }
+        cc as androidx.lifecycle.ViewModelStoreOwner
+    }
+    val vm = androidx.lifecycle.ViewModelProvider(vmOwner)[SearchViewModel::class.java]
+    var query by vm.query
+    // Запрос переживает и смерть процесса: пишем его в SavedStateHandle.
+    androidx.compose.runtime.LaunchedEffect(query) { vm.persistQuery(query) }
     // Недавние и частые запросы. Показываем, пока поле пустое: под набранным
     // текстом они мешали бы читать выдачу.
     var recent by remember {
         mutableStateOf(net.ripster.mobile.core.search.RecentQueries.suggestions(ctx))
     }
-    var running by remember { mutableStateOf(false) }
-    var result by remember { mutableStateOf<MediaSelection?>(null) }
-    var error by remember { mutableStateOf<String?>(null) }
-    val queued = remember { mutableStateMapOf<String, Boolean>() }
+    var running by vm.running
+    var result by vm.result
+    var error by vm.error
+    val queued = vm.queued
     /** Что уже дописано в очередь ПЛЕЕРА — это не та очередь, что у загрузок. */
-    val inPlayQueue = remember { mutableStateMapOf<String, Boolean>() }
+    val inPlayQueue = vm.inPlayQueue
 
     // Фильтры поверх слитого результата — тоже запоминаются.
     var typeFilter by remember { mutableStateOf(settings.searchType) }   // 0 всё · 1 альбомы · 2 синглы/EP · 3 треки
@@ -178,7 +204,10 @@ fun SearchScreen(
         running = true; error = null; result = null
         // IO-диспетчер: не полагаемся на то, что КАЖДЫЙ клиент сам ушёл с Main
         // (Яндекс, напр., этого не делал → NetworkOnMainThreadException).
-        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        // viewModelScope, а не scope: поиск в полёте переживает поворот — VM
+        // не пересоздаётся, корутина не отменяется, а `running` живёт в VM,
+        // поэтому экран не залипает в «Ищу…» после ротации.
+        vm.viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 val isUrl = q.startsWith("http")
                 if (isUrl) {
@@ -197,7 +226,7 @@ fun SearchScreen(
                     // случай зеркал и коротких ссылок, где домен не говорит
                     // ничего.
                     val order = (listOfNotNull(owner) + ready).distinct()
-                    val merged = order.firstNotNullOfOrNull { runCatching { it.resolve(q) }.getOrNull() }
+                    val merged = order.firstNotNullOfOrNull { attempt { it.resolve(q) }.getOrNull() }
                     result = merged
                     if (merged == null) {
                         // Разные причины — разный совет. «Ничего не найдено» на
@@ -212,7 +241,15 @@ fun SearchScreen(
                         val known = net.ripster.mobile.core.model.Service.byId(svcId)
                         val setUp = known != null &&
                             ready.any { it.service.id.equals(svcId, ignoreCase = true) }
+                        // Есть ли у сервиса клиент вообще: у `ready` нет —
+                        // значит либо не настроен, либо не поддерживается.
+                        val hasClient = ServiceRegistry.all()
+                            .any { it.service.id.equals(svcId, ignoreCase = true) }
                         error = when {
+                            // Владелец адреса опознан, но клиента нет (Amazon):
+                            // «заведите учётку» здесь ложь — учётки не существует.
+                            known != null && !hasClient ->
+                                tr("search.link_unsupported", lang).replace("{s}", known.label)
                             // Сервис ссылки не настроен — тогда и совет понятен.
                             known != null && !setUp ->
                                 tr("search.link_service_off", lang).replace("{s}", known.label)
@@ -246,7 +283,7 @@ fun SearchScreen(
                             // Потолок на КАЖДЫЙ сервис: один зависший login/
                             // ensureSession раньше держал весь поиск в «Ищу…»
                             // навсегда (awaitAll ждал самого медленного).
-                            val r = runCatching {
+                            val r = attempt {
                                 // 22 с, а не 15: холодный Qobuz внутри одного
                                 // поиска ещё может доскрейпить bundle.js (после
                                 // первого раза он на диске — см. QobuzBundle).
@@ -273,7 +310,7 @@ fun SearchScreen(
                     val lib = runCatching {
                         app.db.library().observeAll().first()
                     }.getOrDefault(emptyList())
-                    val hist = runCatching { app.db.plays().recent(200) }.getOrDefault(emptyList())
+                    val hist = attempt { app.db.plays().recent(200) }.getOrDefault(emptyList())
                     val ctx = net.ripster.mobile.core.service.SearchRanker.Ctx(
                         libArtists = lib.map { net.ripster.mobile.core.service.SearchRanker.norm(it.artist) }.toSet(),
                         libAlbums = lib.mapNotNull { a ->
@@ -307,7 +344,10 @@ fun SearchScreen(
                     else -> error = tr("search.nothing", lang)
                 }
             } catch (t: Throwable) {
-                error = t.message ?: t.javaClass.simpleName
+                if (isJobCancellation(t)) throw t   // отмена — не «красная строка» на экране
+                // BUG-3: здесь раньше печаталось `t.message` — то есть любой
+                // внутренний текст (раннер, разбор, БД) уходил в баннер как есть.
+                error = safeErrorText(t, lang)
             } finally {
                 running = false
             }
@@ -326,6 +366,27 @@ fun SearchScreen(
     }
 
     Box(modifier.fillMaxSize().background(c.surface_canvas)) {
+    // BUG-8 (этап 8): в ландшафте при открытом мини-плеере на выдачу не
+    // оставалось НИЧЕГО — немаранный LazyColumn получал maxHeight = 0 и
+    // исчезал вместе со строками, пустым состоянием и ошибкой. Стекло отдаёт
+    // экрану остаток после шапки-бара, полосы загрузок, мини-плеера и нижней
+    // навигации, поэтому делить этот остаток надо здесь, по бюджету.
+    val hasResults = result?.let { it.tracks.isNotEmpty() || it.albums.isNotEmpty() } == true
+    val emptyNotes = remember(lang) {
+        setOf(tr("search.nothing", lang), tr("search.filter_empty", lang))
+    }
+    // Строка ошибки живёт НАД списком и высоты не уступает — значит её место
+    // вычитается из бюджета шапки, иначе в ландшафте она съедала бы минимум выдачи.
+    val shownError = error?.takeUnless { hasResults && it in emptyNotes }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val contentDp = SearchLayout.contentHeightDp(maxHeight.value)
+        val headerMaxDp = SearchLayout.headerMaxHeightDp(
+            contentDp,
+            SearchLayout.pinnedAboveResultsDp(errorShown = shownError != null),
+        )
+        // Низ списка: портретный запас в 120dp в ландшафте был больше самого
+        // списка — прокрутка упиралась в пустоту там, где должны быть строки.
+        val listBottomPadDp = SearchLayout.resultsBottomPaddingDp(contentDp)
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         if (configured == null) {
             BasicText(tr("search.checking", lang), style = TextStyle(color = c.text_tertiary, fontSize = 13.sp))
@@ -336,6 +397,14 @@ fun SearchScreen(
             return@Column
         }
 
+        // ── шапка: сервисы · поле запроса · чипы фильтров ──
+        //
+        // Держится в бюджете и скроллится внутри своей квоты: когда места мало,
+        // шапка уступает его выдаче, а не вытесняет её совсем (BUG-8).
+        Column(
+            Modifier.heightIn(max = headerMaxDp.dp)
+                .verticalScroll(rememberScrollState()),
+        ) {
         // ── одна строка: где искать → тап раскрывает меню с галочками ──
         val summary = when {
             selectedServices.isEmpty() -> tr("search.pick_none", lang)
@@ -410,12 +479,18 @@ fun SearchScreen(
         Box(Modifier.height(10.dp))
 
         // ── строка запроса + кнопка ──
+        //
+        // Поле не сплющивается ни при каком бюджете шапки: minHeight держит
+        // и 56dp ввода, и минимальную зону касания (e2e 23.09.2026 — в
+        // ландшафте от него оставалась щель).
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(
                 Modifier.weight(1f)
+                    .defaultMinSize(minHeight = SearchLayout.FieldMinDp.dp)
                     .background(c.surface_raised, RoundedCornerShape(10.dp))
                     .border(1.dp, c.border_subtle, RoundedCornerShape(10.dp))
                     .padding(horizontal = 14.dp, vertical = 13.dp),
+                contentAlignment = Alignment.CenterStart,
             ) {
                 if (query.isEmpty()) {
                     BasicText(tr("search.hint", lang), style = TextStyle(color = c.text_tertiary, fontSize = 15.sp))
@@ -437,9 +512,11 @@ fun SearchScreen(
             }
             Box(
                 Modifier
+                    .defaultMinSize(minHeight = SearchLayout.FieldMinDp.dp)
                     .background(if (running) c.surface_raised else c.accent_fill, RoundedCornerShape(10.dp))
                     .pressable(enabled = !running) { pickerOpen = false; go() }
                     .padding(horizontal = 16.dp, vertical = 13.dp),
+                contentAlignment = Alignment.Center,
             ) {
                 BasicText(
                     tr(if (running) "search.searching" else "search.go", lang),
@@ -528,6 +605,7 @@ fun SearchScreen(
                 }
             }
         }
+        }
 
         // «Ничего не найдено» / «сервис вернул пусто» НИКОГДА не должно висеть над
         // непустым списком результатов (жалоба 03.09.2026, видео: «Nothing found»
@@ -536,16 +614,15 @@ fun SearchScreen(
         // устаревший error от прошлого поиска — могут. Гейтим по факту наличия
         // выдачи: ошибки уровня сервиса (в них есть подпись сервиса) остаются,
         // «пусто»-сообщения при живой выдаче — гасятся.
-        val hasResults = result?.let { it.tracks.isNotEmpty() || it.albums.isNotEmpty() } == true
-        val emptyNotes = remember(lang) {
-            setOf(tr("search.nothing", lang), tr("search.filter_empty", lang))
-        }
-        error?.takeUnless { hasResults && it in emptyNotes }?.let {
-            Box(Modifier.height(12.dp))
+        //
+        // Место под неё вычтено из бюджета шапки выше — поэтому ошибка в
+        // ландшафте доживает до показа, а не сдвигает выдачу в ноль (BUG-8).
+        shownError?.let {
+            Box(Modifier.height(SearchLayout.GapDp.dp))
             BasicText(it, style = TextStyle(color = c.text_secondary, fontSize = 13.sp))
         }
 
-        Box(Modifier.height(12.dp))
+        Box(Modifier.height(SearchLayout.GapDp.dp))
 
         val sel = result
         if (sel != null) {
@@ -630,7 +707,8 @@ fun SearchScreen(
             }
 
             LazyColumn(
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 120.dp),
+                Modifier.weight(1f),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = listBottomPadDp.dp),
             ) {
                 if (filteredToNothing) {
                     item(key = "filt-empty") {
@@ -699,6 +777,7 @@ fun SearchScreen(
                                             playNotice = why
                                         }
                                     } catch (t: Throwable) {
+                                        if (isJobCancellation(t)) throw t   // отмена — не текст ошибки
                                         val text = humanNetError(t, lang)
                                         error = text
                                         playNotice = text
@@ -728,7 +807,7 @@ fun SearchScreen(
                                             error = tr("search.starting", lang)
                                             list = kotlinx.coroutines.withTimeoutOrNull(25_000) {
                                                 net.ripster.mobile.core.service.ServiceRegistry.all()
-                                                    .firstNotNullOfOrNull { runCatching { it.resolve(u) }.getOrNull() }
+                                                    .firstNotNullOfOrNull { attempt { it.resolve(u) }.getOrNull() }
                                                     ?.tracks.orEmpty()
                                             }.orEmpty()
                                         }
@@ -798,6 +877,7 @@ fun SearchScreen(
                                             )
                                         }
                                     } catch (t: Throwable) {
+                                        if (isJobCancellation(t)) throw t   // отмена — не текст ошибки
                                         val text = humanNetError(t, lang)
                                         error = text
                                         playNotice = text
@@ -835,6 +915,7 @@ fun SearchScreen(
                 }
             }
         }
+    }
     }
 
     // Плашка исхода — у нижнего края, поверх списка. Именно сюда смотрит
@@ -962,6 +1043,17 @@ private fun TrackRow(
 ) {
     val c = RipsterTheme.colors
     val lang = LocalAppLang.current
+    // Состав исполнителей. Deezer и Qobuz в выдаче дают по одному имени и
+    // добирают остальной состав отдельным запросом — поэтому спрашиваем
+    // ТОЛЬКО строки, которые сейчас на экране, и один раз на трек
+    // ([ArtistDepth]).
+    var artist by remember(track.id, track.artist) {
+        mutableStateOf(ArtistDepth.cached(track) ?: track.artist)
+    }
+    LaunchedEffect(track.id, track.artist) {
+        val client = ServiceRegistry.get(track.service) ?: return@LaunchedEffect
+        ArtistDepth.deeper(client, track)?.let { artist = it }
+    }
     Row(
         Modifier
             .fillMaxWidth()
@@ -981,7 +1073,7 @@ private fun TrackRow(
             Box(Modifier.height(2.dp))
             Row {
                 BasicText(
-                    track.artist,
+                    artist,
                     modifier = Modifier.pressable { onArtist() },
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                     style = TextStyle(color = c.accent_text, fontSize = 12.sp),
@@ -1067,8 +1159,13 @@ private fun DownloadPill(queued: Boolean, onClick: () -> Unit, c: net.ripster.mo
 }
 
 /** Осталось для совместимости вызовов внутри экрана: разбор переехал в
- *  [net.ripster.mobile.ui.i18n.errorText], чтобы у всех экранов он был один. */
-private fun humanNetError(e: Throwable, lang: AppLang): String = errorText(e, lang)
+ *  [net.ripster.mobile.ui.i18n.errorText], чтобы у всех экранов он был один.
+ *
+ *  23.09.2026 (BUG-3): экран берёт уже `safeErrorText`, а не `errorText`. Разница
+ *  одна — сюда не проходит непереведённое сырое исключение: в баннере поиска
+ *  читался текст сериализатора (`Element class …JsonNull … is not a JsonObject`),
+ *  что человеку ничего не говорит, а приложению стоит утечки внутренностей. */
+private fun humanNetError(e: Throwable, lang: AppLang): String = safeErrorText(e, lang)
 
 /** URL альбома для СКАЧИВАНИЯ. Шире, чем `streamableAlbumUrl`.
  *

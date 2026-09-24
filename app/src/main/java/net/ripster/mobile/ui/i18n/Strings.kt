@@ -58,6 +58,41 @@ fun tr(key: String, lang: AppLang, vararg args: Any?): String {
     return s
 }
 
+/**
+ * Форма существительного при числительном — по правилам ЯЗЫКА, а не по памяти
+ * автора строки.
+ *
+ * «3 трек(ов)» — это не перевод, а признаниe, что согласование не сделали.
+ * Русскому нужны три формы (1 трек / 2 трека / 5 треков), и 11–14 не подпадают
+ * под «одна-две-четыре»: «11 треков», а не «11 трека». Остальным языкам хватает
+ * двух: в словаре `hi`/`ja`/`zh` форма и вовсе одна на все случаи.
+ *
+ * Ключи передаются, а не готовые слова: форма обязана жить в словаре, иначе
+ * следующая правка снова напишет склонение в коде — на одном языке.
+ */
+fun trPlural(count: Long, lang: AppLang, oneKey: String, fewKey: String, manyKey: String): String {
+    val n = if (count < 0) -count else count
+    val mod10 = n % 10
+    val mod100 = n % 100
+    val key = when {
+        lang == AppLang.RU -> when {
+            mod100 in 11..14 -> manyKey
+            mod10 == 1L -> oneKey
+            mod10 in 2..4 -> fewKey
+            else -> manyKey
+        }
+        // Не-русские языки: одно против множества. Русская triples-схема здесь
+        // сворачивается в `one`/`many`, и `few` не используется намеренно.
+        mod10 == 1L && mod100 !in 11..14 -> oneKey
+        else -> manyKey
+    }
+    return tr(key, lang)
+}
+
+/** То же, что [trPlural], для «трек» — самой частой считаемой сущности UI. */
+fun trTracks(count: Long, lang: AppLang): String =
+    trPlural(count, lang, "lib.tw_one", "lib.tw_few", "lib.tw_many")
+
 private typealias Row = Map<AppLang, String>
 
 private fun row(ru: String, en: String, hi: String, ja: String, zh: String): Row = mapOf(
@@ -219,6 +254,41 @@ private val STRINGS: Map<String, Row> = mapOf(
     "fmt.bit_perfect" to row("bit-perfect", "bit-perfect", "bit-perfect", "bit-perfect", "bit-perfect"),
     "fmt.resampled" to row("(ресемпл → {0} Hz — не bit-perfect)", "(resampled → {0} Hz — not bit-perfect)", "(रीसैम्पल → {0} Hz — bit-perfect नहीं)", "(リサンプル → {0} Hz — bit-perfect ではない)", "(重采样 → {0} Hz — 非 bit-perfect)"),
     "fmt.device_rate" to row("(устройство: {0} Hz)", "(device: {0} Hz)", "(डिवाइस: {0} Hz)", "(デバイス: {0} Hz)", "(设备：{0} Hz)"),
+    // Сигнальный путь — честная цепочка Source→Decoder→SRC→Output. Ни одно
+    // утверждение не рисуется без рантайм-значения; см. player/SignalPath.kt.
+    "sp.title" to row("Сигнальный путь", "Signal path", "सिग्नल पथ", "信号経路", "信号路径"),
+    "sp.stage.source" to row("Источник", "Source", "स्रोत", "ソース", "来源"),
+    "sp.stage.decoder" to row("Декодер", "Decoder", "डेकोडर", "デコーダー", "解码器"),
+    "sp.stage.src" to row("Ресемплер", "Sample rate", "सैंपल रेट", "サンプルレート", "采样率"),
+    "sp.stage.output" to row("Вывод", "Output", "आउटपुट", "出力", "输出"),
+    "sp.st_ok" to row("в порядке", "clean", "ठीक", "正常", "正常"),
+    "sp.st_info" to row("как есть", "info", "जानकारी", "情報", "信息"),
+    "sp.st_warn" to row("вероятно меняется", "likely altered", "संभवतः बदलता", "変更の可能性", "可能已更改"),
+    "sp.st_loss" to row("потеря", "loss", "हानि", "損失", "损失"),
+    "sp.st_unknown" to row("не измерить", "not measured", "माप नहीं", "未計測", "无法测量"),
+    "sp.f_codec" to row("Кодек: {0}", "Codec: {0}", "कोडेक: {0}", "コーデック: {0}", "编解码器：{0}"),
+    "sp.f_lossless" to row("Без потерь: {0}", "Lossless: {0}", "लॉसलेस: {0}", "可逆: {0}", "无损：{0}"),
+    "sp.f_rate" to row("Частота: {0}", "Rate: {0}", "रेट: {0}", "レート: {0}", "采样率：{0}"),
+    "sp.f_bits" to row("Разрядность: {0}-бит", "Bit depth: {0}-bit", "बिट डेप्थ: {0}-बिट", "ビット深度: {0}bit", "位深：{0} 位"),
+    "sp.f_ch" to row("Каналы: {0}", "Channels: {0}", "चैनल: {0}", "チャンネル: {0}", "声道：{0}"),
+    "sp.f_engine" to row("Движок: {0}", "Engine: {0}", "इंजन: {0}", "エンジン: {0}", "引擎：{0}"),
+    "sp.f_out_rate" to row("На выходе: {0} Hz", "Out: {0} Hz", "आउट: {0} Hz", "出力: {0} Hz", "输出：{0} Hz"),
+    "sp.f_bits_out" to row("Глубина выхода: {0}-бит", "Out depth: {0}-bit", "आउट डेप्थ: {0}-बिट", "出力ビット: {0}bit", "输出位深：{0} 位"),
+    "sp.f_granted" to row("Выдано: {0} Hz", "Granted: {0} Hz", "ग्रांटेड: {0} Hz", "付与: {0} Hz", "实际授予：{0} Hz"),
+    "sp.f_device_rate" to row("Родная частота: {0} Hz", "Native rate: {0} Hz", "नेटिव रेट: {0} Hz", "ネイティブレート: {0} Hz", "设备原生采样率：{0} Hz"),
+    "sp.f_direct" to row("Прямой выход: {0}", "Direct output: {0}", "डायरेक्ट आउटपुट: {0}", "ダイレクト出力: {0}", "直接输出：{0}"),
+    "sp.verdict_bitperfect" to row("Доставлено бит-в-бит", "Delivered bit-for-bit", "बिट-दर-बिट पहुँचा", "ビット単位で転送", "逐位无损送达"),
+    "sp.verdict_not" to row("Не бит-в-бит", "Not bit-perfect", "bit-perfect नहीं", "ビット完全ではない", "非逐位无损"),
+    "sp.integrity" to row("Целостность пути: {0}/100", "Path integrity: {0}/100", "पथ अखंडता: {0}/100", "パス整合性: {0}/100", "路径完整性：{0}/100"),
+    "sp.r_engine_system" to row("системный декодер — разрядность не измерить", "system decoder — bit depth not measurable", "सिस्टम डेकोडर — बिट डेप्थ माप नहीं", "システムデコーダー — ビット深度は計測不可", "系统解码器 — 无法测量位深"),
+    "sp.r_resampled" to row("активен ресемплер", "resampler is active", "रीसैंपलर सक्रिय", "リサンプリング動作中", "重采样器已启用"),
+    "sp.r_rate_mismatch" to row("частота вывода ≠ частоте файла", "output rate ≠ file rate", "आउटपुट रेट ≠ फ़ाइल रेट", "出力レート ≠ ファイルレート", "输出采样率 ≠ 文件采样率"),
+    "sp.r_truncated" to row("разрядность срезана декодером", "bit depth truncated by decoder", "बिट डेप्थ डेकोडर से कटी", "ビット深度がデコーダーで切り詰め", "位深被解码器截断"),
+    "sp.r_dsp" to row("в тракт внесён DSP", "DSP applied in the path", "पथ में DSP लागू", "パスに DSP 適用", "路径中应用了 DSP"),
+    "sp.r_gain" to row("трогает программная громкость", "software gain applied", "सॉफ़्टवेयर गेन लागू", "ソフトウェアゲイン適用", "应用了软件音量"),
+    "sp.r_shared" to row("выход через общий микшер", "shared mixer output", "शेयर्ड मिक्सर आउटपुट", "共有ミキサー出力", "经共享混音器输出"),
+    "sp.r_no_uac" to row("нет собственного USB-тракта", "no dedicated USB path", "कोई USB पथ नहीं", "専用 USB パスなし", "没有专用 USB 通路"),
+    "sp.device_none" to row("устройство вывода не опознано", "output device not identified", "आउटपुट डिवाइस नहीं पहचाना", "出力デバイス未識別", "未识别输出设备"),
     "wave.off_genre" to row("Нашлось мало треков именно этого жанра — чужую музыку ставить не стал", "Too few tracks of this exact genre — I will not pad it with something else", "इस शैली के ट्रैक बहुत कम मिले — दूसरी शैली से भरना नहीं करूँगा", "このジャンルの曲が少なすぎます — 他ジャンルで埋めることはしません", "该风格的曲目太少 — 不会用其他风格凑数"),
     // Карточка анонса: то, что о релизе уже известно. Владелец 06.09.2026:
     // «по нажатию я не вижу сам релиз, описание к нему или что-то ещё внутри
@@ -249,6 +319,13 @@ private val STRINGS: Map<String, Row> = mapOf(
         "{s} のリンクですが、{s} が未設定です。",
         "这是 {s} 链接，但尚未配置 {s}。",
     ),
+    "search.link_unsupported" to row(
+        "Это ссылка {s}. Мобильный Ripster этот сервис не играет — он есть только в ПК-версии.",
+        "This is a {s} link. Ripster Mobile does not play this service — it is PC-only.",
+        "यह {s} लिंक है, लेकिन Ripster Mobile इस सेवा को नहीं चलाता।",
+        "{s} のリンクです。Ripster Mobile はこのサービスに対応していません（PC 版のみ）。",
+        "这是 {s} 链接。Ripster 移动版不支持该服务——仅电脑版可用。",
+    ),
     "up.about" to row("Об анонсе", "About this release", "रिलीज़ के बारे में", "リリースについて", "关于此发行"),
     "up.credits" to row("Авторство", "Credits", "क्रेडिट", "クレジット", "参与者"),
     "up.label" to row("Лейбл", "Label", "लेबल", "レーベル", "厂牌"),
@@ -275,7 +352,7 @@ private val STRINGS: Map<String, Row> = mapOf(
     "radar.date_unannounced" to row("дата не объявлена", "date not announced", "तिथि घोषित नहीं", "発売日未発表", "发行日未公布"),
     "np.dl_no_album" to row("Это отдельный трек — альбома у него нет", "This is a single track — it has no album", "यह एक ट्रैक है — इसका कोई एलबम नहीं", "これは単体の曲で、アルバムはありません", "这是单曲 — 没有专辑"),
     "np.dl_album_failed" to row("Не нашёл этот альбом ни в одном подключённом сервисе", "Could not find this album on any connected service", "किसी भी सेवा में यह एलबम नहीं मिला", "どのサービスにもこのアルバムが見つかりません", "在已连接的服务中未找到该专辑"),
-    "np.dl_album_queued" to row("В очереди: {0} трек(ов)", "Queued {0} track(s)", "{0} ट्रैक कतार में", "{0} 曲をキューに追加", "已加入队列：{0} 首"),
+    "np.dl_album_queued" to row("В очереди: {0} {1}", "Queued {0} {1}", "{0} {1} कतार में", "{0} {1}をキューに追加", "已加入队列：{0} {1}"),
     "queue.add" to row("В очередь", "Add to queue", "कतार में जोड़ें", "キューに追加", "加入队列"),
     "rel.share" to row("Поделиться", "Share", "शेयर करें", "共有", "分享"),
     "album.listen" to row("Слушать", "Listen", "सुनें", "再生", "播放"),
@@ -368,7 +445,83 @@ private val STRINGS: Map<String, Row> = mapOf(
         "アダプティブカラー — ジャケットに合わせる",
         "自适应配色 — 匹配封面",
     ),
+    // Выбор акцента — три строки, и третья обязана называть причину отказа:
+    // выключенный переключатель без объяснения читается как сломанный.
+    "set.accent_from_theme" to row(
+        "Как в теме", "As in theme", "थीम के अनुसार", "テーマに従う", "随主题",
+    ),
+    "set.material_you" to row(
+        "Material You — акцент из системы",
+        "Material You — accent from the system",
+        "Material You — सिस्टम से रंग",
+        "Material You — システムからアクセント",
+        "Material You — 跟随系统配色",
+    ),
+    "set.material_you_needs_12" to row(
+        "Нужен Android 12 или новее",
+        "Requires Android 12 or newer",
+        "Android 12 या उससे नया चाहिए",
+        "Android 12 以降が必要です",
+        "需要 Android 12 或更高版本",
+    ),
     "radar.settings" to row("Настройки радара", "Radar settings", "रडार सेटिंग्स", "レーダー設定", "雷达设置"),
+    // ── «Дорогие визуалы» (опциональный режим плеера) ──────────────────────
+    // Режим про то, КАК нарисованы органы управления, а не про фон: об этом и
+    // говорит название. В пояснении названы РЕАЛЬНЫЕ границы версий и то, что
+    // получит телефон ниже: человек включает функцию вслепую, и «для новых
+    // систем» без ответа «а у меня?» было бы обещанием, а не настройкой.
+    "set.premium_group" to row(
+        "Визуалы плеера", "Player visuals", "प्लेयर विज़ुअल्स", "プレイヤー表示", "播放器视觉",
+    ),
+    "set.premium" to row(
+        "Дорогие визуалы — стеклянные кнопки, чипы и мини-плеер, пружины",
+        "Premium visuals — glass controls, chips and mini-player, springs",
+        "प्रीमियम विज़ुअल्स — काँच के बटन, चिप और मिनी-प्लेयर, स्प्रिंग",
+        "プレミアム表示 — ガラスのボタン・チップ・ミニプレイヤー、バネ動作",
+        "高级视觉 — 玻璃质感按钮、筹码与迷你播放器、弹性动效",
+    ),
+    "set.premium_note" to row(
+        "Фон плеера режим не трогает: стекло — это стиль кнопок, чипов, пилюли качества, полос перемотки, мини-плеера и нижней навигации. Преломление того, что видно через край панели, требует Android 13 и новее; размытие под панелью и рельеф вокруг звучащей строки текста — Android 12 и новее. На более старых версиях стекло остаётся стеклом, но простым: полупрозрачный тон, светлая кромка, блик по верхней грани. Экономия заряда и системное «убрать анимацию» выключают эффекты сами, даже на новой версии.",
+        "The mode leaves the player's background alone: the glass is the style of the buttons, chips, quality pill, seek bars, mini-player and bottom navigation. Light bending where it passes through a panel's edge needs Android 13 or newer; the blur under a panel and the relief around the sounding lyric line need Android 12 or newer. On older versions the glass stays glass, just simple: a translucent tint, a light rim, a highlight along its top face. Battery saver and the system \"remove animations\" setting turn the effects off by themselves, even on a new version.",
+        "मोड प्लेयर की पृष्ठभूमि नहीं बदलता: काँच बटनों, चिप्स, क्वालिटी पिल, सीक-बार, मिनी-प्लेयर और नीचे नेविगेशन की शैली है। पैनल के किनारे से दिखती चीज़ का मुड़ना Android 13+ माँगता है; पैनल के नीचे धुंध और बज रही पंक्ति के आसपास का उभार Android 12+। पुराने संस्करणों पर काँच काँच ही रहता है, बस सरल: अर्ध-पारदर्शी रंग, हल्की किनारी, ऊपरी सिरे पर चमक। बैटरी सेवर और सिस्टम का “एनिमेशन हटाएँ” प्रभाव खुद बंद कर देते हैं।",
+        "このモードはプレイヤーの背景を変えません。ガラスはボタン・チップ・音質ピル・シークバー・ミニプレイヤー・下ナビの描き方のことです。パネルの縁を背景が通り抜けるとき折れ曲がるには Android 13 以上、パネル下のぼかしと歌っている行のまわりの立体感には Android 12 以上が必要です。それ以前のバージョンでもガラスはガラスのまま、シンプルになります：半透明の色、明るい輪郭、上端のハイライト。バッテリーセーブとシステムの「アニメーションなし」設定は、新しい端末でも効果を自動的に切ります。",
+        "该模式不改动播放器背景：玻璃质感指的是按钮、筹码、音质胶囊、进度条、迷你播放器和底部导航的画法。背景在面板边缘处折射需要 Android 13 及以上，面板下方的模糊与当前歌词行周围的立体感需要 Android 12 及以上。更低版本上玻璃仍是玻璃，只是朴素：半透明色调、亮边缘、顶面高光。开启省电模式或系统「关闭动画」时，即使新版本也会自动降级。",
+    ),
+    "set.premium_here" to row(
+        "На этом телефоне панели будут {0}",
+        "On this phone the panels will be {0}",
+        "इस फ़ोन पर पैनल {0} होंगे",
+        "この端末ではパネルは{0}になります",
+        "在这台手机上面板将是{0}",
+    ),
+    "glass.liquid" to row(
+        "стеклом с преломлением на краях",
+        "glass that refracts at its edges",
+        "किनारे पर मुड़ते काँच से",
+        "縁が屈折するガラス",
+        "边缘折射的玻璃",
+    ),
+    "glass.blur" to row(
+        "стеклом с размытием того, что под ними",
+        "glass blurring what lies behind them",
+        "पीछे का दृश्य धुंधला करने वाले काँच से",
+        "後ろをぼかすガラス",
+        "会虚化背后内容的玻璃",
+    ),
+    "glass.tint" to row(
+        "простым полупрозрачным стеклом с кромкой и бликом",
+        "plain translucent glass with a rim and a highlight",
+        "साधारण अर्ध-पारदर्शी काँच — किनारी और चमक के साथ",
+        "シンプルな半透明ガラス（輪郭とハイライト付き）",
+        "简单的半透明玻璃（带边缘与高光）",
+    ),
+    "glass.off" to row(
+        "обычными панелями — стекло выключено",
+        "ordinary panels — glass is off",
+        "सादे पैनल — काँच बंद है",
+        "通常のパネル（ガラス無効）",
+        "普通面板 — 玻璃已关闭",
+    ),
     "radar.open_settings" to row("Настройки и артисты", "Settings & artists", "सेटिंग्स और कलाकार", "設定とアーティスト", "设置与艺人"),
     "radar.settings_pc_note" to row(
         "Правила проверки и авто-скачивание задаются на ПК. Телефон в паре показывает их и позволяет качнуть найденный релиз.",
@@ -436,6 +589,13 @@ private val STRINGS: Map<String, Row> = mapOf(
     "search.one_empty" to row("{svc} ничего не вернул — попробуй другой сервис или проверь токен в настройках", "{svc} returned nothing — try another service or check the token in settings", "{svc} ने कुछ नहीं लौटाया — दूसरी सेवा आज़माएँ या सेटिंग्स में टोकन जाँचें", "{svc} は何も返しませんでした — 別のサービスを試すか設定でトークンを確認", "{svc} 未返回结果 — 换个服务或在设置中检查令牌"),
     "search.svc_timeout" to row("не ответил вовремя — попробуй ещё раз", "didn't respond in time — try again", "समय पर जवाब नहीं दिया — फिर कोशिश करें", "応答がありませんでした — もう一度お試しください", "响应超时 — 请重试"),
     "search.svc_neterr" to row("нет связи с сервисом — попробуй ещё раз", "can't reach the service — try again", "सेवा से कनेक्ट नहीं — फिर कोशिश करें", "サービスに接続できません — もう一度お試しください", "无法连接服务 — 请重试"),
+    // Две подписи для BUG-3 (поиск показывал сырое исключение сериализатора).
+    // Обе — ХВОСТ к «<Сервис>: », как у соседей выше, и обе без технических
+    // подробностей: человек не обязан разбирать `JsonNull is not a JsonObject`.
+    // Разделение на «разобрать не смогли» и «вообще не ответили» нужно, чтобы
+    // текст не врал: в первом случае ответ пришёл, и вина на нашей стороне.
+    "search.svc_parse" to row("прислал ответ, который мы не смогли разобрать — это наша поломка, а не твоя", "sent an answer we couldn't parse — that's our bug, not yours", "ऐसा जवाब भेजा जिसे हम पढ़ नहीं सके — यह हमारी खामी है, आपकी नहीं", "解析できない応答が返されました — こちら側の不具合です", "返回了我们无法解析的响应 — 这是我们的问题，不是你的"),
+    "search.svc_broken" to row("не удалось получить ответ — попробуй ещё раз", "couldn't get an answer — try again", "जवाब नहीं मिल सका — फिर कोशिश करें", "応答を取得できませんでした — もう一度お試しください", "未能获取响应 — 请重试"),
     "search.qobuz_stale_appid" to row(
         "отклонил запрос. Если в Настройках → Учётные записи задан свой app_id — очисти его, поиску он не нужен.",
         "rejected the request. If you set a custom app_id in Settings → Accounts, clear it — search doesn't need one.",
@@ -565,6 +725,39 @@ private val STRINGS: Map<String, Row> = mapOf(
     "a11y.shuffle" to row("Перемешать", "Shuffle", "शफ़ल", "シャッフル", "随机播放"),
     "a11y.repeat" to row("Повтор", "Repeat", "दोहराएँ", "リピート", "循环"),
     "a11y.close_player" to row("Закрыть плеер", "Close player", "प्लेयर बंद करें", "プレーヤーを閉じる", "关闭播放器"),
+    "a11y.seek_position" to row(
+        "Позиция воспроизведения",
+        "Playback position",
+        "प्लेबैक स्थिति",
+        "再生位置",
+        "播放位置",
+    ),
+    "a11y.state_playing" to row("играет", "playing", "चल रहा है", "再生中", "正在播放"),
+    "a11y.state_paused" to row("пауза", "paused", "रोका", "一時停止", "已暂停"),
+    "a11y.state_buffering" to row("буферизация", "buffering", "बफ़रिंग", "バッファ中", "缓冲中"),
+    "a11y.state_offline" to row("не в сети", "offline", "ऑफ़लाइन", "オフライン", "离线"),
+    "a11y.state_error" to row(
+        "ошибка воспроизведения",
+        "playback error",
+        "प्लेबैक त्रुटि",
+        "再生エラー",
+        "播放错误",
+    ),
+    "a11y.position_of" to row("{0} из {1}", "{0} of {1}", "{0} / {1}", "{0} / {1}", "{0} / {1}"),
+    "a11y.forward_15" to row(
+        "Вперёд на 15 секунд",
+        "Forward 15 seconds",
+        "15 सेकंड आगे",
+        "15秒進める",
+        "快进 15 秒",
+    ),
+    "a11y.back_15" to row(
+        "Назад на 15 секунд",
+        "Back 15 seconds",
+        "15 सेकंड पीछे",
+        "15秒戻す",
+        "快退 15 秒",
+    ),
     "a11y.open_player" to row(
         "{0} — {1}, открыть плеер",
         "{0} — {1}, open player",
@@ -705,6 +898,13 @@ private val STRINGS: Map<String, Row> = mapOf(
         "新しいリンクでも Tidal はセグメントを返しませんでした — この地域でこのアカウントには権限がありません。",
         "即使使用新链接，Tidal 仍拒绝返回分片 — 该账户在此区域无权访问。",
     ),
+    "err.dash_unsupported" to row(
+        "Mpeg-DASH-манифест этого трека построен не по схеме кусков, которую читает Ripster, — отдать его целиком мы не можем. Скачайте трек в более простом качестве.",
+        "This track's MPEG-DASH manifest is built with a segmentation Ripster can't read, so we can't deliver it whole — please download it in a simpler quality.",
+        "इस ट्रैक का MPEG-DASH मेनिफेस्ट ऐसी सेगमेंटेशन योजना से बना है जिसे Ripster नहीं पढ़ सकता — पूरा देना संभव नहीं। कृपया इसे सरल गुणवत्ता में डाउनलोड करें।",
+        "このトラックの MPEG-DASH マニフェストは Ripster が読めない区切り方をしているため、そのまま再生できません。より簡易な音質でダウンロードしてください。",
+        "该曲的 MPEG-DASH 清单使用了 Ripster 无法读取的分段方式，无法完整提供 — 请以较低音质下载。",
+    ),
     "err.empty_stream" to row(
         "сервис вернул пустой ответ.",
         "the service returned an empty response.",
@@ -774,6 +974,41 @@ private val STRINGS: Map<String, Row> = mapOf(
         "BBC ने डाउनलोड करने योग्य ऑडियो नहीं दिया — प्रायः यह केवल-यूके पहुँच है।",
         "BBC がダウンロード可能な音声を返しませんでした — ほぼ英国内限定のためです。",
         "BBC 未提供可下载音频 — 几乎总是因为仅限英国访问。",
+    ),
+    "err.cred_missing" to row(
+        "учётные данные не заданы.",
+        "credentials not set.",
+        "क्रेडेंशियल सेट नहीं हैं।",
+        "認証情報が設定されていません。",
+        "未设置凭据。",
+    ),
+    "err.health_unknown" to row(
+        "не удалось проверить учётку.",
+        "couldn't check the account.",
+        "खाता जाँचा नहीं जा सका।",
+        "アカウントを確認できませんでした。",
+        "无法检查账户。",
+    ),
+    "err.no_lossless_plan" to row(
+        "тариф не отдаёт lossless.",
+        "the plan doesn't offer lossless.",
+        "प्लान में lossless उपलब्ध नहीं है।",
+        "プランはロスレスを提供していません。",
+        "该套餐不提供无损。",
+    ),
+    "err.sc_public" to row(
+        "публичный доступ (без токена).",
+        "public access (no token).",
+        "पब्लिक एक्सेस (टोकन के बिना)।",
+        "パブリックアクセス（トークンなし）。",
+        "公开访问（无令牌）。",
+    ),
+    "err.sc_with_token" to row(
+        "с токеном.",
+        "with token.",
+        "टोकन के साथ।",
+        "トークン付き。",
+        "带令牌。",
     ),
     "err.pc_only" to row(
         "на телефоне прямого потока нет — качается через сопряжённый ПК.",
@@ -878,6 +1113,7 @@ private val STRINGS: Map<String, Row> = mapOf(
     ),
     "radar.loading" to row("Загружаю радар…", "Loading radar…", "रडार लोड हो रहा है…", "レーダーを読み込み中…", "正在加载雷达…"),
     "radar.err" to row("Не удалось загрузить радар", "Failed to load radar", "रडार लोड नहीं हुआ", "レーダーを読み込めません", "无法加载雷达"),
+    "radar.retry" to row("Повторить", "Retry", "पुनः प्रयास करें", "再試行", "重试"),
     "radar.empty_local" to row(
         "Пока ни за кем не следишь. Открой артиста и нажми «Следить» — Радар сам будет проверять новые релизы, без ПК.",
         "You aren't following anyone yet. Open an artist and tap Follow — Radar will check for new releases on its own, no PC needed.",
@@ -1093,12 +1329,42 @@ private val STRINGS: Map<String, Row> = mapOf(
     //
     // Формулировка называет, ЧТО именно не вышло и чей это отказ, и не выносит
     // приговор файлу, которого мы не проверяли.
+    //
+    // 23.09.2026, BUG-5: этой строкой экран закрывал ВСЕ отказы разбора — и
+    // короткий трек, и сбой отрисовки. Про «системный декодер» она права только
+    // в ветке Spectrogram.Failure.DECODER, то есть когда формат не взял ни
+    // системный декодер, ни наш нативный. Остальные случаи названы своими
+    // строками ниже.
     "ref.spectrum_fail" to row(
         "Спектр не построен: системный декодер устройства не читает этот формат. Сам файл может быть исправен — проверьте воспроизведением.",
         "No spectrum: this device's system decoder does not read this format. The file itself may be fine — try playing it.",
         "स्पेक्ट्रम नहीं बना: इस डिवाइस का सिस्टम डिकोडर यह फ़ॉर्मैट नहीं पढ़ता। फ़ाइल ठीक हो सकती है।",
         "スペクトルを生成できません：この端末のシステムデコーダーがこの形式に対応していません。ファイル自体は正常な可能性があります。",
         "无法生成频谱：本机系统解码器不支持该格式。文件本身可能没有问题。",
+    ),
+    /** Spectrogram.Failure.SHORT — декодировано меньше одного окна FFT. */
+    "ref.spectrum_short" to row(
+        "Спектр не построен: расшифровалось меньше одного окна анализа. Виноват не формат — трека слишком мало.",
+        "No spectrum: fewer samples came out than one analysis window. Not the format's fault — there is simply too little of the track.",
+        "स्पेक्ट्रम नहीं बना: एक विश्लेषण विंडो से भी कम डेटा मिला। फ़ॉर्मैट दोषी नहीं — ट्रैक बहुत छोटा है।",
+        "スペクトルを生成できません：解析ウィンドウ1個分のデータも得られませんでした。形式ではなく、トラックが短すぎます。",
+        "无法生成频谱：解码出的样本不足一个分析窗口。不是格式的问题 — 曲目太短。",
+    ),
+    /** Spectrogram.Failure.RENDER — PCM есть, но bitmap не собрался. */
+    "ref.spectrum_render" to row(
+        "Спектр не построен: звук расшифрован, но рисунок не собрался. С форматом всё в порядке — сбой отрисовки.",
+        "No spectrum: the audio decoded, but the picture did not come together. The format is fine — drawing failed.",
+        "स्पेक्ट्रम नहीं बना: ऑडियो डिकोड हुआ, पर चित्र नहीं बना। फ़ॉर्मैट ठीक है — अंकन विफल।",
+        "スペクトルを生成できません：音声は復号できたが描画に失敗しました。形式は正常です。",
+        "无法生成频谱：声音已解码，但图像未能绘制。格式没有问题 — 是渲染失败。",
+    ),
+    /** Начало играющего потока не удалось получить во временный файл. */
+    "ref.spectrum_no_source" to row(
+        "Спектр не построен: начало потока не удалось получить. Скачай трек — по файлу спектр строится надёжнее.",
+        "No spectrum: could not fetch the start of the stream. Download the track — a file builds the spectrum more reliably.",
+        "स्पेक्ट्रम नहीं बना: स्ट्रीम की शुरुआत नहीं मिली। ट्रैक डाउनलोड करें — फ़ाइल से स्पेक्ट्रम भरोसेमंद बनता है।",
+        "スペクトルを生成できません：ストリームの先頭を取得できませんでした。トラックを保存すると確実に生成できます。",
+        "无法生成频谱：未能获取流的开头。下载曲目后按文件构建频谱更可靠。",
     ),
     "ref.spectrum_stream" to row(
         "Спектр строится по скачанному файлу — скачай трек, потом открой здесь",
@@ -1158,6 +1424,9 @@ private val STRINGS: Map<String, Row> = mapOf(
     "player.style_studio" to row("Студийный", "Studio", "स्टूडियो", "スタジオ", "工作室"),
     "player.style_immersive" to row("Погружение", "Immersive", "इमर्सिव", "没入", "沉浸"),
     "player.style_reference" to row("Макет", "Mockup", "मॉकअप", "モックアップ", "样机"),
+    // Четвёртый стиль: крупные мягкие глифы без дисков (вердикт владельца
+    // 23.09.2026). Имя — наше, не чужое название режима.
+    "player.style_liquid" to row("Флюид", "Fluid", "फ्लुइड", "フルイド", "流体"),
     "pair.hint" to row(
         "Открой Рипстер на ПК и введи показанный там код. После сопряжения телефон возьмёт токены сервисов с ПК и будет качать сам.",
         "Open Ripster on your PC and enter the code it shows. Once paired, the phone pulls service tokens from the PC and downloads on its own.",
@@ -1171,6 +1440,7 @@ private val STRINGS: Map<String, Row> = mapOf(
     "set.q_flac16" to row("FLAC 16-бит", "FLAC 16-bit", "FLAC 16-बिट", "FLAC 16ビット", "FLAC 16 位"),
     "set.q_mp3" to row("MP3 320", "MP3 320", "MP3 320", "MP3 320", "MP3 320"),
     "set.theme" to row("Тема", "Theme", "थीम", "テーマ", "主题"),
+    "set.theme_system" to row("Как в системе", "Follow system", "सिस्टम के अनुसार", "システムに従う", "跟随系统"),
     "set.density" to row("Плотность", "Density", "घनत्व", "密度", "密度"),
     "set.language" to row("Язык", "Language", "भाषा", "言語", "语言"),
     "set.name_template" to row("Шаблон имени", "Name template", "नाम टेम्पलेट", "命名テンプレート", "命名模板"),
@@ -1179,6 +1449,13 @@ private val STRINGS: Map<String, Row> = mapOf(
 
     // Экран «Загрузки»
     "dl.empty" to row("Очередь пуста", "Queue is empty", "कतार खाली है", "キューは空です", "队列为空"),
+    "dl.empty_hint" to row(
+        "Скачанный трек появится здесь сам — начните с поиска или главной",
+        "A downloaded track will show up here on its own — start from Search or Home",
+        "डाउनलोड किया गया ट्रैक यहाँ अपने आप दिखेगा — खोज या होम से शुरू करें",
+        "ダウンロードした曲はここに自動で表示されます — 検索またはホームから始めてください",
+        "下载的曲目会自动出现在这里——从搜索或首页开始",
+    ),
     "dl.retry" to row("Повторить", "Retry", "पुनः प्रयास", "再試行", "重试"),
     "dl.cancel" to row("Отменить", "Cancel", "रद्द करें", "キャンセル", "取消"),
     "dl.queued" to row("в очереди", "queued", "कतार में", "キュー済み", "排队中"),
@@ -1251,6 +1528,13 @@ private val STRINGS: Map<String, Row> = mapOf(
     "probe.duration" to row("Длительность", "Duration", "अवधि", "長さ", "时长"),
     "probe.size" to row("Размер", "Size", "आकार", "サイズ", "大小"),
     "lib.not_found" to row("Ничего не найдено", "Nothing found", "कुछ नहीं मिला", "見つかりません", "未找到"),
+    "lib.not_found_hint" to row(
+        "Попробуйте другое написание или исполнителя",
+        "Try a different spelling or artist",
+        "कोई दूसरी स्पेलिंग या कलाकार आज़माएँ",
+        "別の表記やアーティストでお試しください",
+        "试试其他拼写或演唱者",
+    ),
 
     // Настройки → Аккаунты (per-service)
     "svc.status_connected" to row("Подключён", "Connected", "कनेक्टेड", "接続済み", "已连接"),
@@ -1307,6 +1591,13 @@ private val STRINGS: Map<String, Row> = mapOf(
         "प्रोग्राम लिंक से। केवल यूके से उपलब्ध।",
         "番組リンクから。英国からのみ利用可。",
         "通过节目链接。仅限英国访问。",
+    ),
+    "svc.d_jiosaavn" to row(
+        "Без учётки. AAC до 320 кбит/с, lossless у сервиса нет.",
+        "No account needed. AAC up to 320 kbps; the service has no lossless.",
+        "खाते की ज़रूरत नहीं। AAC 320 kbps तक; सेवा में lossless नहीं है।",
+        "アカウント不要。AAC 最大 320 kbps。ロスレスはありません。",
+        "无需账户。AAC 最高 320 kbps，该服务没有无损。",
     ),
     "svc.or_token" to row("Или вставить токен вручную:", "Or paste a token manually:", "या टोकन मैन्युअल रूप से चिपकाएँ:", "またはトークンを手動で貼り付け:", "或手动粘贴令牌："),
     "svc.login_via_site" to row("Войти через сайт", "Sign in on the site", "साइट पर साइन इन करें", "サイトでログイン", "在网站登录"),

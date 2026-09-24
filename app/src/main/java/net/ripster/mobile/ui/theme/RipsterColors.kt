@@ -98,7 +98,9 @@ val LightColors = RipsterColors(
     success_text = Color(0xFF0F7233),
     success_fill = Color(0xFF0F7233),
     warning_text = Color(0xFF8A5A00),
-    warning_fill = Color(0xFFB5730D),
+    // B5730D давал белому тексту 3.87:1 — PaletteContrastTest поймал. Тот же
+    // шаг нужно сделать и в десктопном CSS (main.css), иначе деревья разъедутся.
+    warning_fill = Color(0xFF8F5C05),
     danger_text = Color(0xFFC0281F),
     danger_fill = Color(0xFFC0281F),
     progress_text = Color(0xFF0060D0),
@@ -194,7 +196,8 @@ val SepiaColors = RipsterColors(
     success_text = Color(0xFF1B6B40),
     success_fill = Color(0xFF1B6B40),
     warning_text = Color(0xFF8A5A10),
-    warning_fill = Color(0xFFB5730D),
+    // См. LightColors: B5730D не проходил 4.5:1 со светлым текстом-на-заливке.
+    warning_fill = Color(0xFF8F5C05),
     danger_text = Color(0xFFA8301F),
     danger_fill = Color(0xFFA8301F),
     progress_text = Color(0xFF2A5F9E),
@@ -252,7 +255,9 @@ val AuroraColors = RipsterColors(
     progress_text = Color(0xFF7FD2FF),
     progress_fill = Color(0xFF3A9BE8),
     info_text = Color(0xFFC08BFF),
-    info_fill = Color(0xFF8D4CE0),
+    // 8D4CE0 с тёмным text_on_fill давал 4.02:1 (PaletteContrastTest);
+    // просветлён до A76BF0 — та же связь, что accent_fill < accent_text.
+    info_fill = Color(0xFFA76BF0),
     accent_text = Color(0xFFC98BFF),
     accent_fill = Color(0xFFA855F7),
     accent_hover = Color(0xFFBB74FF),

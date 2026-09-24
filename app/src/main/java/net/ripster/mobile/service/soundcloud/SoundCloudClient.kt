@@ -1,6 +1,10 @@
 package net.ripster.mobile.service.soundcloud
 
+import net.ripster.mobile.core.errors.attempt
+
 import net.ripster.mobile.core.errors.EngineErrors
+import net.ripster.mobile.core.errors.isJobCancellation
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -18,6 +22,7 @@ import net.ripster.mobile.core.model.Service
 import net.ripster.mobile.core.model.StreamInfo
 import net.ripster.mobile.core.model.Track
 import net.ripster.mobile.core.net.RipsterHttp
+import net.ripster.mobile.core.service.Contributors
 import net.ripster.mobile.core.service.ServiceClient
 import net.ripster.mobile.service.soundcloud.dto.ScTrack
 import net.ripster.mobile.service.soundcloud.dto.ScTranscoding
@@ -165,14 +170,15 @@ class SoundCloudClient(
                 alive = true,
                 lossless = false,
                 losslessPossible = false,   // SoundCloud его не отдаёт ни на каком тарифе
-                plan = if (hasToken) "с токеном" else "публичный доступ",
+                plan = if (hasToken) EngineErrors.SC_WITH_TOKEN else EngineErrors.SC_PUBLIC,
                 quality = if (hasToken) "AAC 256" else "MP3 128",
-                reason = if (hasToken) "" else "без токена только 128 kbps",
+                reason = "",
             )
         } catch (e: Exception) {
+            if (isJobCancellation(e)) throw e   // отменённую проверку учётки не превращаем в «не знаю»
             val msg = e.message.orEmpty()
-            if ("401" in msg) H.dead("токен отвергнут (401)")
-            else H.unknown("не смогли спросить: ${e::class.simpleName}")
+            if ("401" in msg) H.dead(EngineErrors.code(EngineErrors.TOKEN_INVALID, "401"))
+            else H.unknown(EngineErrors.code(EngineErrors.HEALTH_UNKNOWN, e::class.simpleName))
         }
     }
 
@@ -182,7 +188,7 @@ class SoundCloudClient(
         // именно ими. Без этого запроса фильтр «Альбомы» был пуст всегда (тот же
         // дефект, что нашёлся 12.09.2026 у Tidal, Qobuz и Beatport).
         // Отказ по плейлистам не должен ронять уже найденные треки.
-        val albums = runCatching {
+        val albums = attempt {
             api.searchPlaylists(query).map { p ->
                 Album(
                     id = p.id.toString(),
@@ -207,10 +213,10 @@ class SoundCloudClient(
     /** Станция по жанру: чарт SoundCloud (top → trending → поиск как запас). */
     suspend fun station(genreSlug: String, limit: Int = 30): List<Track> {
         for (kind in listOf("top", "trending")) {
-            val t = runCatching { api.chart(genreSlug, kind, limit) }.getOrDefault(emptyList())
+            val t = attempt { api.chart(genreSlug, kind, limit) }.getOrDefault(emptyList())
             if (t.isNotEmpty()) return t.map { it.toTrack() }
         }
-        return runCatching { api.searchTracks(genreSlug.replace("-", " "), limit) }
+        return attempt { api.searchTracks(genreSlug.replace("-", " "), limit) }
             .getOrDefault(emptyList()).map { it.toTrack() }
     }
 
@@ -254,9 +260,9 @@ class SoundCloudClient(
     override suspend fun getArtist(artistId: String): net.ripster.mobile.core.pair.PcBridge.ArtistPage? {
         if (artistId.isBlank() || !artistId.all(Char::isDigit)) return null
         return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            runCatching {
+            attempt {
                 val u = api.user(artistId)
-                val name = u.username.ifBlank { return@runCatching null }
+                val name = u.username.ifBlank { return@attempt null }
                 // На SoundCloud «релиз» = загруженный трек; альбомов почти нет.
                 val releases = api.userTracks(artistId, 80).map { t ->
                     val date = (t.displayDate ?: t.createdAt ?: "").take(10)
@@ -460,12 +466,13 @@ class SoundCloudClient(
         return t.format.protocol == "progressive"
     }
 
-    private fun ScTrack.toTrack(): Track {
+    internal fun ScTrack.toTrack(): Track {
         val pm = publisherMetadata
+        val one = pm?.artist?.takeIf { it.isNotBlank() } ?: user.username
         return Track(
             id = id.toString(),
             title = title,
-            artist = pm?.artist?.takeIf { it.isNotBlank() } ?: user.username,
+            artist = artistLine(one),
             service = Service.SOUNDCLOUD,
             albumTitle = pm?.albumTitle,
             albumArtist = pm?.artist,
@@ -487,6 +494,25 @@ class SoundCloudClient(
             },
         )
     }
+
+    /**
+     * Состав из заголовка трека.
+     *
+     * У SoundCloud структурных кредитов нет НИГДЕ — ни в поиске, ни в карточке
+     * (`/resolve` возвращает тот же объект). Остаётся то, что люди пишут руками:
+     * «feat.», «A x B», «(David Bowie Remix)». Читаем это как догадку, а не как
+     * данные сервиса: если имён стало больше — показываем, иначе оставляем
+     * ник/`publisher_metadata.artist` как был. Правила и запреты — в
+     * [Contributors.fromScNames].
+     */
+    private fun ScTrack.artistLine(one: String): String {
+        val c = Contributors.fromScNames(one, title)
+        return if (c.richerThan(one)) c.display() else one
+    }
+
+    /** Запросы не нужны: заголовок уже лежит в [Track], разбираем его на месте. */
+    override suspend fun contributorsFor(track: Track): Contributors? =
+        Contributors.fromScNames(track.artist, track.title).takeIf { !it.isSingle }
 
     /** SC отдаёт `...-large.jpg` (100px). Для встраивания в тег берём t500x500. */
     private fun bigArt(url: String?): String? =

@@ -6,6 +6,17 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class QbArtist(val id: Long = 0, val name: String = "")
 
+/**
+ * Участник записи из `album.artists[]` — имя плюс роли («MainArtist»,
+ * «FeaturedArtist», «Composer»…). Раньше их нигде не объявляли, и состав
+ * коллаборации сжимался до одного имени (жалоба 13.09.2026).
+ */
+@Serializable
+data class QbCreditedArtist(
+    val name: String = "",
+    val roles: List<String> = emptyList(),
+)
+
 @Serializable
 data class QbImage(
     val large: String? = null,
@@ -31,6 +42,8 @@ data class QbAlbum(
     val copyright: String? = null,
     @SerialName("media_count") val mediaCount: Int? = null,
     @SerialName("release_date_original") val releaseDateOriginal: String? = null,
+    /** Полный состав релиза с ролями — когда Qobuz кладёт его в ответ. */
+    val artists: List<QbCreditedArtist> = emptyList(),
 )
 
 /** Вложенный объект вида `{"id":…,"name":"Dance"}` — жанр, лейбл. */
@@ -46,6 +59,12 @@ data class QbTrack(
     @SerialName("track_number") val trackNumber: Int? = null,
     @SerialName("media_number") val mediaNumber: Int? = null,
     val performer: QbArtist = QbArtist(),
+    /**
+     * Строка кредитов трека: «Linda Ronstadt, FeaturedArtist, Vocal - James
+     * Taylor, MainArtist». Единственный источник совместных исполнителей у
+     * Qobuz — `performer` отдаёт по одному имени.
+     */
+    val performers: String? = null,
     val album: QbAlbum? = null,
     val composer: QbNamed? = null,
     val copyright: String? = null,
@@ -79,6 +98,8 @@ data class QbAlbumFull(
     @SerialName("media_count") val mediaCount: Int? = null,
     @SerialName("release_date_original") val releaseDateOriginal: String? = null,
     val tracks: QbTrackItems = QbTrackItems(),
+    /** Полный состав релиза с ролями (см. [QbCreditedArtist]). */
+    val artists: List<QbCreditedArtist> = emptyList(),
 )
 
 @Serializable

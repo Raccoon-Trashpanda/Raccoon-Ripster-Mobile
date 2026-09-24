@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -5,6 +7,26 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
     id("com.google.devtools.ksp")
 }
+
+// Подпись релиза (трекер #42). Пароли не в этом файле — он отслеживается
+// публичным зеркалом Raccoon-Ripster-Mobile. Носители, в порядке приоритета:
+// signing.properties в корне репозитория (в .gitignore) и переменные окружения
+// RIPSTER_STORE_PASSWORD / RIPSTER_KEY_PASSWORD. Ключевой файл (ripster-release.jks)
+// в git не лежал никогда, а вот пароль утекал в публичный репозиторий вместе с
+// этим скриптом; ротация ключа — решение владельца (новым ключом не обновить
+// уже установленные сборки).
+val signingProps = Properties().apply {
+    val f = rootProject.file("signing.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+// Имя env-переменной задаём явно: "storePassword".uppercase() дало бы
+// RIPSTER_STOREPASSWORD (слитно), а обещаем по задаче RIPSTER_STORE_PASSWORD.
+fun signingSecret(name: String, env: String): String? =
+    (signingProps.getProperty(name) ?: System.getenv(env))
+        ?.takeIf { it.isNotBlank() }
+
+val releaseStorePassword = signingSecret("storePassword", "RIPSTER_STORE_PASSWORD")
+val releaseKeyPassword = signingSecret("keyPassword", "RIPSTER_KEY_PASSWORD") ?: releaseStorePassword
 
 android {
     namespace = "net.ripster.mobile"
@@ -17,8 +39,8 @@ android {
         // 26 влезает в обе и не тянет за собой поддержку доисторических версий.
         minSdk = 26
         targetSdk = 34
-        versionCode = 47
-        versionName = "0.47"
+        versionCode = 48
+        versionName = "0.48"
 
         // Нативный аудиодвижок (фаза 1): Oboe + FLAC/WAV декод. x86_64 — для
         // эмулятора; arm — для реальных устройств. armeabi-v7a пока не тащим.
@@ -30,6 +52,10 @@ android {
                 arguments += "-DANDROID_STL=c++_shared"
             }
         }
+
+        // Инструированные тесты (раунд 3, ротация) — владелец завёл androidTest
+        // специально под них.
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     externalNativeBuild {
@@ -43,9 +69,13 @@ android {
     signingConfigs {
         create("release") {
             storeFile = rootProject.file("ripster-release.jks")
-            storePassword = "ripster2026"
             keyAlias = "ripster"
-            keyPassword = "ripster2026"
+            // Пароли в источник не кладём (трекер #42): этот файл отслеживается
+            // публичным зеркалом. Значения приходят из gitignored
+            // signing.properties в корне или из окружения RIPSTER_*; если их
+            // нет — сборку валит ниже явной ошибкой, а не тихой подменой.
+            releaseStorePassword?.let { storePassword = it }
+            releaseKeyPassword?.let { keyPassword = it }
             // Подписываем ВСЕМИ схемами: v1 (JAR) для древних сайдлоад-тулзов и
             // сканеров, что ругаются на «unsigned jar», v2/v3 — то, что реально
             // проверяет Android 8+. Без v1 некоторые анализаторы APK ошибочно
@@ -89,6 +119,12 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.2")
     implementation("androidx.core:core-ktx:1.13.1")
 
+    // ViewModel + SavedStateHandle: раунд 3 (ротация). Состояние запроса/данных
+    // должно переживать пересоздание активности, а не только Bundle. Берём
+    // lifecycle 2.8.x — та же ветка, что тянет Compose BOM 2024.09.
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.3")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-savedstate:2.8.3")
+
     // --- Слой загрузки (Этап 0 плана ARCH_2026-08-30_mobile_engines_and_scope) ---
     // Пока без Room/Hilt/WorkManager: их добавит Этап 1 вместе с первым реальным
     // клиентом (SoundCloud), когда будет что через них гонять. Сейчас — только то,
@@ -118,8 +154,55 @@ dependencies {
     implementation("com.google.oboe:oboe:1.9.0")
     // Обложки (сеть → Compose).
     implementation("io.coil-kt:coil-compose:2.7.0")
+    // «Стекло» для «дорогих визуалов» (Haze) — Maven Central, версия 0.7.3:
+    // последняя, чьи транзитивные зависимости (compose 1.6.7, core-ktx 1.13.1)
+    // не требуют compileSdk 35. На этом дереве выше — конфликт с BOM 2024.09.
+    implementation("dev.chrisbanes.haze:haze:0.7.3")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+
+    // Живые тесты ротации на приборе (раунд 3). ВНИМАНИЕ: в этой среде
+    // dl.google.com отвечает 404 на любой путь (включая заведомо существующие
+    // артефакты) — реестр Google недоступен, поэтому connected-прогон здесь
+    // физически не собирается: androidx.test и ui-test-junit4 есть только там.
+    // Сами тесты в app/src/androidTest написаны и включатся с сетью;
+    // фактическая проверка ротации на приборе в раунде 3 сделана через
+    // uiautomator- снапшоты (test_reports/r3_rot.py) — см. round_03.md.
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:core-ktx:1.6.1")
+    androidTestImplementation("androidx.test:runner:1.6.1")
+}
+
+// Громкий отказ вместо тихой подмены (трекер #42): если пароля подписи нет,
+// release-сборка обязана назвать недостающее — а не подписать отладочным
+// ключом или упасть с невнятным «keystore password was incorrect» в depths AGP.
+gradle.taskGraph.whenReady {
+    val wantsRelease = allTasks.any {
+        it.project.path == ":app" &&
+            (it.name.startsWith("assemble") || it.name.startsWith("bundle") || it.name.startsWith("install")) &&
+            it.name.contains("Release")
+    }
+    if (!wantsRelease) return@whenReady
+    val missing = listOfNotNull(
+        if (releaseStorePassword == null) "storePassword" else null,
+        if (releaseKeyPassword == null) "keyPassword" else null,
+    )
+    if (missing.isNotEmpty()) {
+        error(
+            "Релиз не соберётся (трекер #42): нет пароля подписи — " + missing.joinToString(" и ") + ". " +
+                "Положите его в signing.properties в корне проекта (файл в .gitignore): " +
+                "storePassword=… (и keyPassword=…, если отличается от storePassword) " +
+                "либо задайте окружение RIPSTER_STORE_PASSWORD / RIPSTER_KEY_PASSWORD. " +
+                "Отладочным ключом релиз молча не подписывается.",
+        )
+    }
+    if (!rootProject.file("ripster-release.jks").exists()) {
+        error(
+            "Релиз не соберётся (трекер #42): нет файла ключа ripster-release.jks в " +
+                rootProject.projectDir + " — он тоже намеренно вне git.",
+        )
+    }
 }

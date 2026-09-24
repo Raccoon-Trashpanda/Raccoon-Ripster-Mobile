@@ -4,6 +4,7 @@ import net.ripster.mobile.ui.i18n.AppLang
 import net.ripster.mobile.ui.components.pressable
 import net.ripster.mobile.ui.i18n.LocalAppLang
 import net.ripster.mobile.ui.i18n.tr
+import net.ripster.mobile.ui.i18n.trTracks
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -366,20 +367,11 @@ private fun TrackCountBadge(count: Int) {
 
 /**
  * Русское согласование числительного с «трек». Показывается только для
- * контейнеров (count > 1); одиночные треки бейдж не рисуют. Полная i18n
- * множественного числа — когда в библиотеку попадут альбомы.
+ * контейнеров (count > 1); одиночные треки бейдж не рисуют. Правило формы — в
+ * trTracks: своя копия here жила бы отдельно от остальных счётчиков и
+ * расходилась с ними при первой же правке.
  */
-private fun trackWord(count: Int, lang: AppLang): String {
-    val mod100 = count % 100
-    val mod10 = count % 10
-    val key = when {
-        mod100 in 11..14 -> "lib.tw_many"
-        mod10 == 1 -> "lib.tw_one"
-        mod10 in 2..4 -> "lib.tw_few"
-        else -> "lib.tw_many"
-    }
-    return tr(key, lang)
-}
+private fun trackWord(count: Int, lang: AppLang): String = trTracks(count.toLong(), lang)
 
 @Composable
 private fun EmptyLibraryMessage(
@@ -408,6 +400,15 @@ private fun EmptyLibraryMessage(
                 text = message,
                 style = TextStyle(color = colors.text_secondary, fontSize = type.body),
             )
+            // Голую «ничего не найдено» тестер читает как сломанный поиск, а
+            // не как пустой результат — нужен следующий шаг, хоть и словами.
+            if (searchQuery.isNotEmpty()) {
+                Spacer(Modifier.size(6.dp))
+                BasicText(
+                    text = tr("lib.not_found_hint", lang),
+                    style = TextStyle(color = colors.text_tertiary, fontSize = type.caption),
+                )
+            }
             // Явный вход в поиск — тестер не понял, «где скачивать».
             if (searchQuery.isEmpty()) {
                 Spacer(Modifier.size(16.dp))

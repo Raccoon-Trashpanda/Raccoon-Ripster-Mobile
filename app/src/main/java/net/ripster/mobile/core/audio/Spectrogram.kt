@@ -94,26 +94,48 @@ object Spectrogram {
 
     private const val TAG = "Spectrogram"
 
+    /**
+     * Почему спектра всё-таки нет.
+     *
+     * До 23.09.2026 все три отказа сходились в одну строку про «системный
+     * декодер устройства», и человек шёл искать кодек там, где трек был просто
+     * корок окна FFT или не собрался рисунок (BUG-5). Отказ доезжает до экрана
+     * своим текстом: про декодер враньём не отвечаем.
+     */
+    enum class Failure(val key: String) {
+        /** Ни системный, ни наш нативный декодер формат не взяли. Только здесь
+         *  утверждение про системный декодер и правда. */
+        DECODER("ref.spectrum_fail"),
+        /** Расшифровали меньше одного окна FFT — рисовать нечего. */
+        SHORT("ref.spectrum_short"),
+        /** PCM есть, а bitmap не собрался. Формат ни при чём. */
+        RENDER("ref.spectrum_render"),
+    }
+
+    /** Итог разбора: либо [spectrum], либо [failure] — но не молчание. */
+    class Analysis(val spectrum: Result?, val failure: Failure?)
+
     suspend fun analyze(
         context: Context,
         source: String,
         style: Style = Style.RIPSTER,
         heightPx: Int = 360,
         containerExt: String? = null,
-    ): Result? = withContext(Dispatchers.IO) {
+    ): Analysis = withContext(Dispatchers.IO) {
         // Причину НЕ глотаем: раньше все три отказа сходились в одно «не удалось
         // разобрать этот файл», и по нему нельзя было понять, что чинить —
         // отсутствующий кодек, слишком короткий трек или сбой отрисовки.
         val dec = runCatching { decodeMono(context, source) }
             .onFailure { android.util.Log.w(TAG, "decode failed: $source", it) }
-            .getOrNull() ?: return@withContext null
+            .getOrNull() ?: return@withContext Analysis(null, Failure.DECODER)
         if (dec.pcm.size < FFT) {
             android.util.Log.w(TAG, "too few samples: ${dec.pcm.size} < $FFT ($source)")
-            return@withContext null
+            return@withContext Analysis(null, Failure.SHORT)
         }
-        runCatching { build(dec, style, heightPx, containerExt) }
+        val built = runCatching { build(dec, style, heightPx, containerExt) }
             .onFailure { android.util.Log.w(TAG, "build failed: $source", it) }
             .getOrNull()
+        Analysis(built, if (built == null) Failure.RENDER else null)
     }
 
     // ── декод в моно float [-1..1] + частота дискретизации ─────────────────
@@ -124,25 +146,24 @@ object Spectrogram {
      *  ALAC на многих устройствах/эмуляторе — тогда декодим сами (FLAC/ALAC/WAV/
      *  WavPack/DSD), чтобы «Паспорт»/спектр строились и для Apple-lossless. */
     private fun decodeMono(context: Context, source: String): Decoded {
-        val viaCodec = runCatching { decodeMonoMediaCodec(context, source) }.getOrNull()
+        // Отказ системного пути пишется в журнал: без него «нет спектра» и
+        // через полгода неотличим от «декодера нет вообще» — жалоба 23.09.2026
+        // началась именно с того, что причину негде было нащупать.
+        val viaCodec = runCatching { decodeMonoMediaCodec(context, source) }
+            .onFailure { android.util.Log.w(TAG, "system decode refused: $source", it) }
+            .getOrNull()
         if (viaCodec != null && viaCodec.pcm.size >= FFT) return viaCodec
         decodeMonoNative(context, source)?.let { return it }
-        return viaCodec ?: error("no decoder for $source")
+        // Оба пути молчат. Если системный всё же что-то развернул, честнее
+        // отдать это «что-то»: экран скажет «трека мало на окно», а не соврёт
+        // про отсутствующий декодер.
+        viaCodec?.let { return it }
+        error("no decoder: system and native both refused $source")
     }
 
-    /** Коды формата нативного движка: 0 flac,1 wav,2 alac(m4a),3 wavpack,4 dsd. */
-    private fun nativeFmt(source: String): Int? =
-        when (source.substringBefore('?').substringAfterLast('.', "").lowercase()) {
-            "flac" -> 0
-            "wav", "wave" -> 1
-            "m4a", "m4b", "mp4", "alac", "aac" -> 2   // m4a может быть ALAC — пробуем
-            "wv" -> 3
-            "dsf", "dff", "dsd" -> 4
-            else -> null
-        }
-
     private fun decodeMonoNative(context: Context, source: String): Decoded? {
-        val fmt = nativeFmt(source) ?: return null
+        // Формат — по первым байтам, а не по имени: см. NativeFormat.
+        val fmt = NativeFormat.decoderFor(headBytes(context, source), source) ?: return null
         val pfd: android.os.ParcelFileDescriptor = runCatching {
             if (source.startsWith("content://"))
                 context.contentResolver.openFileDescriptor(Uri.parse(source), "r")
@@ -157,6 +178,23 @@ object Spectrogram {
             Decoded(res.first, res.second)
         }
     }
+
+    /**
+     * Заголовок источника — то, по чему выбирается декодер.
+     *
+     * Читается СВОИМ потоком, а не с дескриптора, который потом уходит в JNI:
+     * последовательное чтение сдвинуло бы общее положение в файле, а наши
+     * декодеры работают `pread`-ом и своё положение считают сами.
+     */
+    private fun headBytes(context: Context, source: String): ByteArray? = runCatching {
+        val buf = ByteArray(ContainerSniff.HEAD_BYTES)
+        val n = if (source.startsWith("content://") || source.startsWith("file://")) {
+            context.contentResolver.openInputStream(Uri.parse(source))?.use { it.read(buf) }
+        } else {
+            java.io.File(source.removePrefix("file://")).inputStream().use { it.read(buf) }
+        }
+        if (n != null && n > 0) buf.copyOf(n) else null
+    }.getOrNull()
 
     private fun decodeMonoMediaCodec(context: Context, source: String): Decoded {
         val ex = MediaExtractor()
@@ -325,13 +363,16 @@ object Spectrogram {
     // ── рамка с осями — калька ПК (`spectrogram.py` `_generate_spectrogram`) ──
     // Слева шкала частот (кГц), снизу — времени, тонкая сетка, рамка и
     // словесный знак «R I P S T E R» вместо ffmpeg-легенды.
-
-    private const val FRAME_W = 900
-    private const val FRAME_H = 460
+    //
+    // PAD_B оставлен с запасом в целую строку: если знаку не достаётся места
+    // в ряду подписей оси времени, он уезжает на строку ниже (e2e 23.09.2026 —
+    // на коротком треке «R I P S T E R» лежал ровно поверх «50s»).
+    internal const val FRAME_W = 900
+    internal const val FRAME_H = 482
     private const val PAD_L = 64
     private const val PAD_T = 14
     private const val PAD_R = 14
-    private const val PAD_B = 34
+    private const val PAD_B = 56
 
     private val COL_BG     = Color.rgb(17, 19, 24)
     private val COL_BORDER = Color.rgb(58, 58, 88)
@@ -378,13 +419,18 @@ object Spectrogram {
             }
         }
         // ось времени — 0 слева, длина проанализированного отрезка справа
+        // Заодно собираем границы подписей: по ним словесный знак пристраивается
+        // в свободный зазор ряда, а не ложится поверх последней метки.
+        val labelSpans = ArrayList<Pair<Float, Float>>()
         if (durationSec > 0.5f) {
             for (sec in niceTicks(durationSec, 7)) {
                 val x = left + (sec / durationSec) * plotW
                 cv.drawLine(x, top, x, bottom, grid)
                 val s = sec.toInt()
                 val t = if (s >= 60) "${s / 60}:${(s % 60).toString().padStart(2, '0')}" else "${s}s"
-                cv.drawText(t, (x + 4f).coerceAtMost(right - label.measureText(t)), bottom + 22f, label)
+                val tx = (x + 4f).coerceAtMost(right - label.measureText(t))
+                cv.drawText(t, tx, bottom + 22f, label)
+                labelSpans.add(tx to tx + label.measureText(t))
             }
         }
 
@@ -394,7 +440,14 @@ object Spectrogram {
             color = COL_ACCENT; textSize = 18f; typeface = Typeface.DEFAULT_BOLD; letterSpacing = 0.18f
         }
         val wmText = "R I P S T E R"
-        cv.drawText(wmText, right - wm.measureText(wmText), bottom + 22f, wm)
+        val slotX = watermarkSlotX(labelSpans, wm.measureText(wmText), left, right)
+        if (slotX != null) {
+            cv.drawText(wmText, slotX, bottom + 22f, wm)
+        } else {
+            // Мест в ряду нет — уводим знак строкой ниже подписей. По вертикали
+            // он ни с чем не спорит: запас на это заложен в PAD_B.
+            cv.drawText(wmText, right - wm.measureText(wmText), bottom + 46f, wm)
+        }
         return out
     }
 
@@ -488,4 +541,38 @@ object Spectrogram {
     )
 
     private val LN10 = ln(10.0)
+}
+
+/**
+ * Свободный слот для словесного знака в ряду подписей оси времени.
+ *
+ * [labelSpans] — занятые отрезки `[начало, конец]` уже нарисованных меток,
+ * [wmWidth] — ширина знака, [rowLeft]..[rowRight] — границы ряда (левая —
+ * край графика, не экрана: шкала частот живёт левее и её задевать нельзя).
+ * Зазоры просматриваются СПРАВА НАЛЕВО — знак тяготеет к правому краю,
+ * как в ПК-версии, — и возвращается левый край знака, вписанного в первый
+ * же подходящий зазор с полями [margin]. `null` — целый знак не влезает
+ * никуда: рисующий уходит на строку ниже подписей.
+ *
+ * Функция намеренно вне `object Spectrogram` и без android.graphics: ровно
+ * это правило («знак не пересекает метки») проверяется юнит-тестом на JVM.
+ */
+internal fun watermarkSlotX(
+    labelSpans: List<Pair<Float, Float>>,
+    wmWidth: Float,
+    rowLeft: Float,
+    rowRight: Float,
+    margin: Float = 8f,
+): Float? {
+    val sorted = labelSpans
+        .map { if (it.first <= it.second) it else it.second to it.first }
+        .sortedBy { it.first }
+    // Правая граница текущего зазора; для первого (самого правого) — край ряда минус поле.
+    var gapRight = rowRight - margin
+    for (span in sorted.asReversed()) {
+        if (gapRight - (span.second + margin) >= wmWidth) return gapRight - wmWidth
+        gapRight = minOf(gapRight, span.first - margin)
+    }
+    val gapLeft = rowLeft + margin
+    return if (gapRight - gapLeft >= wmWidth) gapRight - wmWidth else null
 }

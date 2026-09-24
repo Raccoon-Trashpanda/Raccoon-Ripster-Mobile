@@ -1,5 +1,7 @@
 package net.ripster.mobile.ui
 
+import net.ripster.mobile.core.errors.attempt
+
 import androidx.compose.animation.togetherWith
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.FilterQuality
@@ -21,6 +23,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -70,7 +73,16 @@ import net.ripster.mobile.ui.components.MiniPlayerState
 import net.ripster.mobile.ui.components.QualityBadgeState
 import net.ripster.mobile.ui.i18n.LocalAppLang
 import net.ripster.mobile.ui.i18n.tr
+import net.ripster.mobile.ui.i18n.trTracks
+import net.ripster.mobile.ui.premium.MiniCoverRect
+import net.ripster.mobile.ui.premium.hazeBackdrop
+import net.ripster.mobile.ui.premium.hasBlur
+import net.ripster.mobile.ui.premium.rememberPremiumPlan
+import net.ripster.mobile.ui.premium.rememberPremiumPlayerFx
+import dev.chrisbanes.haze.HazeState
 import net.ripster.mobile.ui.navigation.BottomNav
+import net.ripster.mobile.ui.navigation.RipsterNavRail
+import net.ripster.mobile.ui.layout.ChromeBudget
 import net.ripster.mobile.ui.components.DepthStrip
 import net.ripster.mobile.ui.components.Crumb
 import net.ripster.mobile.ui.navigation.RipsterDestination
@@ -84,8 +96,13 @@ import net.ripster.mobile.ui.screens.NowPlayingState
 import net.ripster.mobile.ui.screens.SearchScreen
 import net.ripster.mobile.ui.screens.settings.SettingsHost
 import net.ripster.mobile.ui.components.glassBar
+import net.ripster.mobile.ui.theme.PlayerDarkSurface
+import net.ripster.mobile.ui.components.glassTint
 import net.ripster.mobile.ui.theme.RipsterTheme
 import net.ripster.mobile.ui.theme.RipsterThemeName
+import net.ripster.mobile.ui.theme.applySystemBarInk
+import net.ripster.mobile.ui.theme.chromeColorsFor
+import net.ripster.mobile.ui.theme.chromeScope
 
 /**
  * Реальная оболочка приложения (не витрина): верхняя панель с поиском и
@@ -102,15 +119,32 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
 
     // Первый экран — Плеер, если есть что продолжить (восстановленная очередь);
     // иначе Библиотека.
-    var dest by remember {
+    //
+    // RIPSTER_DESTINATION — не случайный ключ, а явный: экран выбирается из
+    // `hasItem`, а при восстановлении инициализатор не запускается, поэтому
+    // пережитая ротацией вкладка всегда важнее «правильного» стартового экрана.
+    var dest by androidx.compose.runtime.saveable.rememberSaveable(
+        stateSaver = androidx.compose.runtime.saveable.Saver<RipsterDestination, String>(
+            save = { it.name },
+            restore = { runCatching { RipsterDestination.valueOf(it) }.getOrNull() },
+        ),
+    ) {
         mutableStateOf(
             if (app.player.state.value.hasItem) RipsterDestination.Player
             else RipsterDestination.Home,
         )
     }
-    var userNavigated by remember { mutableStateOf(false) }
+    // Пользователь сам выбрал экран — тоже переживает пересоздание. Если бы
+    // флаг сбрасывался, цикл авто-возврата ниже после поворота уводил бы на
+    // Плеера поверх только что восстановленной вкладки.
+    var userNavigated by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     // Куда возвращаться при сворачивании плеера (⌄ / свайп / Back).
-    var lastTab by remember { mutableStateOf(RipsterDestination.Home) }
+    var lastTab by androidx.compose.runtime.saveable.rememberSaveable(
+        stateSaver = androidx.compose.runtime.saveable.Saver<RipsterDestination, String>(
+            save = { it.name },
+            restore = { runCatching { RipsterDestination.valueOf(it) }.getOrNull() },
+        ),
+    ) { mutableStateOf(RipsterDestination.Home) }
     // Восстановление очереди асинхронное — если оно доехало за время заставки и
     // человек ещё никуда не тыкал, показываем Плеер (стартует на паузе).
     androidx.compose.runtime.LaunchedEffect(Unit) {
@@ -124,16 +158,34 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
     androidx.compose.runtime.LaunchedEffect(dest) {
         if (dest != RipsterDestination.Player) lastTab = dest
     }
-    var showSearch by remember { mutableStateOf(false) }
-    var showSettings by remember { mutableStateOf(startInAccountsSettings) }
+    var showSearch by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var showSettings by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(startInAccountsSettings) }
     // одноразовый заход в раздел учёток сразу после первого запуска
-    var settingsToAccounts by remember { mutableStateOf(startInAccountsSettings) }
+    var settingsToAccounts by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(startInAccountsSettings) }
     // открытый детальный экран альбома (модальный поверх вкладок), null = закрыт
-    var albumTarget by remember { mutableStateOf<net.ripster.mobile.ui.components.ReleaseCardData?>(null) }
+    //
+    // Карточка едет в Bundle НЕ объектом, а списком коротких строк
+    // (`ReleaseCardData.Saver`): Bundle ограничен ~500 КБ на транзакцию, и
+    // TransactionTooLargeException прилетел бы в самый неподходящий момент —
+    // при сохранении состояния.
+    var albumTarget by androidx.compose.runtime.saveable.rememberSaveable(
+        stateSaver = net.ripster.mobile.ui.components.ReleaseCardData.Saver,
+    ) { mutableStateOf<net.ripster.mobile.ui.components.ReleaseCardData?>(null) }
     // открытая страница артиста/лейбла (дискография), null = закрыта
-    var artistTarget by remember { mutableStateOf<ArtistNav?>(null) }
-    val openArtist: (String, String, String) -> Unit = { n, s, id -> artistTarget = ArtistNav(n, s, id, false) }
-    val openLabel: (String) -> Unit = { n -> artistTarget = ArtistNav(n, "", "", true) }
+    var artistTarget by androidx.compose.runtime.saveable.rememberSaveable(
+        stateSaver = ArtistNav.Saver,
+    ) { mutableStateOf<ArtistNav?>(null) }
+    // Какое стекло лежит ВЕРХНИМ, когда открыты оба. Раньше порядок был жёстко
+    // «релиз над артистом» — что верно для «артист → релиз», но ломало обратный
+    // переход: откроешь артиста из альбома (BUG-1), а он оказывался ПОД альбомом,
+    // и чтобы его увидеть, альбом приходилось ЗАКРЫТЬ (albumTarget = null) — оттого
+    // BACK и выкидывал на «Главную». Теперь верхним лежит последний открытый.
+    var overlayTop by androidx.compose.runtime.saveable.rememberSaveable {
+        mutableStateOf(Overlay.ALBUM)
+    }
+    val openArtist: (String, String, String) -> Unit = { n, s, id -> artistTarget = ArtistNav(n, s, id, false); overlayTop = Overlay.ARTIST }
+    val openLabel: (String) -> Unit = { n -> artistTarget = ArtistNav(n, "", "", true); overlayTop = Overlay.ARTIST }
+    val openAlbum: (net.ripster.mobile.ui.components.ReleaseCardData) -> Unit = { albumTarget = it; overlayTop = Overlay.ALBUM }
 
     val queue by app.downloads.observeQueue().collectAsState(initial = emptyList())
     val libraryAll by app.db.library().observeAll().collectAsState(initial = emptyList())
@@ -171,14 +223,14 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
     val libraryGroups = remember(library) {
         net.ripster.mobile.core.library.LibraryGrouping.group(library)
     }
-    var libraryByAlbum by remember { mutableStateOf(true) }
+    var libraryByAlbum by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(true) }
     /**
      * Строка поиска по библиотеке. Поле на экране было, а искать им было
      * нельзя: `searchQuery = ""` и пустой обработчик — набранное просто
      * никуда не шло. Контрол, который ничего не делает, — такой же обман, как
      * контрол, который делает не то.
      */
-    var libraryQuery by remember { mutableStateOf("") }
+    var libraryQuery by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
 
     /** Исход «Скачать альбом» из плеера. Кнопка главная и во всю ширину —
      *  молчать ей нельзя. */
@@ -267,8 +319,51 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
         }
     }
     val ditherBrush = rememberDitherBrush()
-    Box(
-        Modifier.fillMaxSize().background(c.surface_canvas).drawBehind {
+
+    // ── хром ────────────────────────────────────────────────────────────────
+    // Какой палитрой красятся шапка, нижняя навигация (или рельс) и полоса
+    // «готово». Обычно это палитра темы; развёрнутый «студия»/«иммерсив»
+    // приносит свою почти чёрную поверхность, и хром над ней обязан стать
+    // тёмным — иначе в светлой теме экран распадается на светлую полосу и
+    // тёмный плеер (см. ui/theme/ChromeSurface.kt).
+    //
+    // Оверлей (поиск, настройки, релиз, артист, обложка-стейдж, лист удаления)
+    // лежит НАД всем экраном и сам красит своё полотно холстом темы — значит
+    // под системными барами снова холст темы, и подставлять под него тёмный
+    // хром нельзя: это ровно та же лента чужого цвета, только сверху.
+    val overlayCovers = showSearch || showSettings || albumTarget != null ||
+        artistTarget != null || coverStage || pendingDelete != null
+    val playerSurface =
+        if (!overlayCovers && dest == RipsterDestination.Player && playback.hasItem &&
+            settings.playerOwnsSurface
+        ) PlayerDarkSurface else null
+    val chrome = chromeColorsFor(c, playerSurface)
+    // Полотно под системными барами — то же, что под хромом: у окна один фон.
+    applySystemBarInk(chrome.surface_canvas)
+
+    // «Стекло» дорогих визуалов: состояние Haze живёт, только когда режим
+    // включён И телефон старше Android 12 (иначе план отдаёт Translucent). Иначе
+    // null — плашки рисуются как всегда, без единой лишней перерисовки слоя.
+    val premiumPlan = rememberPremiumPlan()
+    val premiumHaze: HazeState? =
+        if (premiumPlan.glass.hasBlur) remember { HazeState() } else null
+    // План + слой стекла для постоянной оболочки (шапка, нижняя полоса, мини-
+    // плеер): те же органы, что и в плеере, рисуются тем же liquidGlass, а не
+    // прежней плёнкой-«стеклом». Хелпер переиспользует готовый [premiumHaze].
+    val premiumFx = rememberPremiumPlayerFx(premiumHaze)
+    // Прямоугольник обложки мини-плеера: из него выезжает большая обложка, когда
+    // человек разворачивает плашку. Пишется один раз при раскладке плашки и
+    // читается один раз при входе в плеер — см. [MiniCoverRect].
+    val miniCoverRect = remember { MiniCoverRect() }
+    Box(Modifier.fillMaxSize().background(chrome.surface_canvas)) {
+        // Слой-источник «стекла»: ambilight живёт ОТДЕЛЬНЫМ Box, а стеклянные
+        // плашки (glassBar, MiniPlayer) — соседним Column ниже. Haze размывает
+        // только этот Box, поэтому панели не попадают в свой же размываемый слой
+        // и блюр не закручивается в обратную связь.
+        Box(
+            Modifier.matchParentSize()
+                .then(if (premiumHaze != null) Modifier.hazeBackdrop(premiumHaze, chrome.surface_canvas) else Modifier)
+                .drawBehind {
             fun mesh(blobs: List<AmbiBlob>, a: Float) {
                 if (blobs.isEmpty() || a <= 0.01f) return
                 for (b in blobs) {
@@ -289,16 +384,24 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
             mesh(meshPrev, 1f - xfade.value)
             mesh(meshCur, xfade.value)
             if (neon) {
+                // Подсветка — ЦВЕТА СВОЕЙ ТЕМЫ, а не зашитая пара Neon: этот же
+                // механизм включён и в Aurora, где розовый был чужим. В Neon
+                // accent_fill — ровно FF4D8F, вторая подсветка берётся из
+                // progress_fill (свой тем сине-фиолетовый, а не чужая A238FF).
                 drawRect(
                     Brush.radialGradient(
-                        0f to Color(0x24FF4D8F), 0.6f to Color(0x0BFF4D8F), 1f to Color(0x00FF4D8F),
+                        0f to c.accent_fill.copy(alpha = 0.141f),
+                        0.6f to c.accent_fill.copy(alpha = 0.043f),
+                        1f to c.accent_fill.copy(alpha = 0f),
                         center = Offset(size.width * 0.84f, -size.height * 0.04f),
                         radius = size.width * 1.10f,
                     ),
                 )
                 drawRect(
                     Brush.radialGradient(
-                        0f to Color(0x1CA238FF), 0.6f to Color(0x08A238FF), 1f to Color(0x00A238FF),
+                        0f to c.progress_fill.copy(alpha = 0.110f),
+                        0.6f to c.progress_fill.copy(alpha = 0.031f),
+                        1f to c.progress_fill.copy(alpha = 0f),
                         center = Offset(-size.width * 0.06f, size.height * 1.06f),
                         radius = size.width * 1.05f,
                     ),
@@ -310,16 +413,36 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                 drawRect(ditherBrush, alpha = 0.028f)
             }
         },
-    ) {
+        )
         // Фон (ambilight) рисуется от края до края под барами; контент —
         // внутри системных инсетов, чтобы шапка и нижняя навигация не залезали
         // под статус-бар / вырез / жестовую полосу на любом телефоне.
-        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)) {
+        //
+        // BUG-8, продолжение (e2e 23.09.2026): в ландшафте фиксированный хром
+        // — шапка, полоса «готово», мини-плеер и НИЖНЯЯ навигация — съедал
+        // ~70% высоты, и на выдачу оставалась одна обрезанная строка. Сжатие
+        // шапки поиска помогло частично: сами горизонтальные полосы в
+        // ландшафте не нужны, место для них вертикальное, а ширины там вдоволь
+        // — навигация переезжает на левый вертикальный рельс. Портрет
+        // (ширина ≤ высоты) остаётся ровно тем, что был.
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val rail = ChromeBudget.useRail(maxWidth.value, maxHeight.value)
+            Row(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)) {
+                if (rail) {
+                    chromeScope(chrome) {
+                        RipsterNavRail(current = dest, onSelect = { userNavigated = true; dest = it })
+                    }
+                }
+                Column(Modifier.weight(1f)) {
             // Шапка отдаёт высоту содержимому: было 10.dp сверху и снизу плюс
             // логотип 30.dp — около 50.dp полосы. Стало 4.dp и 24.dp, и сама
             // полоса полупрозрачная: подсветка под ней просвечивает, экран не
             // делится глухой линией.
-            Column(Modifier.fillMaxWidth().glassBar(top = true)) {
+            chromeScope(chrome) {
+            Column(Modifier.fillMaxWidth().glassBar(top = true, fx = premiumFx)) {
+            // Все `c` ниже — палитра хрома, а не темы: этот локальный `val`
+            // затеняет тему оболочки.
+            val c = RipsterTheme.colors
             // Фиолетовая полоса загрузки. Означает ровно одно: ИДЁТ РАБОТА
             // — что-то качается или подгружается прямо сейчас. Ни «связь
             // есть», ни «всё хорошо»: для этого полоса не нужна, а лишний
@@ -346,7 +469,21 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                     contentDescription = "Ripster",
                     modifier = Modifier.size(24.dp),
                 )
-                Box(Modifier.weight(1f))
+                // В ландшафте полоса «N в очереди / N готово» складывается сюда,
+                // в свободную середину шапки: нижняя строка хрома отдаёт высоту
+                // контенту, а вход в очередь загрузок по тапу терять нельзя.
+                if (rail) {
+                    Box(Modifier.weight(1f)) {
+                        DownloadStrip(
+                            items = queue,
+                            nowPlaying = "",
+                            modifier = Modifier.fillMaxWidth(),
+                            onOpenPlayer = {},
+                        ) { userNavigated = true; dest = RipsterDestination.Downloads }
+                    }
+                } else {
+                    Box(Modifier.weight(1f))
+                }
                 // Явный вход в Плеер — Player убран из нижней навигации по
                 // дизайну v2, но открыть последний трек надо уметь всегда.
                 if (playback.hasItem && dest != RipsterDestination.Player) {
@@ -381,6 +518,7 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                         ),
                     )
                 }
+            }
             }
             }
 
@@ -528,11 +666,11 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                                         net.ripster.mobile.core.model.Service.entries
                                             .mapNotNull { net.ripster.mobile.core.service.ServiceRegistry.get(it) }
                                             .firstNotNullOfOrNull { c ->
-                                                runCatching {
+                                                attempt {
                                                     val hit = c.search("$art $alb").albums.firstOrNull { a ->
                                                         a.title.equals(alb, true) || a.title.contains(alb, true)
-                                                    } ?: return@runCatching null
-                                                    c.resolve(hit.url ?: return@runCatching null)
+                                                    } ?: return@attempt null
+                                                    c.resolve(hit.url ?: return@attempt null)
                                                         ?.takeIf { it.tracks.isNotEmpty() }
                                                 }.getOrNull()
                                             }
@@ -546,7 +684,13 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                                             sel?.containerTitle.orEmpty(),
                                             tracks,
                                         )
-                                        albumDlMsg = tr("np.dl_album_queued", lang, tracks.size.toString())
+                                        // «3 трек(ов)» не согласуется: форма
+                                        // существительного берётся из словаря по
+                                        // правилам языка, а не из скобок.
+                                        albumDlMsg = tr(
+                                            "np.dl_album_queued", lang,
+                                            tracks.size, trTracks(tracks.size.toLong(), lang),
+                                        )
                                     }
                                 }
                             }
@@ -569,10 +713,33 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                                     onToggleShuffle = { app.player.toggleShuffle() },
                                     onToggleRepeat = { app.player.cycleRepeat() },
                                     onDownloadAlbum = downloadCurrentAlbum,
+                                    // Тот же план, что у остальных стилей: обложка
+                                    // выезжает из плашки, панели — стекло над
+                                    // собственной заливкой Studio.
+                                    enterFromCover = miniCoverRect.rect
+                                        .takeIf { premiumPlan.springMotion },
+                                )
+                            } else if (settings.playerStyle == "liquid") {
+                                // Четвёртый стиль — «Флюид»: крупные мягкие глифы
+                                // без дисков, действия под «⋯». Фон стиля красит
+                                // сам, поэтому чужой ambilight ему не отдаётся.
+                                net.ripster.mobile.ui.screens.LiquidPlayerScreen(
+                                    state = npState,
+                                    onSeek = { app.player.seekTo(it) },
+                                    onPlayPause = { app.player.togglePlay() },
+                                    onNext = { app.player.next() },
+                                    onPrevious = { app.player.previous() },
+                                    onDownloadAlbum = downloadCurrentAlbum,
                                 )
                             } else {
                                 net.ripster.mobile.ui.screens.ReferencePlayerScreen(
                                     onExpandCover = { coverStage = true },
+                                    // Обложка выезжает из плашки, только когда
+                                    // пружины разрешены планом и плашка успела
+                                    // себя замерить; иначе — обычный вход.
+                                    enterFromCover = miniCoverRect.rect
+                                        .takeIf { premiumPlan.springMotion },
+                                    ambientHaze = premiumHaze,
                                     state = npState,
                                     onSeek = { app.player.seekTo(it) },
                                     onPlayPause = { app.player.togglePlay() },
@@ -655,12 +822,12 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                     RipsterDestination.Home -> net.ripster.mobile.ui.screens.HomeScreen(
                         onOpen = { userNavigated = true; dest = it },
                         onOpenSearchQuery = { userNavigated = true; dest = RipsterDestination.Search },
-                        onOpenAlbum = { albumTarget = it },
+                        onOpenAlbum = openAlbum,
                         onOpenArtist = openArtist,
                     )
-                    RipsterDestination.Search -> Box(Modifier.fillMaxSize()) { SearchScreen(onOpenArtist = openArtist, onOpenAlbum = { albumTarget = it }, onOpenPlayer = openPlayer) }
+                    RipsterDestination.Search -> Box(Modifier.fillMaxSize()) { SearchScreen(onOpenArtist = openArtist, onOpenAlbum = openAlbum, onOpenPlayer = openPlayer) }
                     RipsterDestination.Radar -> net.ripster.mobile.ui.screens.RadarScreen(
-                        onOpenAlbum = { albumTarget = it },
+                        onOpenAlbum = openAlbum,
                         onOpenArtist = openArtist,
                         onOpenLabel = openLabel,
                         onOpenPlayer = openPlayer,
@@ -736,16 +903,29 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
 
             // Полоса рядом с кружком загрузки не пропадает зря: краткий статус
             // очереди (качается / в очереди / готово / ошибки) → тап открывает
-            // вкладку «Загрузки».
-            Box(Modifier.fillMaxWidth().glassBar(top = false)) {
-                DownloadStrip(
-                    items = queue,
-                    nowPlaying = if (playback.hasItem)
-                        listOf(playback.title, playback.artist).filter { it.isNotBlank() }.joinToString(" — ")
-                    else "",
-                    modifier = Modifier.align(Alignment.CenterStart).padding(start = 16.dp, end = 76.dp),
-                    onOpenPlayer = { userNavigated = true; dest = RipsterDestination.Player },
-                ) { userNavigated = true; dest = RipsterDestination.Downloads }
+            // вкладку «Загрузки». В ландшафте она сложена в шапку (см. выше),
+            // и отсюда убрана: её 26dp — это снова строки выдачи.
+            //
+            // БЕЗ стеклянной рамки на весь экран: стекло — это орган управления
+            // (кнопка, чип, сик-бар), а статусная строка органом не является.
+            // На «1 готово» орб сжимается в нулевую высоту (активных задач нет),
+            // рамка растягивалась волосяным прямоугольником вокруг 15dp текста,
+            // а блик стекла ложился ПОВЕРХ подписи — на эмуляторе 23.09.2026 это и
+            // выглядело «сломанным стеклом с обрезанным верхом». Строка рисует
+            // сама себя тихой пилюлей по размеру текста — одинаково во всех
+            // стилях и при любом плане режима.
+            chromeScope(chrome) {
+            Box(Modifier.fillMaxWidth()) {
+                if (!rail) {
+                    DownloadStrip(
+                        items = queue,
+                        nowPlaying = if (playback.hasItem)
+                            listOf(playback.title, playback.artist).filter { it.isNotBlank() }.joinToString(" — ")
+                        else "",
+                        modifier = Modifier.align(Alignment.CenterStart).padding(start = 16.dp, end = 76.dp),
+                        onOpenPlayer = { userNavigated = true; dest = RipsterDestination.Player },
+                    ) { userNavigated = true; dest = RipsterDestination.Downloads }
+                }
                 DownloadOrb(items = queue, modifier = Modifier.padding(bottom = 6.dp))
             }
             androidx.compose.animation.AnimatedVisibility(
@@ -774,9 +954,15 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                     onNext = { app.player.next() },
                     onClose = { app.player.stop() },
                     onExpand = { dest = RipsterDestination.Player },
+                    compact = rail,
+                    fx = premiumFx,
+                    coverRect = miniCoverRect,
                 )
             }
-            BottomNav(current = dest, onSelect = { userNavigated = true; dest = it })
+                    if (!rail) BottomNav(current = dest, onSelect = { userNavigated = true; dest = it })
+            }
+                }
+            }
         }
 
         if (showSearch) {
@@ -792,7 +978,7 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                     // На экране поиска подсказывать «что играет» незачем: человек
                     // ищет, а внизу и так живёт мини-плеер с тем же треком.
                     nowPlaying = "",
-                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp, top = 4.dp),
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp, top = 4.dp),
                     onOpenPlayer = {},
                 ) { showSearch = false; userNavigated = true; dest = RipsterDestination.Downloads }
             }
@@ -822,22 +1008,35 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
             ),
         ) { albumTarget = null; artistTarget = null }
 
-        // ВАЖЕН ПОРЯДОК: артист рисуется ПЕРВЫМ, релиз — поверх. Раньше было
-        // наоборот, и открытый со страницы артиста релиз оказывался ПОД ней —
-        // тап «не работал», хотя albumTarget выставлялся.
-        artistTarget?.let { at ->
+        // Какое стекло показано: верхнее из двух открытых (см. overlayTop).
+        // Взаимно исключает артиста и релиз на экране — то, что под верхним,
+        // сохраняется в состоянии и проявляется на BACK.
+        val shown = visibleOverlay(artist = artistTarget != null, album = albumTarget != null, top = overlayTop)
+
+        // Открытый со страницы артиста релиз лежит НАД ним (openAlbum выставил
+        // top=ALBUM), поэтому BACK с релиза открывает артиста, а не «Главную».
+        if (shown == Overlay.ARTIST) artistTarget?.let { at ->
             Box(Modifier.fillMaxSize().background(c.surface_canvas).windowInsetsPadding(WindowInsets.safeDrawing)) {
                 Column(Modifier.fillMaxSize()) {
-                    DepthStrip(listOf(tabCrumb, Crumb(at.name)))
+                    DepthStrip(
+                        listOfNotNull(
+                            tabCrumb,
+                            // артист открыт ИЗ релиза — показываем релиз ступенью
+                            // выше и даём по нему вернуться (симметрично «артисту»
+                            // на стеке релиза ниже)
+                            if (overlayTop == Overlay.ARTIST) albumTarget?.let { a -> Crumb(a.title) { overlayTop = Overlay.ALBUM } } else null,
+                            Crumb(at.name),
+                        ),
+                    )
                     net.ripster.mobile.ui.screens.ArtistScreen(
                         name = at.name, service = at.service, artistId = at.id, isLabel = at.isLabel,
                         onBack = { artistTarget = null },
-                        onOpenAlbum = { albumTarget = it },
+                        onOpenAlbum = openAlbum,
                     )
                 }
             }
         }
-        albumTarget?.let { at ->
+        if (shown == Overlay.ALBUM) albumTarget?.let { at ->
             Box(Modifier.fillMaxSize().background(c.surface_canvas).windowInsetsPadding(WindowInsets.safeDrawing)) {
                 Column(Modifier.fillMaxSize()) {
                     DepthStrip(
@@ -852,7 +1051,10 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
                         fallbackTitle = at.title, fallbackArtist = at.artist, fallbackCover = at.coverUrl,
                         onBack = { albumTarget = null },
                         onOpenPlayer = openPlayer,
-                        onOpenArtist = { n, s, id -> albumTarget = null; openArtist(n, s, id) },
+                        // BUG-1: раньше здесь занулялся albumTarget, чтобы артист
+                        // (лежавший ПОД релизом) стало видно — и BACK терял альбом.
+                        // Теперь артист кладётся ВЕРХним стеклом, альбом цел.
+                        onOpenArtist = openArtist,
                     )
                 }
             }
@@ -963,7 +1165,35 @@ fun AppShell(startInAccountsSettings: Boolean = false) {
     }
 }
 
-private data class ArtistNav(val name: String, val service: String, val id: String, val isLabel: Boolean)
+/** Какое стекло оверлея показано: последнее открытое лежит верхним. */
+internal enum class Overlay { ALBUM, ARTIST }
+
+/**
+ * Какую страницу показать, когда открыты артист и релиз.
+ *
+ * Стек из двух стёкол: `top` — какое открыли последним, оно и видно; второе
+ * остаётся «под ним» и проявляется, когда верхнее закрывают (BACK). Открыт только
+ * один оверлей — он и виден, `top` не важен. Чистая функция, чтобы порядок
+ * «артист → релиз → BACK → артист» (BUG-1) было чем проверить без Compose.
+ */
+internal fun visibleOverlay(artist: Boolean, album: Boolean, top: Overlay): Overlay? = when {
+    artist && album -> if (top == Overlay.ARTIST) Overlay.ARTIST else Overlay.ALBUM
+    artist -> Overlay.ARTIST
+    album -> Overlay.ALBUM
+    else -> null
+}
+
+private data class ArtistNav(val name: String, val service: String, val id: String, val isLabel: Boolean) {
+    companion object {
+        // Те же четыре коротких строки, что и в объекте. `autoSaver` сюда не
+        // подходит: он бы положил в Bundle весь data class, а он не Serializable.
+        val Saver: androidx.compose.runtime.saveable.Saver<ArtistNav?, List<String>> =
+            androidx.compose.runtime.saveable.Saver(
+                save = { it?.let { a -> listOf(a.name, a.service, a.id, a.isLabel.toString()) } ?: emptyList() },
+                restore = { if (it.isEmpty()) null else ArtistNav(it[0], it[1], it[2], it[3].toBoolean()) },
+            )
+    }
+}
 
 /** Одно пятно ambilight: позиция (доли экрана) + цвет с уже вложенной альфой.
  *  Геометрия считается ОДИН раз на смену трека, не в каждом кадре. */
@@ -1035,6 +1265,7 @@ private fun rememberPalette(url: String?, path: String?): List<Color> {
                 } finally { runCatching { mmr.release() } }
             }.getOrNull()
         } ?: return@produceState
+        // catch-all-ok — палитра обложки — косметика, не вердикт; produceState пересчитает при входе
         value = runCatching {
             val req = ImageRequest.Builder(ctx).data(data).size(36).allowHardware(false).build()
             val bmp = (ctx.imageLoader.execute(req) as? SuccessResult)?.drawable?.toBitmap(36, 36)
@@ -1102,10 +1333,22 @@ private fun DownloadStrip(
         else -> return
     }
     val warn = running == null && failed > 0 && queued == 0
+    // Одна строка, и пилюля ровно по ней. Рамка во всю ширину экрана здесь
+    // не нужна: при «N готово» активных задач нет, орб нулевой, и от плашки
+    // оставался бы волосяной прямоугольник вокруг 15dp текста. Тихий тон
+    // холста — единственный слой, поэтому строка одинаково читается и в
+    // обычном виде, и при стекле: ей нечего «терять», когда план меняется.
+    val pill = RoundedCornerShape(8.dp)
     androidx.compose.foundation.layout.Row(
-        modifier.clickable(
-            interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onOpen,
-        ),
+        modifier
+            .clip(pill)
+            .background(glassTint(alpha = 0.55f))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onOpen,
+            )
+            // отступы ПОВСЛЕ клипа и заливки: иначе подпись впритык к кромке,
+            // и верх срезается ровно тем, чего мы избегаем
+            .padding(horizontal = 9.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         BasicText(

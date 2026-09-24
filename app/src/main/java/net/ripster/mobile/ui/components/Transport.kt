@@ -22,6 +22,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import net.ripster.mobile.ui.i18n.LocalAppLang
+import net.ripster.mobile.ui.i18n.tr
 import net.ripster.mobile.ui.theme.MinTouchTarget
 import net.ripster.mobile.ui.theme.Radii
 import net.ripster.mobile.ui.theme.RipsterTheme
@@ -55,6 +57,7 @@ fun PlayPauseButton(
     loading: Boolean = false,
 ) {
     val colors = RipsterTheme.colors
+    val lang = LocalAppLang.current
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
 
@@ -70,7 +73,13 @@ fun PlayPauseButton(
                 role = Role.Button,
                 onClick = onClick,
             )
-            .semantics { contentDescription = if (loading) "Loading" else if (isPlaying) "Pause" else "Play" }
+            .semantics {
+                contentDescription = when {
+                    loading -> tr("a11y.loading", lang)
+                    isPlaying -> tr("a11y.pause", lang)
+                    else -> tr("a11y.play", lang)
+                }
+            }
             .background(
                 if (pressed) colors.accent_active else colors.accent_fill,
                 Radii.CardShape,

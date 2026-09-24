@@ -10,11 +10,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -52,9 +54,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import net.ripster.mobile.RipsterApp
 import net.ripster.mobile.ui.components.Cover
+import net.ripster.mobile.ui.premium.PremiumPlayerFx
+import net.ripster.mobile.ui.premium.glassSquish
+import net.ripster.mobile.ui.premium.glyphColor
+import net.ripster.mobile.ui.premium.liquidGlass
+import net.ripster.mobile.ui.premium.rememberPremiumPlayerFx
+import net.ripster.mobile.ui.premium.liquidGlassSource
 import net.ripster.mobile.ui.i18n.LocalAppLang
 import net.ripster.mobile.ui.i18n.tr
+import net.ripster.mobile.ui.theme.CaptionFit
 import net.ripster.mobile.ui.theme.RipsterTheme
+import net.ripster.mobile.ui.theme.legibleOn
 
 /**
  * Третий стиль плеера — «Погружение». Обложка на весь экран, край в край;
@@ -73,6 +83,11 @@ fun ImmersivePlayerScreen(
     val c = RipsterTheme.colors
     val lang = LocalAppLang.current
     val app = RipsterApp.from(LocalContext.current)
+    // План этого телефона — через общий хелпер плееров (см. PremiumPlayerFx):
+    // «Погружение» не имеет права быть стилем, которому режим обещан, но не дан.
+    // Фон стиля не меняется: под панелями живёт обложка и её палитровый уход
+    // книзу, и они же — источник размытия для стекла (liquidGlassSource).
+    val fx = rememberPremiumPlayerFx()
     var dragAcc by remember { mutableStateOf(0f) }
     // 0 — нет, 1 — трек-лист, 2 — текст, 3 — спектр, 4 — эквалайзер, 6 — каст.
     // Те же панели, что у Mockup-плеера (владелец 13.09.2026: «в иммерсиве только
@@ -100,7 +115,7 @@ fun ImmersivePlayerScreen(
     }
 
     Box(
-        Modifier.fillMaxSize().background(Color(0xFF07070A))
+        Modifier.fillMaxSize().background(StudioBackground)
             .pointerInput(Unit) {
                 detectHorizontalDragGestures(
                     onDragEnd = {
@@ -112,10 +127,12 @@ fun ImmersivePlayerScreen(
     ) {
         // обложка — на весь экран, ЖИВАЯ: наш собственный моушн (дыхание +
         // магический перелив по палитре), генерим из статики, а не тащим чужое
-        // видео (решение владельца 13.09.2026).
+        // видео (решение владельца 13.09.2026). Она же и слой-источник стекла:
+        // панель управления размывает то, что реально видно под ней.
+        val deep = Color(0xFF07070A)
         net.ripster.mobile.ui.components.LivingCover(
             url = state.artworkUrl,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().liquidGlassSource(fx, deep),
         )
         // Низ отливает ПАЛИТРОЙ обложки, а не чёрным (референс владельца
         // 13.09.2026): верх — чистая обложка, книзу цвет плавно сгущается в
@@ -127,10 +144,13 @@ fun ImmersivePlayerScreen(
             val base = pal.getOrElse(2) { Color(0xFF14141A) }
             val b2 = pal.getOrElse(3) { base }
             androidx.compose.ui.graphics.lerp(
-                androidx.compose.ui.graphics.lerp(base, b2, 0.5f), Color(0xFF07070A), 0.55f)
+                androidx.compose.ui.graphics.lerp(base, b2, 0.5f), StudioBackground, 0.55f)
         }
+        // Что стекло органа видит за собой: палитровый уход обложки книзу. По нему
+        // стекло красит тон и кромку; без режима этот цвет всё равно не используется.
+        val glassBehind = tint
         Box(
-            Modifier.fillMaxSize().background(
+            Modifier.liquidGlassSource(fx, deep).fillMaxSize().background(
                 Brush.verticalGradient(
                     0f to Color.Transparent,                 // верх — обложка как есть
                     0.45f to Color.Transparent,
@@ -221,6 +241,15 @@ fun ImmersivePlayerScreen(
                             if (state.durationMs > 0)
                                 onSeek((change.position.x / size.width * state.durationMs).toLong().coerceIn(0, state.durationMs))
                         }
+                    }.pointerInput(state.durationMs) {
+                        // Тап по полосе раньше не значил ничего: жест ловил
+                        // только протяжку, и человек, ткнувший в середину
+                        // трека, получал «перемотка не работает» (BUG-4,
+                        // 11 безрезультатных воздействий в e2e-прогоне).
+                        if (state.durationMs <= 0L) return@pointerInput
+                        detectTapGestures { o ->
+                            onSeek((o.x / size.width * state.durationMs).toLong().coerceIn(0, state.durationMs))
+                        }
                     },
                 ) {
                     val y = size.height / 2
@@ -232,21 +261,35 @@ fun ImmersivePlayerScreen(
                 }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                BasicText(fmtT(state.positionMs), style = TextStyle(color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp))
-                BasicText(fmtT(state.durationMs), style = TextStyle(color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp))
+                // Белая альфа .6 мерилась бы не тем, что под ней: подпись лежит
+                // на градиенте, чей нижний край — это [tint]. legibleOn снимает
+                // альфу относительно реального фона и добирает 4.5:1, только
+                // если его и правда не хватает.
+                val timeInk = legibleOn(Color.White.copy(alpha = 0.6f), tint)
+                BasicText(fmtT(state.positionMs), style = TextStyle(color = timeInk, fontSize = 11.sp))
+                BasicText(fmtT(state.durationMs), style = TextStyle(color = timeInk, fontSize = 11.sp))
             }
 
             Spacer(Modifier.height(10.dp))
 
-            // управление — стеклянная панель
+            // Нажатие на play раньше не отзывалось вовсе: транспорт иммерсива не
+            // имел обратной связи. Пружина — та же, что у остальных стилей.
+            val playInteraction = remember { MutableInteractionSource() }
+            val playPressed by playInteraction.collectIsPressedAsState()
+            // Панель управления — стеклянная: сама она и есть орган (блик, кромка,
+            // тон из-под обложки), а не плёнка поверх. Без режима остаётся белой
+            // полупрозрачной пилюлей, какой была.
             Row(
                 Modifier.fillMaxWidth().clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.10f))
+                    .liquidGlass(
+                        fx, CircleShape, glassBehind,
+                        fallback = Color.White.copy(alpha = 0.10f),
+                    )
                     .padding(horizontal = 22.dp, vertical = 12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                GlyphBtn(48.dp, onPrevious) { w ->
+                GlyphBtn(48.dp, onPrevious, fx) { w ->
                     val p = androidx.compose.ui.graphics.Path().apply {
                         moveTo(w * 0.62f, w * 0.28f); lineTo(w * 0.62f, w * 0.72f); lineTo(w * 0.30f, w * 0.5f); close()
                     }
@@ -254,7 +297,8 @@ fun ImmersivePlayerScreen(
                     drawRect(Color.White, androidx.compose.ui.geometry.Offset(w * 0.24f, w * 0.28f), androidx.compose.ui.geometry.Size(w * 0.05f, w * 0.44f))
                 }
                 Box(
-                    Modifier.size(60.dp).clip(CircleShape).background(c.accent_fill),
+                    Modifier.size(60.dp).glassSquish(fx, playPressed, plain = 0.92f, label = "imm-play")
+                        .clip(CircleShape).background(c.accent_fill),
                     contentAlignment = Alignment.Center,
                 ) {
                     if (state.loading) {
@@ -277,11 +321,14 @@ fun ImmersivePlayerScreen(
                     }
                     // прозрачная кнопка поверх — пока грузится, тап игнорируем,
                     // чтобы повторные нажатия не перезапускали поток.
-                    Box(Modifier.fillMaxSize().clip(CircleShape).pointerInput(state.loading) {
-                        detectTapGestures(onTap = { if (!state.loading) onPlayPause() })
-                    })
+                    Box(
+                        Modifier.fillMaxSize().clip(CircleShape).clickable(
+                            interactionSource = playInteraction, indication = null,
+                            enabled = !state.loading, onClick = onPlayPause,
+                        ),
+                    )
                 }
-                GlyphBtn(48.dp, onNext) { w ->
+                GlyphBtn(48.dp, onNext, fx) { w ->
                     val p = androidx.compose.ui.graphics.Path().apply {
                         moveTo(w * 0.38f, w * 0.28f); lineTo(w * 0.38f, w * 0.72f); lineTo(w * 0.70f, w * 0.5f); close()
                     }
@@ -299,12 +346,12 @@ fun ImmersivePlayerScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
                 verticalAlignment = Alignment.Top,
             ) {
-                ImmAction(tr("ref.tracklist", lang), onClick = { sheet = 1 }) { listGlyph(it) }
-                ImmAction(tr("ref.lyrics", lang), onClick = { sheet = 2 }) { lyricsGlyph(it) }
-                ImmAction(tr("ref.spectrum", lang), onClick = { sheet = 3 }) { barsGlyph(it) }
-                ImmAction(tr("ref.equalizer", lang), onClick = { sheet = 4 }) { eqGlyph(it) }
-                ImmAction(sleepLabel, onClick = { sheet = 7 }, active = sleep.active) { moonGlyph(it) }
-                ImmAction(tr("ref.cast", lang), onClick = { sheet = 6 }) { castGlyph(it) }
+                ImmAction(tr("ref.tracklist", lang), onClick = { sheet = 1 }, fx = fx, behind = glassBehind) { listGlyph(it) }
+                ImmAction(tr("ref.lyrics", lang), onClick = { sheet = 2 }, fx = fx, behind = glassBehind) { lyricsGlyph(it) }
+                ImmAction(tr("ref.spectrum", lang), onClick = { sheet = 3 }, fx = fx, behind = glassBehind) { barsGlyph(it) }
+                ImmAction(tr("ref.equalizer", lang), onClick = { sheet = 4 }, fx = fx, behind = glassBehind) { eqGlyph(it) }
+                ImmAction(sleepLabel, onClick = { sheet = 7 }, active = sleep.active, fx = fx, behind = glassBehind) { moonGlyph(it) }
+                ImmAction(tr("ref.cast", lang), onClick = { sheet = 6 }, fx = fx, behind = glassBehind) { castGlyph(it) }
             }
         }
 
@@ -312,7 +359,7 @@ fun ImmersivePlayerScreen(
         if (sheet != 0) {
             BackHandler(enabled = true) { sheet = 0 }
             Column(
-                Modifier.fillMaxSize().background(Color(0xFF07070A)),
+                Modifier.fillMaxSize().background(StudioBackground),
             ) {
                 Row(
                     Modifier.fillMaxWidth().clickable { sheet = 0 }.padding(16.dp),
@@ -354,39 +401,68 @@ private fun ImmAction(
     label: String,
     onClick: () -> Unit,
     active: Boolean = false,
+    fx: PremiumPlayerFx,
+    behind: Color,
     draw: DrawScope.(Color) -> Unit,
 ) {
     // Активное действие (напр. заведённый таймер сна) — акцентная подсветка плитки.
     val accent = Color(0xFFFF6B8B)
-    val glyphColor = if (active) accent else Color.White.copy(alpha = 0.9f)
+    val own = if (active) accent else Color.White.copy(alpha = 0.9f)
+    val fill = if (active) accent.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.12f)
+    val rim = if (active) accent.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.16f)
+    val tile = RoundedCornerShape(14.dp)
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val captionSp = CaptionFit.fitSp(label, 58f, maxLines = 2)
     Column(
         modifier = Modifier.width(58.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         Box(
-            Modifier.size(46.dp).clip(RoundedCornerShape(14.dp))
-                .background(if (active) accent.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.12f))
-                .border(1.dp, if (active) accent.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.16f), RoundedCornerShape(14.dp))
-                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick),
+            Modifier.size(46.dp)
+                .then(if (fx.hasGlass) Modifier.glassSquish(fx, pressed, label = "imm-action") else Modifier)
+                .clip(tile)
+                .liquidGlass(fx, tile, behind, fallback = fill)
+                .then(if (fx.hasGlass && !active) Modifier else Modifier.border(1.dp, rim, tile))
+                .clickable(interactionSource = interaction, indication = null, onClick = onClick),
             contentAlignment = Alignment.Center,
-        ) { Canvas(Modifier.size(20.dp)) { draw(glyphColor) } }
+        ) { Canvas(Modifier.size(20.dp)) { draw(fx.glyphColor(own, behind)) } }
         BasicText(
             label,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             style = TextStyle(
-                color = if (active) accent.copy(alpha = 0.95f) else Color.White.copy(alpha = 0.62f),
-                fontSize = 10.sp, lineHeight = 12.sp, textAlign = TextAlign.Center,
+                // Тот же кегль по ширине ячейки и тот же порог читаемости:
+                // 10.sp с белой альфой .62 над near-black давали «Эквала…»,
+                // которую ещё и не всякий экран показывал достаточно контрастно.
+                color = legibleOn(
+                    if (active) accent.copy(alpha = 0.95f) else Color.White.copy(alpha = 0.82f),
+                    StudioBackground,
+                ),
+                fontSize = captionSp,
+                lineHeight = (captionSp.value * 1.18f).sp,
+                textAlign = TextAlign.Center,
             ),
         )
     }
 }
 
 @Composable
-private fun GlyphBtn(size: androidx.compose.ui.unit.Dp, onClick: () -> Unit, draw: androidx.compose.ui.graphics.drawscope.DrawScope.(Float) -> Unit) {
+private fun GlyphBtn(
+    size: androidx.compose.ui.unit.Dp,
+    onClick: () -> Unit,
+    fx: PremiumPlayerFx,
+    draw: androidx.compose.ui.graphics.drawscope.DrawScope.(Float) -> Unit,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
     Box(
-        Modifier.size(size).pointerInput(Unit) { detectTapGestures(onTap = { onClick() }) },
+        Modifier.size(size)
+            .glassSquish(fx, pressed, plain = 0.88f, label = "imm-glyph")
+            .clickable(
+                interactionSource = interaction, indication = null, onClick = onClick,
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Canvas(Modifier.size(size * 0.5f)) { draw(this.size.width) }

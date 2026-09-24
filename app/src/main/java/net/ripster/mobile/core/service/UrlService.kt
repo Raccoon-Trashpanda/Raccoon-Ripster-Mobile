@@ -33,6 +33,8 @@ object UrlService {
             "spotify.com" in v -> "spotify"
             "beatport.com" in v -> "beatport"
             "music.yandex." in v -> "yandex"
+            // Владелец известен, а клиента нет: `Service.AMAZON` существует
+            // ровно для честного отказа на экране поиска.
             "music.amazon." in v -> "amazon"
             "bbc.co.uk" in v -> "bbc"
             "jiosaavn.com" in v -> "jiosaavn"

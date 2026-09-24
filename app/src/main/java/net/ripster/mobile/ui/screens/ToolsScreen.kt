@@ -1,5 +1,7 @@
 package net.ripster.mobile.ui.screens
 
+import net.ripster.mobile.core.errors.attempt
+
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -84,11 +86,12 @@ private fun SpectrumTool(c: net.ripster.mobile.ui.theme.RipsterColors, lang: net
         busy = true; result = null; err = null
         scope.launch {
             val ext = ctx.contentResolver.getType(uri)?.substringAfterLast('/')
-            val r = runCatching {
+            val analysis = attempt {
                 Spectrogram.analyze(ctx, uri.toString(), Spectrogram.Style.RIPSTER, heightPx = 360, containerExt = ext)
             }.getOrNull()
             busy = false
-            if (r == null) err = tr("tools.failed", lang) else result = r
+            result = analysis?.spectrum
+            if (result == null) err = tr(analysis?.failure?.key ?: "tools.failed", lang)
         }
     }
 
@@ -106,7 +109,7 @@ private fun SpectrumTool(c: net.ripster.mobile.ui.theme.RipsterColors, lang: net
             Image(
                 bitmap = r.bitmap.asImageBitmap(),
                 contentDescription = null,
-                modifier = Modifier.fillMaxWidth().aspectRatio(900f / 460f)
+                modifier = Modifier.fillMaxWidth().aspectRatio(Spectrogram.FRAME_W.toFloat() / Spectrogram.FRAME_H.toFloat())
                     .clip(RoundedCornerShape(10.dp)).background(Color(0xFF111318))
                     .border(1.dp, c.border_subtle, RoundedCornerShape(10.dp)),
                 contentScale = ContentScale.Fit,

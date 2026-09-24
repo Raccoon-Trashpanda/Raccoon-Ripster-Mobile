@@ -75,6 +75,8 @@ object SearchRanker {
         // JioSaavn — надёжный публичный каталог, но только lossy: как SoundCloud.
         Service.JIOSAAVN -> 1.0
         Service.SPOTIFY, Service.BBC -> 0.0
+        // AMAZON — владелец адреса без клиента: в выдаче его не бывает.
+        Service.AMAZON -> 0.0
     }
 
     // ── публичный вход ─────────────────────────────────────────────────────
@@ -170,7 +172,11 @@ object SearchRanker {
         return p
     }
 
-    private fun popularityBoost(raw: Map<String, String>): Double {
+    private fun popularityBoost(t: Track): Double {
+        // Нормализованная популярность из модели (0..1) — основной путь: именно
+        // туда пишут Deezer и SoundCloud. `raw` ниже остаётся совместимостью.
+        t.popularity?.let { return 18.0 * it.coerceIn(0.0, 1.0) }
+        val raw = t.raw
         // Spotify popularity 0..100
         raw["popularity"]?.toIntOrNull()?.let { return 18.0 * (it / 100.0) }
         // Deezer rank ~0..1_000_000
@@ -192,7 +198,7 @@ object SearchRanker {
     ): Double {
         var s = textScore(q, qTok, qArtist, qTitle, t.title, t.artist)
         s += versionPenalty(q, t.title)
-        s += popularityBoost(t.raw)
+        s += popularityBoost(t)
         val na = norm(t.artist)
         if (na in ctx.libArtists) s += 25.0
         else if (na in ctx.histArtists) s += 15.0

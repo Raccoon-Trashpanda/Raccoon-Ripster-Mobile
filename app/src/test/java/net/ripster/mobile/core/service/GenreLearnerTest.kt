@@ -194,4 +194,43 @@ class GenreLearnerTest {
         }
         assertTrue(l.of("новое") == GenreKey.TECHNO)
     }
+
+    // ── сверка на уровне АРТИСТА (стенд жанра, 13.09.2026) ─────────────────
+
+    @Test
+    fun anArtistWithOneAgreeingLabelHasAGenre() {
+        """Deezer в топе артиста поле жанра не отдаёт. Но тот же артист в этом же
+        заходе приезжает из другой выдачи со своим ярлыком — и молчаливые его
+        вещи перестают быть слепым пятном станции."""
+        val l = learner()
+        l.observe("Kaspar X7", "Techno")
+        l.observe("Kaspar X7", "minimal techno")
+        assertEquals(GenreKey.TECHNO, l.artistGenre("Kaspar X7"))
+        assertEquals(GenreKey.TECHNO, l.artistGenre("kaspar x7 feat. Someone"))
+    }
+
+    @Test
+    fun anArtistOnTheGenreBorderHasNoGenre() {
+        """Разнобой ярлыков — это «не знаю», а не «чужое»: сборник и артист на
+        стыке жанров встречаются одинаково часто, и решить за них нельзя. По
+        этому же правилу молчит и артист, которого видели только без жанра."""
+        val l = learner()
+        l.observe("Borderline", "Techno")
+        l.observe("Borderline", "House")
+        assertNull(l.artistGenre("Borderline"))
+        assertNull(l.artistGenre("Никогда не встречался"))
+    }
+
+    @Test
+    fun anUnreadableLabelIsNotAnAnswerAboutTheArtist() {
+        """Ярлык, которого нет в посеве, не делает жанр артиста известным:
+        выученное с недобором выглядит как знание и не является им. И составное
+        имя сверяется по СЫРОЙ строке — нормализация съедает разделители, и
+        «Rap and Hip-Hop» наугад прочиталось бы как pop."""
+        val l = learner()
+        l.observe("Толстый", "τεχνο")
+        assertNull(l.artistGenre("Толстый"))
+        l.observe("MC Палево", "Rap and Hip-Hop")
+        assertEquals(GenreKey.RAP, l.artistGenre("MC Палево"))
+    }
 }
