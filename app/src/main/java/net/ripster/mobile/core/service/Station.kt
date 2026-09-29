@@ -131,6 +131,28 @@ object StationBuilder {
      * «dddance perfect slowed» рядом с Nina Kraviz и Aphex Twin. Такое
      * допустимо на доборе, но не во главе станции.
      */
+    /**
+     * Сессия станции из истории прослушиваний — последние [n] РЕАЛЬНО сыгранных
+     * записей вместе с моментом.
+     *
+     * Нужно, чтобы оконные квоты и разнос не остались кодом, которого никто не
+     * кормит данными: `play_history` — единственный источник, где есть время
+     * прослушивания.
+     */
+    fun sessionOf(
+        rows: List<net.ripster.mobile.core.db.PlayEntity>,
+        n: Int = 40,
+    ): StationRanker.Session = StationRanker.Session(
+        rows.take(n).map {
+            StationRanker.Played(
+                artist = it.artist,
+                at = it.playedAt,
+                album = it.album,
+                genre = it.genre.takeIf { g -> g.isNotBlank() },
+            )
+        },
+    )
+
     suspend fun build(
         scGenreSlug: String,
         fallbackQuery: String,
@@ -160,6 +182,18 @@ object StationBuilder {
          * законное «не знаю»: станция просто строится без этого признака.
          */
         taste: StationRanker.Taste = StationRanker.Taste.EMPTY,
+        /**
+         * Что УЖЕ прозвучало в этом эфире (последние записи play_history с
+         * моментом). По ней считаются оконные квоты артиста/альбома и разнос.
+         * Пусто — первый эфир, ограничений окна нет.
+         */
+        session: StationRanker.Session = StationRanker.Session.EMPTY,
+        /**
+         * Полупериод свежести этого эфира: 90 — «незнакомое», 180 — общее,
+         * 365 — «популярное». Провод до ранкера уже есть; переключатель
+         * характера станции — отдельное решение (экран без провода запрещён).
+         */
+        freshHalfLifeDays: Double = StationRanker.FRESH_HALF_LIFE_DAYS,
     ): List<Track> {
         // Вкус и жанровые подсказки с ПК. Дирижёр учится на них ровно так же,
         // как на пулах: это те же пары «артист — ярлык», просто ПК знает их
@@ -247,6 +281,9 @@ object StationBuilder {
             seed = rotationSeed,
             size = size,
             nowYear = nowYear,
+            session = session,
+            nowMs = System.currentTimeMillis(),
+            freshHalfLifeDays = freshHalfLifeDays,
         )
         val out = air.tracks
 

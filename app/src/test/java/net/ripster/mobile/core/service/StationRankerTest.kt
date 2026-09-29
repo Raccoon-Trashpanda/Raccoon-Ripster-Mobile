@@ -35,10 +35,17 @@ class StationRankerTest {
     }
 
     @Test
-    fun anUnknownYearIsNeutral() {
+    fun unknownDateIsMidScaleNotEqualToOldStuff() {
+        """Правило изменено 29.09.2026 по спецификации станций (кейс 3): раньше
+        «нет года» весило ровно столько же, сколько доказанная восьмилетняя
+        давность, — и это молча награждало новизной всё, о чём сервис
+        промолчал. Теперь неизвестная дата — середина шкалы (0,5): она ниже
+        свежего и выше старого. Код гарантирует три порядка, их и проверяем."""
         val noYear = StationRanker.weight(t("x"), S, StationRanker.Taste.EMPTY, 2026)
         val midAge = StationRanker.weight(t("x"), S.copy(year = 2018), StationRanker.Taste.EMPTY, 2026)
-        assertEquals(midAge, noYear, 1e-9)
+        val fresh = StationRanker.weight(t("x"), S.copy(year = 2026), StationRanker.Taste.EMPTY, 2026)
+        assertTrue("«не знаю» не может весить как старьё", noYear > midAge)
+        assertTrue("«не знаю» не может весить как свежее", fresh > noYear)
     }
 
     @Test

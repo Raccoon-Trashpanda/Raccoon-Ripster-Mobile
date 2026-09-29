@@ -428,6 +428,13 @@ fun HomeScreen(
                                             attempt { app.db.plays().recent(200).map { it.artist } }
                                                 .getOrDefault(emptyList()),
                                         ),
+                                        // Что уже прозвучало — по этому считаются
+                                        // оконные квоты (артист ≤4/3 ч и ≤3 подряд,
+                                        // альбом ≤3 и ≤2) и разнос последних десяти.
+                                        session = net.ripster.mobile.core.service.StationBuilder.sessionOf(
+                                            attempt { app.db.plays().recent(40) }
+                                                .getOrDefault(emptyList()),
+                                        ),
                                         // Свой эфир на каждое нажатие: одна и та же
                                         // плитка не должна играть один и тот же список.
                                         rotationSeed = System.currentTimeMillis() / 1000L + st.id.hashCode(),

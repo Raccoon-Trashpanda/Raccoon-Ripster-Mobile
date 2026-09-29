@@ -147,6 +147,20 @@ object StationAssembly {
         seed: Long = 0L,
         size: Int = 30,
         nowYear: Int = 2026,
+        /**
+         * Что уже прозвучало в этом эфире — жёсткие оконные квоты и разнос
+         * считаются по нему, а не по очередной пачке. Пустая сессия = первый
+         * заход, поведение прежнее.
+         */
+        session: StationRanker.Session = StationRanker.Session.EMPTY,
+        /** Момент подбора, мс (окно 3 часа отсчитывается от него). */
+        nowMs: Long = 0L,
+        /**
+         * Полупериод свежести этого эфира: 90 — «незнакомое», 180 — общее,
+         * 365 — «популярное». Идёт сквозь сборку до ранкера, чтобы character
+         * станции был проводом, а не мёртвым параметром (экран — потом).
+         */
+        freshHalfLifeDays: Double = StationRanker.FRESH_HALF_LIFE_DAYS,
     ): Air {
         if (sources.isEmpty() || size <= 0) return Air(emptyList(), emptyList())
 
@@ -184,6 +198,7 @@ object StationAssembly {
             charting = ChartBoost.isCharting(t.artist, chart),
             popularity = t.popularity,
             year = t.year,
+            releaseDate = t.releaseDate,
         )
 
         fun candidatesOf(
@@ -215,15 +230,18 @@ object StationAssembly {
         out += StationRanker.rank(
             candidatesOf(wantLead = true, wantProven = true), taste = taste,
             seed = seedOrOne, size = size, nowYear = nowYear,
+            session = session, nowMs = nowMs, freshHalfLifeDays = freshHalfLifeDays,
         )
         if (out.size < size) out += StationRanker.rank(
             candidatesOf(wantLead = true, wantProven = false), taste = taste,
             seed = seedOrOne + 691L, size = size - out.size, nowYear = nowYear, already = out,
+            session = session, nowMs = nowMs, freshHalfLifeDays = freshHalfLifeDays,
         )
         if (out.size < size) {
             out += StationRanker.rank(
                 candidatesOf(wantLead = false), taste = taste, seed = seedOrOne + 7919L,
                 size = size - out.size, nowYear = nowYear, already = out,
+                session = session, nowMs = nowMs, freshHalfLifeDays = freshHalfLifeDays,
             )
         }
         return Air(

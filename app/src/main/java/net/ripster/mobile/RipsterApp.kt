@@ -78,6 +78,9 @@ class RipsterApp : Application() {
         // История прослушивания — «память» того, что игралось, даже вне библиотеки.
         // Вкус слушателя для станций — те же 200 последних прослушиваний.
         player.bindTaste { db.plays().recent(200).map { it.artist } }
+        // Станции нужно не только «кого слушают», но и «что уже прозвучало»:
+        // оконные квоты артиста/альбома считаются по времени прослушивания.
+        player.bindStationSession { db.plays().recent(40) }
         // Продолжение эфира спрашивает ТО ЖЕ качество, что и обычное
         // воспроизведение: см. bindQuality.
         player.bindQuality { settings.state.value.qualityFor(onWifi = true) }

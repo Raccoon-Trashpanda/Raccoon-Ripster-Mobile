@@ -385,6 +385,18 @@ class PlayerController(context: Context) {
     }
 
     /**
+     * Что уже прозвучало в ЭТОМ эфире — нужно станцийным оконным квотам
+     * (артист ≤4 за 3 часа и ≤3 подряд, альбом ≤3 и ≤2 подряд) и разносу.
+     * Ставится из RipsterApp тем же способом, что вкус и логгер: контроллер к
+     * БД напрямую не ходит. Не поставили — станция строится без окна, как раньше.
+     */
+    private var sessionProvider: (suspend () -> List<net.ripster.mobile.core.db.PlayEntity>)? = null
+
+    fun bindStationSession(provider: suspend () -> List<net.ripster.mobile.core.db.PlayEntity>) {
+        sessionProvider = provider
+    }
+
+    /**
      * Какое качество просил человек. Продолжение эфира обязано спрашивать то же
      * самое, что и обычное воспроизведение.
      *
@@ -694,6 +706,13 @@ class PlayerController(context: Context) {
                     // Продолжение эфира тоже смотрит, кого человек слушает.
                     taste = net.ripster.mobile.core.service.StationRanker.Taste.of(
                         tasteProvider?.let { p -> runCatching { p() }.getOrDefault(emptyList()) }
+                            ?: emptyList(),
+                    ),
+                    // Продолжение обязано помнить, что УЖЕ прозвучало: без этого
+                    // оконные квоты артиста и альбома были бы слоем, который
+                    // никто не вызывает.
+                    session = net.ripster.mobile.core.service.StationBuilder.sessionOf(
+                        sessionProvider?.let { p -> runCatching { p() }.getOrDefault(emptyList()) }
                             ?: emptyList(),
                     ),
                 )
