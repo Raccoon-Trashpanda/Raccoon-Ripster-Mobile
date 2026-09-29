@@ -339,6 +339,10 @@ fun ReferencePlayerScreen(
                 Spacer(Modifier.width(14.dp))
                 LikeButton(liked = liked, fx = fx, behind = glassBehind) {
                     if (state.title.isBlank()) return@LikeButton
+                    // Снятие лайка реакцией НЕ считается: спецификация описывает
+                    // только явный плюс, а «передумал» — не минус (иначе
+                    // размаркировка соседствовала бы с «не мой»).
+                    if (!liked) app.player.noteLike()
                     favScope.launch {
                         if (liked) app.db.favorites().remove(favKey)
                         else app.db.favorites().add(

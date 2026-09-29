@@ -11,6 +11,7 @@ import net.ripster.mobile.core.db.RipsterDb
 import net.ripster.mobile.core.download.DownloadQueue
 import net.ripster.mobile.core.download.DownloadWorker
 import net.ripster.mobile.core.pair.PcBridge
+import net.ripster.mobile.core.reactions.Reactions
 import net.ripster.mobile.core.service.ServiceRegistry
 import net.ripster.mobile.core.settings.AppSettings
 import net.ripster.mobile.core.settings.CredentialStore
@@ -81,6 +82,11 @@ class RipsterApp : Application() {
         // Станции нужно не только «кого слушают», но и «что уже прозвучало»:
         // оконные квоты артиста/альбома считаются по времени прослушивания.
         player.bindStationSession { db.plays().recent(40) }
+        // Реакции (скип/лайк/дослушал) — в кольцевой буфер настроек, и оттуда же
+        // читаются станцией: Room не трогаем, а ранкеру нужно различие
+        // «оборвали через 5 секунд» и «дослушал».
+        player.bindReactionLog { r -> attempt { Reactions.append(this, r) } }
+        player.bindStationReactions { attempt { Reactions.load(this) }.getOrDefault(emptyList()) }
         // Продолжение эфира спрашивает ТО ЖЕ качество, что и обычное
         // воспроизведение: см. bindQuality.
         player.bindQuality { settings.state.value.qualityFor(onWifi = true) }

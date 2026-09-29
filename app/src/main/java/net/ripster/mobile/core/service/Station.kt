@@ -194,6 +194,12 @@ object StationBuilder {
          * характера станции — отдельное решение (экран без провода запрещён).
          */
         freshHalfLifeDays: Double = StationRanker.FRESH_HALF_LIFE_DAYS,
+        /**
+         * Реакции человека на этот эфир (скипы, лайки, дослушивания) — та же
+         * сессия, но другая половина правды: журнал знает «включали», реакции
+         * знают «оборвали через 5 секунд». Пусто — законное «не знаю».
+         */
+        reactions: List<net.ripster.mobile.core.reactions.Reaction> = emptyList(),
     ): List<Track> {
         // Вкус и жанровые подсказки с ПК. Дирижёр учится на них ровно так же,
         // как на пулах: это те же пары «артист — ярлык», просто ПК знает их
@@ -281,7 +287,7 @@ object StationBuilder {
             seed = rotationSeed,
             size = size,
             nowYear = nowYear,
-            session = session,
+            session = session.copy(reactions = reactions),
             nowMs = System.currentTimeMillis(),
             freshHalfLifeDays = freshHalfLifeDays,
         )

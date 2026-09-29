@@ -1,5 +1,6 @@
 package net.ripster.mobile.ui.screens
 
+import net.ripster.mobile.core.reactions.Reactions
 import net.ripster.mobile.core.errors.attempt
 
 import androidx.compose.foundation.background
@@ -435,6 +436,9 @@ fun HomeScreen(
                                             attempt { app.db.plays().recent(40) }
                                                 .getOrDefault(emptyList()),
                                         ),
+                                        // Что человек уже показал этой станции —
+                                        // из буфера реакций (скипы, лайки, дослушанное).
+                                        reactions = Reactions.load(app),
                                         // Свой эфир на каждое нажатие: одна и та же
                                         // плитка не должна играть один и тот же список.
                                         rotationSeed = System.currentTimeMillis() / 1000L + st.id.hashCode(),

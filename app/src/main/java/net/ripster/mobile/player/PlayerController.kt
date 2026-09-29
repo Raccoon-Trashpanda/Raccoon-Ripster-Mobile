@@ -1,6 +1,8 @@
 package net.ripster.mobile.player
 
 import net.ripster.mobile.core.errors.attempt
+import net.ripster.mobile.core.reactions.Reaction
+import net.ripster.mobile.core.reactions.ReactionKind
 
 import android.content.ComponentName
 import android.content.Context
@@ -347,6 +349,7 @@ class PlayerController(context: Context) {
         scope.launch {
             while (true) {
                 delay(1000)   // 1с достаточно для шкалы; реже = меньше перекомпоновок во время игры
+                noteFullListenFromState()
                 if (nativeActive) {
                     if (NativeAudioEngine.isEnded()) { NativeAudioEngine.stop(); nativeQueue = emptyList(); pushState() }
                     else pushNativeState()
@@ -394,6 +397,98 @@ class PlayerController(context: Context) {
 
     fun bindStationSession(provider: suspend () -> List<net.ripster.mobile.core.db.PlayEntity>) {
         sessionProvider = provider
+    }
+
+    /**
+     * Реакции этого человека — для сессионной поправки ранкера. Ставится из
+     * `RipsterApp` вместе с [bindStationSession]: и то, и другое читается из
+     * хранилища, а контроллер к нему не ходит.
+     */
+    private var reactionsProvider: (suspend () -> List<Reaction>)? = null
+
+    fun bindStationReactions(provider: suspend () -> List<Reaction>) {
+        reactionsProvider = provider
+    }
+
+    /**
+     * Реакция человека на то, что поставила станция: скип (ранний/поздний),
+     * лайк, дослушанный до конца. Ставится из `RipsterApp` в кольцевой буфер
+     * настроек — тем же манером, что вкус и логгер: контроллер к хранилищу
+     * напрямую не ходит.
+     *
+     * Без этого провода весь сессионный слой ранкера был бы мёртвым кодом
+     * (AGENTS.md: «проверяй ПРОВОД, а не модуль»).
+     */
+    private var reactionSink: (suspend (net.ripster.mobile.core.reactions.Reaction) -> Unit)? = null
+
+    fun bindReactionLog(sink: suspend (net.ripster.mobile.core.reactions.Reaction) -> Unit) {
+        reactionSink = sink
+    }
+
+    /**
+     * Вид скипа по тому, где его оборвали: до половины длительности — ранний
+     * (дальше штраф интерполируется в ранкере по позиции), после половины —
+     * поздний. Длительность неизвестна → не измеряем ничего: молчание честнее
+     * выдуманного вида.
+     */
+    fun skipKindOf(positionMs: Long, durationMs: Long): ReactionKind? =
+        if (durationMs <= 0) null
+        else if (positionMs >= durationMs / 2) ReactionKind.LATE_SKIP
+        else ReactionKind.EARLY_SKIP
+
+    /** Одна реакция. Пустой артист — не реакция (у потоков без тегов он пуст). */
+    private fun noteReaction(
+        kind: ReactionKind,
+        artist: String,
+        album: String?,
+        positionMs: Long? = null,
+        durationMs: Long? = null,
+    ) {
+        val sink = reactionSink ?: return
+        val a = artist.trim()
+        if (a.isEmpty()) return
+        val r = Reaction(
+            artist = a,
+            kind = kind,
+            at = System.currentTimeMillis(),
+            album = album?.trim()?.takeIf { it.isNotEmpty() },
+            positionMs = positionMs,
+            durationMs = durationMs,
+        )
+        scope.launch { attempt { sink(r) } }
+    }
+
+    /** Пользователь перешёл вперёд — это скип текущего, если его слушали недолго. */
+    fun noteSkip() {
+        val s = _state.value
+        if (!s.hasItem) return
+        val kind = skipKindOf(s.positionMs, s.durationMs) ?: return
+        noteReaction(kind, s.artist, s.album, s.positionMs, s.durationMs)
+    }
+
+    /** Лайк из UI: тот же провод, что у скипов, чтобы реакции жили в одном буфере. */
+    fun noteLike() {
+        val s = _state.value
+        if (!s.hasItem) return
+        noteReaction(ReactionKind.LIKE, s.artist, s.album)
+    }
+
+    /**
+     * Дослушанный до конца — слабый плюс, и ровно ОДИН раз на трек: тик идёт раз
+     * в секунду, а последние полторы секунды трека длятся несколько тиков. Порог
+     * тот же, что у ночного таймера (`durationMs − 1500`), — двух разных
+     * представлений о «доиграл» в плеере быть не должно.
+     */
+    private var lastHeardToEnd: String? = null
+
+    private fun noteFullListenFromState() {
+        val s = _state.value
+        if (!s.hasItem || s.durationMs <= 0) return
+        if (s.positionMs < s.durationMs - FULL_LISTEN_TAIL_MS) return
+        val key = s.title + "|" + s.artist
+        if (key == lastHeardToEnd) return
+        lastHeardToEnd = key
+        noteReaction(ReactionKind.FULL, s.artist, s.album)
     }
 
     /**
@@ -715,6 +810,10 @@ class PlayerController(context: Context) {
                         sessionProvider?.let { p -> runCatching { p() }.getOrDefault(emptyList()) }
                             ?: emptyList(),
                     ),
+                    // И что человек показал на этом же эфире: скип/лайк/дослушал.
+                    reactions = reactionsProvider?.let { p ->
+                        runCatching { p() }.getOrDefault(emptyList())
+                    } ?: emptyList(),
                 )
                 // Сам текущий трек в продолжение не берём.
                 val fresh = more.filterNot {
@@ -939,6 +1038,7 @@ class PlayerController(context: Context) {
         controller?.seekTo(ms)
     }
     fun next() {
+        noteSkip()          // «дальше» по-playing = скип того, что звучало
         if (nativeActive) { NativeAudioEngine.next(); pushNativeState(); return }
         controller?.seekToNextMediaItem()
     }
@@ -1050,6 +1150,9 @@ class PlayerController(context: Context) {
     }
 
     companion object {
+        /** Сколько миллисекунд до конца считается «дослушал» (тот же порог, что у ночного таймера). */
+        private const val FULL_LISTEN_TAIL_MS = 1_500L
+
         /** «FLAC · 24-bit/96 kHz» или «MP3 · 320 kbps». */
         fun formatLine(e: LibraryEntity): String {
             val c = e.container.uppercase()

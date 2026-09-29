@@ -1,6 +1,8 @@
 package net.ripster.mobile.core.service
 
 import net.ripster.mobile.core.model.Track
+import net.ripster.mobile.core.reactions.Reaction
+import net.ripster.mobile.core.reactions.ReactionKind
 import kotlin.math.log10
 import kotlin.math.pow
 import kotlin.math.abs
@@ -111,6 +113,41 @@ object StationRanker {
 
     /** Окно разноса — последние столько РЕАЛЬНО сыгранных вещей. */
     const val MMR_WINDOW = 10
+
+    // ── сессионные реакции (020 п.2.1, кейсы 12–14 спецификации) ─────────────
+
+    /** Суммарная поправка reactions ограничена снизу и сверху. */
+    const val REACTION_LIMIT = 0.20
+
+    /** Ранний скип — самый сильный отрицательный сигнал. */
+    const val REACT_EARLY_SKIP = -0.12
+
+    /** Поздний скип — слабый: человек мог просто дослушать до конца и включить дальше. */
+    const val REACT_LATE_SKIP = -0.03
+
+    /** Явный лайк сильнее дослушивания (спецификация). */
+    const val REACT_LIKE = 0.15
+
+    /** Дослушанный до конца трек. */
+    const val REACT_FULL = 0.04
+
+    /** Скачивание — плюс, но слабее явного лайка: оно не всегда одобрение. */
+    const val REACT_DOWNLOAD = 0.06
+
+    /** Наполовину реакция затухает за столько СЛЕДУЮЩИХ прослушанных треков. */
+    const val REACTION_HALF_LIFE_TRACKS = 12.0
+
+    /** Два ранних скипа подряд по артисту — добавочный ВРЕМЕННЫЙ штраф (кейс 13). */
+    const val REACTION_DOUBLE_EARLY = -0.08
+
+    /** До какой доли длительности скип считается ранним (кейс 12). */
+    const val SKIP_EARLY_RATIO = 0.10
+
+    /** И не позже скольких миллисекунд (у коротких треков 10% — это меньше 15 с). */
+    const val SKIP_EARLY_MAX_MS = 15_000L
+
+    /** После какой доли длительности скип считается поздним (кейс 12: 50% — включительно). */
+    const val SKIP_LATE_RATIO = 0.50
 
     /**
      * Потолок прибавки за вкус, ПРИШЕДШИЙ С ПК (Раскопки + подписки Spotify).
@@ -319,7 +356,15 @@ object StationRanker {
      * очередной пачке, — иначе три добора подряд дали бы шесть записей одного
      * артиста, и никто бы это не заметил.
      */
-    data class Session(val played: List<Played> = emptyList()) {
+    data class Session(
+        val played: List<Played> = emptyList(),
+        /**
+         * Реакции человека на этот эфир (скипы, лайки, дослушивания). Отдельно от
+         * [played]: журнал знает только «включали», а ранкеру нужно РАЗЛИЧИЕ
+         * «оборвали через 5 секунд» и «оборвали на последней минуте».
+         */
+        val reactions: List<Reaction> = emptyList(),
+    ) {
 
         companion object {
             val EMPTY = Session()
@@ -390,6 +435,67 @@ object StationRanker {
         /** Наибольшая похожесть на последние [MMR_WINDOW] РЕАЛЬНО сыгранных записей. */
         fun redundancy(t: Track): Double =
             ordered.takeLast(MMR_WINDOW).maxOfOrNull { similarity(t, it) } ?: 0.0
+
+        /**
+         * Поправка этого артиста по его реакциям: сумма затухающих вкладов,
+         * ограниченная ±[REACTION_LIMIT], и сверху — временный штраф за два ранних
+         * скипа подряд (кейс 13: «это уже после ограничения суммарной поправки»).
+         *
+         * Временный — потому что считается ПО ПОСЛЕДНИМ реакциям: как только
+         * артист снова дослушан или лайкнут, двойной штраф уходит, а постоянного
+         * «не мой» здесь не заводится вовсе (вето живёт в `RadarRules`).
+         */
+        fun reactionFor(artist: String): Double {
+            val a = normArtist(artist)
+            if (a.isEmpty()) return 0.0
+            val mine = reactions.filter { normArtist(it.artist) == a }
+            if (mine.isEmpty()) return 0.0
+            var sum = 0.0
+            for (r in mine) {
+                // Затухание — по числу СЛЕДУЮЩИХ прослушанных треков, а не по
+                // часам: пауза на ночь не должна стирать реакцию (кейс 14).
+                val k = played.count { it.at > r.at }
+                sum += reactionValue(r) * 2.0.pow(-k / REACTION_HALF_LIFE_TRACKS)
+            }
+            sum = sum.coerceIn(-REACTION_LIMIT, REACTION_LIMIT)
+            return if (doubleEarlySkip(mine)) sum + REACTION_DOUBLE_EARLY else sum
+        }
+
+        /** Два ранних скипа этого артиста подряд (без его других реакций между). */
+        private fun doubleEarlySkip(mine: List<Reaction>): Boolean {
+            val recent = mine.sortedBy { it.at }.takeLast(2)
+            return recent.size == 2 && recent.all { it.kind == ReactionKind.EARLY_SKIP }
+        }
+    }
+
+    /**
+     * Сколько стоит одна реакция.
+     *
+     * Скип — не одно и то же, что «оборвали на 5-й секунде»: между ранним и
+     * поздним штраф интерполируется (спецификация, кейс 12), и для этого нужны
+     * позиция и длительность. Без них остаётся то, что сказал вид реакции.
+     */
+    fun reactionValue(r: Reaction): Double = when (r.kind) {
+        ReactionKind.LIKE -> REACT_LIKE
+        ReactionKind.FULL -> REACT_FULL
+        ReactionKind.DOWNLOAD -> REACT_DOWNLOAD
+        ReactionKind.LATE_SKIP -> REACT_LATE_SKIP
+        ReactionKind.EARLY_SKIP -> {
+            val pos = r.positionMs
+            val dur = r.durationMs
+            if (pos == null || dur == null || dur <= 0) REACT_EARLY_SKIP
+            else {
+                val earlyBound = minOf(SKIP_EARLY_MAX_MS.toDouble(), SKIP_EARLY_RATIO * dur)
+                when {
+                    pos <= earlyBound -> REACT_EARLY_SKIP
+                    pos >= SKIP_LATE_RATIO * dur -> REACT_LATE_SKIP
+                    else -> {
+                        val t = (pos - earlyBound) / (SKIP_LATE_RATIO * dur - earlyBound)
+                        REACT_EARLY_SKIP + t * (REACT_LATE_SKIP - REACT_EARLY_SKIP)
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -449,8 +555,10 @@ object StationRanker {
      * кандидат должен остаться с 0,5, а при 0 — с 0,75, и chosen быть менее
      * похожим.
      */
-    fun mmrScore(base: Double, top: Double, redundancy: Double): Double =
-        (MMR_LAMBDA * (if (top > 0.0) base / top else 0.0)
+    fun mmrScore(base: Double, top: Double, redundancy: Double, reaction: Double = 0.0): Double =
+        // Спецификация: R' = clip(R + Δ_сессии, 0, 1), и уже R' идёт в разнос.
+        // При `reaction = 0` (нет реакций) формула ровно прежняя — кейс 11.
+        (MMR_LAMBDA * ((if (top > 0.0) base / top else 0.0) + reaction).coerceIn(0.0, 1.0)
             - (1.0 - MMR_LAMBDA) * redundancy).coerceAtLeast(FLOOR)
 
     private fun pickWeights(
@@ -463,10 +571,20 @@ object StationRanker {
         val base = DoubleArray(rest.size) { i ->
             weight(rest[i].first, rest[i].second, taste, nowYear, freshHalfLifeDays)
         }
-        if (session.played.isEmpty()) return base
+        if (session.played.isEmpty() && session.reactions.isEmpty()) return base
         val top = base.maxOrNull() ?: return base
+        // Запас под поправку. Без него нормировка по сильнейшему кандидату
+        // приклеивала бы его к 1.0, и ЛЮБОЙ положительный сигнал (лайк) упирался
+        // бы в clip — то есть поправка могла бы только понижать, повышать нет.
+        // При реакциях сильнейший получает 0,8 — остаются ровно те 0,20, которые
+        // разрешает лимит. Без реакций множитель равен 1 — прежняя формула кейса 11.
+        val headroom = if (session.reactions.isEmpty()) 1.0 else 1.0 - REACTION_LIMIT
         return DoubleArray(rest.size) { i ->
-            mmrScore(base[i], top, session.redundancy(rest[i].first))
+            mmrScore(
+                base[i] * headroom, top,
+                session.redundancy(rest[i].first),
+                session.reactionFor(rest[i].first.artist),
+            )
         }
     }
 
